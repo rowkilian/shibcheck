@@ -204,10 +204,10 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 results.push(CheckResult::fail(
                     "REF-007", CAT, Severity::Warning,
                     &format!(
-                        "Attribute policy references '{}' which is not defined in attribute-map.xml",
+                        "attribute-policy.xml references '{}' which is not defined in attribute-map.xml",
                         rule.attribute_id
                     ),
-                    Some("Ensure all attribute policy IDs have corresponding entries in the attribute map"),
+                    Some("Add a matching <Attribute> entry in attribute-map.xml or remove the rule from attribute-policy.xml"),
                 ).with_doc(DOC_ATTR_EXTRACTOR));
                 all_match = false;
             }
