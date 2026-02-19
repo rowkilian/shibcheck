@@ -35,6 +35,8 @@ pub struct MetadataProvider {
     pub uri: Option<String>,
     pub path: Option<String>,
     pub url: Option<String>,
+    pub backing_file_path: Option<String>,
+    pub source_directory: Option<String>,
     pub filters: Vec<MetadataFilter>,
 }
 

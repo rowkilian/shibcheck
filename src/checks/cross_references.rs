@@ -1,3 +1,8 @@
+use std::path::{Path, PathBuf};
+
+use quick_xml::events::Event;
+use quick_xml::reader::Reader;
+
 use crate::config::DiscoveredConfig;
 use crate::result::{CheckCategory, CheckResult, Severity};
 
@@ -11,7 +16,7 @@ const DOC_ATTR_EXTRACTOR: &str = "https://shibboleth.atlassian.net/wiki/spaces/S
 const DOC_ATTR_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
 const DOC_ATTR_ACCESS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess";
 
-pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
+pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     let mut results = Vec::new();
 
     let sc = match config.shibboleth_config.as_ref() {
@@ -57,10 +62,10 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // REF-003: MetadataProvider local file exists
+    // REF-003: MetadataProvider local file references exist
     for mp in &sc.metadata_providers {
+        // Check path attribute (local metadata file)
         if let Some(ref path) = mp.path {
-            // Only check local file paths, not URLs
             if !path.starts_with("http://") && !path.starts_with("https://") {
                 let full_path = config.base_dir.join(path);
                 if full_path.exists() {
@@ -74,6 +79,60 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("Metadata file not found: {}", path),
                         Some("Ensure the metadata file path is correct and the file exists"),
                     ).with_doc(DOC_METADATA_PROVIDER));
+                }
+            }
+        }
+
+        // Check backingFilePath attribute (auto-created cache file, info-level if missing)
+        if let Some(ref backing) = mp.backing_file_path {
+            let full_path = if Path::new(backing).is_absolute() {
+                PathBuf::from(backing)
+            } else {
+                config.base_dir.join(backing)
+            };
+            if full_path.exists() {
+                results.push(CheckResult::pass(
+                    "REF-003", CAT, Severity::Info,
+                    &format!("Backing file exists: {}", backing),
+                ));
+            } else {
+                results.push(CheckResult::fail(
+                    "REF-003", CAT, Severity::Info,
+                    &format!("Backing file not found (will be auto-created on first fetch): {}", backing),
+                    Some("The backing file is created automatically when metadata is first fetched; ensure the parent directory is writable"),
+                ).with_doc(DOC_METADATA_PROVIDER));
+            }
+        }
+
+        // Check sourceDirectory attribute (LocalDynamicMetadataProvider)
+        if let Some(ref src_dir) = mp.source_directory {
+            let full_path = if Path::new(src_dir).is_absolute() {
+                PathBuf::from(src_dir)
+            } else {
+                config.base_dir.join(src_dir)
+            };
+            if full_path.is_dir() {
+                results.push(CheckResult::pass(
+                    "REF-003", CAT, Severity::Error,
+                    &format!("Source directory exists: {}", src_dir),
+                ));
+            } else {
+                results.push(CheckResult::fail(
+                    "REF-003", CAT, Severity::Error,
+                    &format!("Source directory not found: {}", src_dir),
+                    Some("Ensure the sourceDirectory path points to an existing directory containing per-entity metadata files"),
+                ).with_doc(DOC_METADATA_PROVIDER));
+            }
+        }
+    }
+
+    // REF-009: Remote metadata URL reachable and valid SAML metadata
+    if check_remote {
+        for mp in &sc.metadata_providers {
+            let remote_url = mp.uri.as_deref().or(mp.url.as_deref());
+            if let Some(url) = remote_url {
+                if url.starts_with("http://") || url.starts_with("https://") {
+                    check_remote_metadata(url, &mut results);
                 }
             }
         }
@@ -194,4 +253,86 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     results
+}
+
+fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>) {
+    let body = match ureq::get(url).call() {
+        Ok(response) => {
+            match response.into_body().read_to_string() {
+                Ok(body) => body,
+                Err(e) => {
+                    results.push(CheckResult::fail(
+                        "REF-009", CAT, Severity::Error,
+                        &format!("Failed to read response body from {}: {}", url, e),
+                        Some("Ensure the remote metadata URL returns valid content"),
+                    ).with_doc(DOC_METADATA_PROVIDER));
+                    return;
+                }
+            }
+        }
+        Err(e) => {
+            results.push(CheckResult::fail(
+                "REF-009", CAT, Severity::Error,
+                &format!("Remote metadata URL unreachable: {} ({})", url, e),
+                Some("Ensure the remote metadata URL is correct and the server is reachable"),
+            ).with_doc(DOC_METADATA_PROVIDER));
+            return;
+        }
+    };
+
+    // Check XML well-formedness
+    let mut reader = Reader::from_str(&body);
+    let mut is_well_formed = true;
+    let mut root_element: Option<String> = None;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Eof) => break,
+            Ok(Event::Start(e)) => {
+                if root_element.is_none() {
+                    let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let local = full_name.rsplit(':').next().unwrap_or(&full_name).to_string();
+                    root_element = Some(local);
+                }
+            }
+            Err(_) => {
+                is_well_formed = false;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if !is_well_formed {
+        results.push(CheckResult::fail(
+            "REF-009", CAT, Severity::Warning,
+            &format!("Remote metadata is not well-formed XML: {}", url),
+            Some("The remote URL returned content that is not valid XML"),
+        ).with_doc(DOC_METADATA_PROVIDER));
+        return;
+    }
+
+    // Check for SAML metadata root element
+    match root_element.as_deref() {
+        Some("EntityDescriptor") | Some("EntitiesDescriptor") => {
+            results.push(CheckResult::pass(
+                "REF-009", CAT, Severity::Error,
+                &format!("Remote metadata is valid SAML metadata: {}", url),
+            ));
+        }
+        Some(other) => {
+            results.push(CheckResult::fail(
+                "REF-009", CAT, Severity::Warning,
+                &format!("Remote URL returned XML but not SAML metadata (root element: <{}>): {}", other, url),
+                Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
+            ).with_doc(DOC_METADATA_PROVIDER));
+        }
+        None => {
+            results.push(CheckResult::fail(
+                "REF-009", CAT, Severity::Warning,
+                &format!("Remote URL returned empty XML document: {}", url),
+                Some("The remote metadata URL returned an empty document"),
+            ).with_doc(DOC_METADATA_PROVIDER));
+        }
+    }
 }

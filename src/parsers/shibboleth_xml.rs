@@ -15,7 +15,7 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
     let mut reader = Reader::from_str(xml);
     let mut config = ShibbolethConfig::default();
     let mut element_stack: Vec<String> = Vec::new();
-    let mut current_metadata_provider: Option<MetadataProvider> = None;
+    let mut mp_stack: Vec<MetadataProvider> = Vec::new();
 
     loop {
         match reader.read_event() {
@@ -23,17 +23,17 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
             Ok(Event::Eof) => break,
             Ok(Event::Start(e)) => {
                 let name = local_name(&e);
-                process_element(&name, &e, &element_stack, &mut config, &mut current_metadata_provider, false)?;
+                process_element(&name, &e, &element_stack, &mut config, &mut mp_stack, false)?;
                 element_stack.push(name);
             }
             Ok(Event::Empty(e)) => {
                 let name = local_name(&e);
-                process_element(&name, &e, &element_stack, &mut config, &mut current_metadata_provider, true)?;
+                process_element(&name, &e, &element_stack, &mut config, &mut mp_stack, true)?;
             }
             Ok(Event::End(_)) => {
                 if let Some(name) = element_stack.pop() {
                     if name == "MetadataProvider" {
-                        if let Some(mp) = current_metadata_provider.take() {
+                        if let Some(mp) = mp_stack.pop() {
                             config.metadata_providers.push(mp);
                         }
                     }
@@ -43,8 +43,8 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
         }
     }
 
-    // Push any remaining metadata provider
-    if let Some(mp) = current_metadata_provider.take() {
+    // Push any remaining metadata providers
+    for mp in mp_stack.drain(..) {
         config.metadata_providers.push(mp);
     }
 
@@ -74,7 +74,7 @@ fn process_element(
     e: &quick_xml::events::BytesStart<'_>,
     stack: &[String],
     config: &mut ShibbolethConfig,
-    current_mp: &mut Option<MetadataProvider>,
+    mp_stack: &mut Vec<MetadataProvider>,
     is_empty: bool,
 ) -> Result<()> {
     match name {
@@ -112,20 +112,19 @@ fn process_element(
             }
         }
         "MetadataProvider" => {
-            if stack.iter().any(|s| s == "MetadataProvider") {
-                // Nested MetadataProvider (chaining) - treat like top-level
-            }
             let mp = MetadataProvider {
                 provider_type: get_attr(e, "type").unwrap_or_default(),
                 uri: get_attr(e, "uri"),
                 path: get_attr(e, "path"),
                 url: get_attr(e, "url"),
+                backing_file_path: get_attr(e, "backingFilePath"),
+                source_directory: get_attr(e, "sourceDirectory"),
                 filters: Vec::new(),
             };
             if is_empty {
                 config.metadata_providers.push(mp);
             } else {
-                *current_mp = Some(mp);
+                mp_stack.push(mp);
             }
         }
         "MetadataFilter" => {
@@ -135,7 +134,7 @@ fn process_element(
                 max_validity_interval: get_attr(e, "maxValidityInterval"),
                 require_valid_until: get_attr(e, "requireValidUntil"),
             };
-            if let Some(ref mut mp) = current_mp {
+            if let Some(mp) = mp_stack.last_mut() {
                 mp.filters.push(filter);
             }
         }
@@ -243,5 +242,60 @@ mod tests {
         let config = parse_str(xml).unwrap();
         assert!(!config.has_sp_config);
         assert!(!config.has_application_defaults);
+    }
+
+    #[test]
+    fn test_parse_chaining_metadata_provider() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <MetadataProvider type="Chaining">
+                    <MetadataProvider type="XML" path="idp-metadata.xml"
+                                     backingFilePath="/var/cache/shib/idp-metadata.xml"/>
+                    <MetadataProvider type="XML"
+                                     uri="https://federation.example.org/metadata.xml"
+                                     backingFilePath="/var/cache/shib/fed-metadata.xml">
+                        <MetadataFilter type="Signature" certificate="fed-signer.pem"/>
+                    </MetadataProvider>
+                    <MetadataProvider type="LocalDynamic"
+                                     sourceDirectory="/etc/shibboleth/metadata"/>
+                </MetadataProvider>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+
+        let config = parse_str(xml).unwrap();
+        // Chaining provider + 3 nested providers = 4 total
+        assert_eq!(config.metadata_providers.len(), 4, "Expected 4 providers (chaining + 3 nested)");
+
+        // Find the providers by type/attributes
+        let xml_providers: Vec<_> = config.metadata_providers.iter()
+            .filter(|mp| mp.provider_type == "XML")
+            .collect();
+        assert_eq!(xml_providers.len(), 2);
+
+        // First XML provider has path and backingFilePath
+        let local_mp = xml_providers.iter().find(|mp| mp.path.is_some()).unwrap();
+        assert_eq!(local_mp.path.as_deref(), Some("idp-metadata.xml"));
+        assert_eq!(local_mp.backing_file_path.as_deref(), Some("/var/cache/shib/idp-metadata.xml"));
+
+        // Second XML provider has uri and backingFilePath
+        let remote_mp = xml_providers.iter().find(|mp| mp.uri.is_some()).unwrap();
+        assert_eq!(remote_mp.uri.as_deref(), Some("https://federation.example.org/metadata.xml"));
+        assert_eq!(remote_mp.backing_file_path.as_deref(), Some("/var/cache/shib/fed-metadata.xml"));
+        assert_eq!(remote_mp.filters.len(), 1);
+        assert_eq!(remote_mp.filters[0].certificate.as_deref(), Some("fed-signer.pem"));
+
+        // LocalDynamic provider has sourceDirectory
+        let local_dyn = config.metadata_providers.iter()
+            .find(|mp| mp.provider_type == "LocalDynamic")
+            .unwrap();
+        assert_eq!(local_dyn.source_directory.as_deref(), Some("/etc/shibboleth/metadata"));
+
+        // Chaining provider
+        let chaining = config.metadata_providers.iter()
+            .find(|mp| mp.provider_type == "Chaining")
+            .unwrap();
+        assert_eq!(chaining.provider_type, "Chaining");
     }
 }

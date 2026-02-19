@@ -42,7 +42,7 @@ fn main() {
         }
     };
 
-    let results = checks::run_all(&discovered);
+    let results = checks::run_all(&discovered, cli.check_remote);
     let summary = CheckSummary::from_results(&results);
 
     output::print_results(&results, cli.verbose, cli.json);

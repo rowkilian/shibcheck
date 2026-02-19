@@ -24,9 +24,9 @@ EXIT CODES:
   2  Tool failure (e.g., directory not found)
 
 CHECKS:
-  38 checks across three categories:
+  39 checks across three categories:
     XML-001..015   XML validity and required elements
-    REF-001..008   Cross-file reference validation
+    REF-001..009   Cross-file reference validation
     SEC-001..015   Security best practices
 
   See https://github.com/<owner>/shibcheck#checks-reference for details."
@@ -47,4 +47,8 @@ pub struct Cli {
     /// Disable colored output
     #[arg(long)]
     pub no_color: bool,
+
+    /// Fetch and validate remote metadata URLs
+    #[arg(long)]
+    pub check_remote: bool,
 }

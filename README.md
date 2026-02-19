@@ -32,6 +32,9 @@ shibcheck --json /etc/shibboleth
 
 # Disable colors (for piping)
 shibcheck --no-color /etc/shibboleth
+
+# Fetch and validate remote metadata URLs
+shibcheck --check-remote /etc/shibboleth
 ```
 
 ## Exit Codes
@@ -76,6 +79,7 @@ shibcheck --no-color /etc/shibboleth
 | REF-006 | `AttributeFilter` path exists | Warning | [AttributeFilter](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter) |
 | REF-007 | Attribute policy IDs match attribute map IDs | Warning | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
 | REF-008 | `REMOTE_USER` attributes defined in attribute map | Warning | [AttributeAccess](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess) |
+| REF-009 | Remote metadata URL reachable and valid SAML metadata (`--check-remote`) | Error/Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
 
 ### Security (SEC-001 to SEC-015)
 
