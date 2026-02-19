@@ -1,8 +1,11 @@
 use colored::Colorize;
 
+use crate::config::DiscoveredConfig;
 use crate::result::{CheckCategory, CheckResult, CheckSummary, Severity};
 
-pub fn print(results: &[CheckResult], summary: &CheckSummary, verbose: bool) {
+pub fn print(results: &[CheckResult], summary: &CheckSummary, verbose: bool, config: &DiscoveredConfig) {
+    print_metadata_sources(config);
+
     let categories = [
         CheckCategory::XmlValidity,
         CheckCategory::CrossReferences,
@@ -49,6 +52,43 @@ fn print_result(result: &CheckResult) {
         }
         if let Some(ref doc_url) = result.doc_url {
             println!("       {} {}", "docs:".dimmed(), doc_url.dimmed());
+        }
+    }
+}
+
+fn print_metadata_sources(config: &DiscoveredConfig) {
+    let sc = match config.shibboleth_config.as_ref() {
+        Some(sc) => sc,
+        None => return,
+    };
+
+    let providers: Vec<_> = sc.metadata_providers.iter()
+        .filter(|mp| mp.provider_type != "Chaining")
+        .collect();
+
+    if providers.is_empty() {
+        return;
+    }
+
+    println!("\n{}", "── Metadata sources ──".bold());
+    for mp in &providers {
+        let kind = &mp.provider_type;
+        if let Some(ref path) = mp.path {
+            println!("  {} [{}] {}", "•".dimmed(), kind.dimmed(), path);
+        }
+        if let Some(ref uri) = mp.uri {
+            println!("  {} [{}] {}", "•".dimmed(), kind.dimmed(), uri);
+        }
+        if let Some(ref url) = mp.url {
+            if mp.uri.is_none() {
+                println!("  {} [{}] {}", "•".dimmed(), kind.dimmed(), url);
+            }
+        }
+        if let Some(ref src_dir) = mp.source_directory {
+            println!("  {} [{}] {}", "•".dimmed(), kind.dimmed(), src_dir);
+        }
+        if let Some(ref backing) = mp.backing_file_path {
+            println!("       {} backing: {}", "↳".dimmed(), backing.dimmed());
         }
     }
 }
