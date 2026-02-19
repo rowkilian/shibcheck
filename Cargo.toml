@@ -1,0 +1,16 @@
+[package]
+name = "shibcheck"
+version = "0.1.0"
+edition = "2021"
+description = "Shibboleth SP Configuration Checker"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+quick-xml = "0.37"
+x509-parser = "0.16"
+colored = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+anyhow = "1"
+glob = "0.3"
