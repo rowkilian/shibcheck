@@ -47,7 +47,7 @@ shibcheck --check-remote /etc/shibboleth
 
 ## Checks Reference
 
-### XML Validity (XML-001 to XML-019)
+### XML Validity (XML-001 to XML-020)
 
 | Code | Description | Severity | Documentation |
 |------|-------------|----------|---------------|
@@ -70,6 +70,7 @@ shibcheck --check-remote /etc/shibboleth
 | XML-017 | `attribute-map.xml` has at least one attribute mapping | Warning | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
 | XML-018 | `handlerURL` starts with `/` | Warning | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 | XML-019 | `Logout` or `LogoutInitiator` element present | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
+| XML-020 | SP version detected from `SPConfig` `xmlns` | Info | [SPConfig](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695926/SPConfig) |
 
 ### Cross-file References (REF-001 to REF-016)
 

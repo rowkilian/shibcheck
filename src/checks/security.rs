@@ -1,6 +1,7 @@
 use chrono::Utc;
 
 use crate::config::DiscoveredConfig;
+use crate::model::shibboleth_config::SpVersion;
 use crate::parsers::certificate;
 use crate::result::{CheckCategory, CheckResult, Severity};
 
@@ -51,13 +52,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref cookie_props) = sessions.cookie_props {
             let lower = cookie_props.to_lowercase();
-            if lower.contains("secure") || lower == "https" {
+            let https_shorthand = lower == "https" && sc.sp_version == SpVersion::V3;
+            if lower.contains("secure") || https_shorthand {
                 results.push(CheckResult::pass("SEC-002", CAT, Severity::Warning, "cookieProps includes secure flag"));
             } else {
+                let suggestion = if sc.sp_version == SpVersion::V2 {
+                    "Add '; secure' to cookieProps (the \"https\" shorthand only works in SP3)"
+                } else {
+                    "Add 'secure' to cookieProps or set cookieProps=\"https\""
+                };
                 results.push(CheckResult::fail(
                     "SEC-002", CAT, Severity::Warning,
                     "cookieProps does not include 'secure'",
-                    Some("Add 'secure' to cookieProps or set cookieProps=\"https\""),
+                    Some(suggestion),
                 ).with_doc(DOC_SESSIONS));
             }
         } else {
@@ -73,14 +80,20 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref cookie_props) = sessions.cookie_props {
             let lower = cookie_props.to_lowercase();
-            // "https" shorthand implies httpOnly in Shibboleth
-            if lower.contains("httponly") || lower == "https" {
+            // "https" shorthand implies httpOnly only in SP3
+            let https_shorthand = lower == "https" && sc.sp_version == SpVersion::V3;
+            if lower.contains("httponly") || https_shorthand {
                 results.push(CheckResult::pass("SEC-003", CAT, Severity::Warning, "cookieProps includes httpOnly flag"));
             } else {
+                let suggestion = if sc.sp_version == SpVersion::V2 {
+                    "Add '; HttpOnly' to cookieProps (the \"https\" shorthand only works in SP3)"
+                } else {
+                    "Add 'httpOnly' to cookieProps or set cookieProps=\"https\""
+                };
                 results.push(CheckResult::fail(
                     "SEC-003", CAT, Severity::Warning,
                     "cookieProps does not include 'httpOnly'",
-                    Some("Add 'httpOnly' to cookieProps or set cookieProps=\"https\""),
+                    Some(suggestion),
                 ).with_doc(DOC_SESSIONS));
             }
         } else {
@@ -314,10 +327,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "cookieProps includes SameSite attribute",
                 ));
             } else {
+                let suggestion = if sc.sp_version == SpVersion::V2 {
+                    "SP2 does not support SameSite in cookieProps; set it via web server headers or upgrade to SP3"
+                } else {
+                    "Add 'SameSite=None' to cookieProps for cross-site SSO in modern browsers"
+                };
                 results.push(CheckResult::fail(
                     "SEC-017", CAT, Severity::Info,
                     "cookieProps does not include SameSite attribute",
-                    Some("Add 'SameSite=None' to cookieProps for cross-site SSO in modern browsers"),
+                    Some(suggestion),
                 ).with_doc(DOC_SESSIONS));
             }
         } else {

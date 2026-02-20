@@ -5,6 +5,15 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- SP version detection from `<SPConfig xmlns="...">` namespace (`SpVersion::V2`, `V3`, or `Unknown`)
+- XML-020: Informational check reporting detected SP version (SP2 flagged as end-of-life)
+
+### Changed
+- SEC-002/SEC-003: `cookieProps="https"` shorthand is now only treated as secure/httpOnly on SP3 (fixes false-positive pass on SP2)
+- SEC-017: Suggestion text is version-aware; SP2 users are told SameSite is not supported in cookieProps
+- XML-019: Suggestion text is version-aware (SP3 suggests `<Logout>`, SP2 suggests `<LogoutInitiator>`)
+
+### Previously Added
 - REF-010: Local metadata files are validated for SAML root element (`EntityDescriptor` or `EntitiesDescriptor`)
 - REF-011: Key files are validated as PEM-encoded private keys
 - REF-012: Duplicate `MetadataProvider` sources are detected

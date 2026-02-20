@@ -1,4 +1,5 @@
 use crate::config::DiscoveredConfig;
+use crate::model::shibboleth_config::SpVersion;
 use crate::result::{CheckCategory, CheckResult, Severity};
 
 const CAT: CheckCategory = CheckCategory::XmlValidity;
@@ -224,11 +225,40 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "Logout or LogoutInitiator configured",
                 ));
             } else {
+                let suggestion = match sc.sp_version {
+                    SpVersion::V3 => "Add a <Logout>SAML2 Local</Logout> element inside <Sessions> for logout support",
+                    SpVersion::V2 => "Add a <LogoutInitiator> element inside <Sessions> for logout support",
+                    SpVersion::Unknown => "Add a <Logout> or <LogoutInitiator> element inside <Sessions> for logout support",
+                };
                 results.push(CheckResult::fail(
                     "XML-019", CAT, Severity::Info,
                     "No Logout or LogoutInitiator element found",
-                    Some("Add a <Logout> or <LogoutInitiator> element inside <Sessions> for logout support"),
+                    Some(suggestion),
                 ).with_doc(DOC_SESSIONS));
+            }
+        }
+
+        // XML-020: SP version detection
+        match sc.sp_version {
+            SpVersion::V3 => {
+                results.push(CheckResult::pass(
+                    "XML-020", CAT, Severity::Info,
+                    "Shibboleth SP3 configuration detected",
+                ));
+            }
+            SpVersion::V2 => {
+                results.push(CheckResult::fail(
+                    "XML-020", CAT, Severity::Info,
+                    "Shibboleth SP2 configuration detected",
+                    Some("SP2 is end-of-life; consider upgrading to SP3"),
+                ).with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335062/Upgrading"));
+            }
+            SpVersion::Unknown => {
+                results.push(CheckResult::fail(
+                    "XML-020", CAT, Severity::Info,
+                    "SP version could not be determined from SPConfig xmlns",
+                    Some("Ensure <SPConfig> has a valid xmlns attribute"),
+                ).with_doc(DOC_SPCONFIG));
             }
         }
 

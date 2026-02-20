@@ -24,8 +24,8 @@ EXIT CODES:
   2  Tool failure (e.g., directory not found)
 
 CHECKS:
-  54 checks across three categories:
-    XML-001..019   XML validity and required elements
+  55 checks across three categories:
+    XML-001..020   XML validity and required elements
     REF-001..016   Cross-file reference validation
     SEC-001..020   Security best practices
 

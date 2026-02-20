@@ -80,6 +80,11 @@ fn process_element(
     match name {
         "SPConfig" => {
             config.has_sp_config = true;
+            config.sp_version = match get_attr(e, "xmlns").as_deref() {
+                Some("urn:mace:shibboleth:3.0:native:sp:config") => SpVersion::V3,
+                Some("urn:mace:shibboleth:2.0:native:sp:config") => SpVersion::V2,
+                _ => SpVersion::Unknown,
+            };
         }
         "ApplicationDefaults" => {
             config.has_application_defaults = true;
@@ -377,5 +382,38 @@ mod tests {
             .find(|mp| mp.provider_type == "Chaining")
             .unwrap();
         assert_eq!(chaining.provider_type, "Chaining");
+    }
+
+    #[test]
+    fn test_parse_sp_version_v3() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.sp_version, SpVersion::V3);
+    }
+
+    #[test]
+    fn test_parse_sp_version_v2() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:2.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.sp_version, SpVersion::V2);
+    }
+
+    #[test]
+    fn test_parse_sp_version_unknown() {
+        let xml = r#"
+        <SPConfig xmlns="urn:example:unknown">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.sp_version, SpVersion::Unknown);
     }
 }

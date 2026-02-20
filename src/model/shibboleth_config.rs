@@ -1,7 +1,16 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpVersion {
+    #[default]
+    Unknown,
+    V2,
+    V3,
+}
+
 /// Parsed representation of shibboleth2.xml
 #[derive(Debug, Default)]
 pub struct ShibbolethConfig {
     pub has_sp_config: bool,
+    pub sp_version: SpVersion,
     pub has_application_defaults: bool,
     pub entity_id: Option<String>,
     pub sessions: Option<SessionsConfig>,
