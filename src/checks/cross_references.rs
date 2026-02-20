@@ -1,9 +1,11 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::config::DiscoveredConfig;
+use crate::parsers::certificate;
 use crate::result::{CheckCategory, CheckResult, Severity};
 
 const CAT: CheckCategory = CheckCategory::CrossReferences;
@@ -15,6 +17,7 @@ const DOC_METADATA_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/
 const DOC_ATTR_EXTRACTOR: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor";
 const DOC_ATTR_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
 const DOC_ATTR_ACCESS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess";
+const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors";
 
 pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     let mut results = Vec::new();
@@ -195,7 +198,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
 
     // REF-007: Attribute policy IDs match attribute map IDs
     if let (Some(ref map), Some(ref policy)) = (&config.attribute_map, &config.attribute_policy) {
-        let map_ids: std::collections::HashSet<&str> =
+        let map_ids: HashSet<&str> =
             map.attributes.iter().map(|a| a.id.as_str()).collect();
 
         let mut all_match = true;
@@ -224,7 +227,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     if let Some(ref app_defaults) = sc.application_defaults {
         if let Some(ref remote_user) = app_defaults.remote_user {
             if let Some(ref map) = config.attribute_map {
-                let map_ids: std::collections::HashSet<&str> =
+                let map_ids: HashSet<&str> =
                     map.attributes.iter().map(|a| a.id.as_str()).collect();
 
                 let attrs: Vec<&str> = remote_user.split_whitespace().collect();
@@ -252,7 +255,292 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         }
     }
 
+    // REF-010: Local metadata files contain valid SAML root element
+    for mp in &sc.metadata_providers {
+        if let Some(ref path) = mp.path {
+            if !path.starts_with("http://") && !path.starts_with("https://") {
+                let full_path = config.base_dir.join(path);
+                if full_path.exists() {
+                    check_local_metadata_saml(&full_path, path, &mut results);
+                }
+            }
+        }
+    }
+
+    // REF-011: Key file is a valid PEM private key
+    for cr in &sc.credential_resolvers {
+        if let Some(ref key_path) = cr.key {
+            let full_path = config.base_dir.join(key_path);
+            if full_path.exists() {
+                match certificate::validate_pem_key_file(&full_path) {
+                    Ok(()) => {
+                        results.push(CheckResult::pass(
+                            "REF-011", CAT, Severity::Warning,
+                            &format!("Key file is a valid PEM private key: {}", key_path),
+                        ));
+                    }
+                    Err(_) => {
+                        results.push(CheckResult::fail(
+                            "REF-011", CAT, Severity::Warning,
+                            &format!("Key file is not a recognized PEM private key: {}", key_path),
+                            Some("Ensure the key file contains a PEM-encoded private key (PKCS#8 or traditional format)"),
+                        ).with_doc(DOC_CREDENTIAL_RESOLVER));
+                    }
+                }
+            }
+        }
+    }
+
+    // REF-012: No duplicate MetadataProvider sources
+    {
+        let mut seen_sources: HashSet<String> = HashSet::new();
+        let mut has_duplicate = false;
+        for mp in &sc.metadata_providers {
+            if mp.provider_type == "Chaining" {
+                continue;
+            }
+            let source = if let Some(ref path) = mp.path {
+                Some(format!("path={}", path))
+            } else if let Some(ref uri) = mp.uri {
+                Some(format!("uri={}", uri))
+            } else if let Some(ref url) = mp.url {
+                Some(format!("url={}", url))
+            } else {
+                None
+            };
+            if let Some(src) = source {
+                if !seen_sources.insert(src.clone()) {
+                    results.push(CheckResult::fail(
+                        "REF-012", CAT, Severity::Warning,
+                        &format!("Duplicate MetadataProvider source: {}", src),
+                        Some("Remove the duplicate MetadataProvider or use different sources"),
+                    ).with_doc(DOC_METADATA_PROVIDER));
+                    has_duplicate = true;
+                }
+            }
+        }
+        if !has_duplicate && seen_sources.len() > 1 {
+            results.push(CheckResult::pass(
+                "REF-012", CAT, Severity::Warning,
+                "No duplicate MetadataProvider sources found",
+            ));
+        }
+    }
+
+    // REF-014: Duplicate attribute IDs in attribute-map.xml
+    if let Some(ref map) = config.attribute_map {
+        let mut seen_ids: HashSet<&str> = HashSet::new();
+        let mut has_dup = false;
+        for attr in &map.attributes {
+            if !seen_ids.insert(attr.id.as_str()) {
+                results.push(CheckResult::fail(
+                    "REF-014", CAT, Severity::Warning,
+                    &format!("Duplicate attribute id '{}' in attribute-map.xml", attr.id),
+                    Some("Remove or rename the duplicate <Attribute> entry; later entries shadow earlier ones"),
+                ).with_doc(DOC_ATTR_EXTRACTOR));
+                has_dup = true;
+            }
+        }
+        if !has_dup && !map.attributes.is_empty() {
+            results.push(CheckResult::pass(
+                "REF-014", CAT, Severity::Warning,
+                "No duplicate attribute IDs in attribute-map.xml",
+            ));
+        }
+    }
+
+    // REF-015: Duplicate attribute names in attribute-map.xml
+    if let Some(ref map) = config.attribute_map {
+        let mut seen_names: HashSet<&str> = HashSet::new();
+        let mut has_dup = false;
+        for attr in &map.attributes {
+            if !seen_names.insert(attr.name.as_str()) {
+                results.push(CheckResult::fail(
+                    "REF-015", CAT, Severity::Info,
+                    &format!("Duplicate attribute name '{}' in attribute-map.xml", attr.name),
+                    Some("The same OID/URN is mapped more than once; this is usually unintentional"),
+                ).with_doc(DOC_ATTR_EXTRACTOR));
+                has_dup = true;
+            }
+        }
+        if !has_dup && !map.attributes.is_empty() {
+            results.push(CheckResult::pass(
+                "REF-015", CAT, Severity::Info,
+                "No duplicate attribute names in attribute-map.xml",
+            ));
+        }
+    }
+
+    // REF-016: SSO entityID references an IdP found in loaded metadata
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref sso_entity_id) = sessions.sso_entity_id {
+            let mut found = false;
+            for mp in &sc.metadata_providers {
+                if let Some(ref path) = mp.path {
+                    if !path.starts_with("http://") && !path.starts_with("https://") {
+                        let full_path = config.base_dir.join(path);
+                        if full_path.exists() {
+                            if metadata_contains_entity(&full_path, sso_entity_id) {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if found {
+                results.push(CheckResult::pass(
+                    "REF-016", CAT, Severity::Warning,
+                    &format!("SSO entityID '{}' found in local metadata", sso_entity_id),
+                ));
+            } else if sc.metadata_providers.iter().any(|mp| mp.uri.is_some() || mp.url.is_some()) {
+                // Remote providers exist that we can't check without --check-remote
+                results.push(CheckResult::pass(
+                    "REF-016", CAT, Severity::Warning,
+                    &format!("SSO entityID '{}' not found in local metadata (remote providers present)", sso_entity_id),
+                ));
+            } else {
+                results.push(CheckResult::fail(
+                    "REF-016", CAT, Severity::Warning,
+                    &format!("SSO entityID '{}' not found in any loaded metadata", sso_entity_id),
+                    Some("Ensure a MetadataProvider loads metadata for the IdP referenced in <SSO>"),
+                ).with_doc(DOC_METADATA_PROVIDER));
+            }
+        }
+    }
+
+    // REF-013: Error template file paths exist
+    if let Some(ref errors) = sc.errors {
+        let template_fields: &[(&str, &Option<String>)] = &[
+            ("styleSheet", &errors.style_sheet),
+            ("session", &errors.session_error),
+            ("access", &errors.access_error),
+            ("ssl", &errors.ssl_error),
+            ("localLogout", &errors.local_logout),
+            ("metadata", &errors.metadata_error),
+            ("globalLogout", &errors.global_logout),
+        ];
+        for (attr_name, value) in template_fields {
+            if let Some(ref path) = value {
+                // Skip URLs
+                if path.starts_with("http://") || path.starts_with("https://") {
+                    continue;
+                }
+                let full_path = config.base_dir.join(path);
+                if full_path.exists() {
+                    results.push(CheckResult::pass(
+                        "REF-013", CAT, Severity::Info,
+                        &format!("Errors {} template exists: {}", attr_name, path),
+                    ));
+                } else {
+                    results.push(CheckResult::fail(
+                        "REF-013", CAT, Severity::Info,
+                        &format!("Errors {} template not found: {}", attr_name, path),
+                        Some("Ensure the error template file path is correct and the file exists"),
+                    ).with_doc(DOC_ERRORS));
+                }
+            }
+        }
+    }
+
     results
+}
+
+fn metadata_contains_entity(full_path: &Path, entity_id: &str) -> bool {
+    let content = match std::fs::read_to_string(full_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let mut reader = Reader::from_str(&content);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Eof) => break,
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let local = full_name.rsplit(':').next().unwrap_or(&full_name);
+                if local == "EntityDescriptor" {
+                    if let Some(eid) = e.attributes().filter_map(|a| a.ok()).find_map(|a| {
+                        let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
+                        let local_key = key.rsplit(':').next().unwrap_or(&key);
+                        if local_key == "entityID" {
+                            Some(String::from_utf8_lossy(&a.value).to_string())
+                        } else {
+                            None
+                        }
+                    }) {
+                        if eid == entity_id {
+                            return true;
+                        }
+                    }
+                }
+            }
+            Err(_) => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut Vec<CheckResult>) {
+    let content = match std::fs::read_to_string(full_path) {
+        Ok(c) => c,
+        Err(_) => {
+            results.push(CheckResult::fail(
+                "REF-010", CAT, Severity::Warning,
+                &format!("Could not read local metadata file: {}", display_path),
+                Some("Ensure the metadata file is readable"),
+            ).with_doc(DOC_METADATA_PROVIDER));
+            return;
+        }
+    };
+
+    let mut reader = Reader::from_str(&content);
+    let mut root_element: Option<String> = None;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Eof) => break,
+            Ok(Event::Start(e)) => {
+                if root_element.is_none() {
+                    let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let local = full_name.rsplit(':').next().unwrap_or(&full_name).to_string();
+                    root_element = Some(local);
+                }
+            }
+            Err(_) => {
+                results.push(CheckResult::fail(
+                    "REF-010", CAT, Severity::Warning,
+                    &format!("Local metadata file is not well-formed XML: {}", display_path),
+                    Some("Fix XML syntax errors in the metadata file"),
+                ).with_doc(DOC_METADATA_PROVIDER));
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    match root_element.as_deref() {
+        Some("EntityDescriptor") | Some("EntitiesDescriptor") => {
+            results.push(CheckResult::pass(
+                "REF-010", CAT, Severity::Warning,
+                &format!("Local metadata contains valid SAML root element: {}", display_path),
+            ));
+        }
+        Some(other) => {
+            results.push(CheckResult::fail(
+                "REF-010", CAT, Severity::Warning,
+                &format!("Local metadata has unexpected root element <{}>: {}", other, display_path),
+                Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
+            ).with_doc(DOC_METADATA_PROVIDER));
+        }
+        None => {
+            results.push(CheckResult::fail(
+                "REF-010", CAT, Severity::Warning,
+                &format!("Local metadata file is empty: {}", display_path),
+                Some("The metadata file should contain a SAML EntityDescriptor or EntitiesDescriptor"),
+            ).with_doc(DOC_METADATA_PROVIDER));
+        }
+    }
 }
 
 fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>) {

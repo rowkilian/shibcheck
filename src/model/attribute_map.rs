@@ -5,6 +5,7 @@ pub struct AttributeMap {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct MappedAttribute {
     /// The name attribute (OID or URN)
     pub name: String,

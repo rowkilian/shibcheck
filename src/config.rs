@@ -7,6 +7,7 @@ use crate::model::shibboleth_config::ShibbolethConfig;
 use crate::parsers;
 
 /// All discovered and parsed configuration
+#[allow(dead_code)]
 pub struct DiscoveredConfig {
     pub base_dir: PathBuf,
     pub shibboleth_xml_path: PathBuf,

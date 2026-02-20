@@ -96,19 +96,31 @@ fn process_element(
                     handler_url: get_attr(e, "handlerURL"),
                     handler_ssl: get_attr(e, "handlerSSL"),
                     cookie_props: get_attr(e, "cookieProps"),
+                    lifetime: get_attr(e, "lifetime"),
+                    timeout: get_attr(e, "timeout"),
                     has_sso: false,
                     has_session_initiator: false,
+                    has_logout: false,
+                    sso_entity_id: None,
                 });
             }
         }
         "SSO" => {
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_sso = true;
+                if sessions.sso_entity_id.is_none() {
+                    sessions.sso_entity_id = get_attr(e, "entityID");
+                }
             }
         }
         "SessionInitiator" => {
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_session_initiator = true;
+            }
+        }
+        "Logout" | "LogoutInitiator" => {
+            if let Some(ref mut sessions) = config.sessions {
+                sessions.has_logout = true;
             }
         }
         "MetadataProvider" => {
@@ -159,6 +171,19 @@ fn process_element(
                     config.attribute_filter_paths.push(path);
                 }
             }
+        }
+        "Errors" => {
+            config.errors = Some(crate::model::shibboleth_config::ErrorsConfig {
+                support_contact: get_attr(e, "supportContact"),
+                help_location: get_attr(e, "helpLocation"),
+                style_sheet: get_attr(e, "styleSheet"),
+                session_error: get_attr(e, "session"),
+                access_error: get_attr(e, "access"),
+                ssl_error: get_attr(e, "ssl"),
+                local_logout: get_attr(e, "localLogout"),
+                metadata_error: get_attr(e, "metadata"),
+                global_logout: get_attr(e, "globalLogout"),
+            });
         }
         "Handler" => {
             if get_attr(e, "type")
@@ -242,6 +267,61 @@ mod tests {
         let config = parse_str(xml).unwrap();
         assert!(!config.has_sp_config);
         assert!(!config.has_application_defaults);
+    }
+
+    #[test]
+    fn test_parse_sessions_extended() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso" lifetime="28800" timeout="3600">
+                    <SSO entityID="https://idp.example.org/idp/shibboleth">SAML2</SSO>
+                    <Logout>SAML2 Local</Logout>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+
+        let config = parse_str(xml).unwrap();
+        let sessions = config.sessions.as_ref().unwrap();
+        assert_eq!(sessions.lifetime.as_deref(), Some("28800"));
+        assert_eq!(sessions.timeout.as_deref(), Some("3600"));
+        assert!(sessions.has_logout);
+        assert_eq!(
+            sessions.sso_entity_id.as_deref(),
+            Some("https://idp.example.org/idp/shibboleth")
+        );
+    }
+
+    #[test]
+    fn test_parse_errors_element() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Errors supportContact="admin@example.org"
+                        helpLocation="/help"
+                        styleSheet="/shibboleth-sp/main.css"
+                        session="/errors/session.html"
+                        access="/errors/access.html"
+                        ssl="/errors/ssl.html"
+                        localLogout="/errors/localLogout.html"
+                        metadata="/errors/metadata.html"
+                        globalLogout="/errors/globalLogout.html"/>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+
+        let config = parse_str(xml).unwrap();
+        let errors = config.errors.as_ref().expect("errors should be parsed");
+        assert_eq!(errors.support_contact.as_deref(), Some("admin@example.org"));
+        assert_eq!(errors.help_location.as_deref(), Some("/help"));
+        assert_eq!(errors.style_sheet.as_deref(), Some("/shibboleth-sp/main.css"));
+        assert_eq!(errors.session_error.as_deref(), Some("/errors/session.html"));
+        assert_eq!(errors.access_error.as_deref(), Some("/errors/access.html"));
+        assert_eq!(errors.ssl_error.as_deref(), Some("/errors/ssl.html"));
+        assert_eq!(errors.local_logout.as_deref(), Some("/errors/localLogout.html"));
+        assert_eq!(errors.metadata_error.as_deref(), Some("/errors/metadata.html"));
+        assert_eq!(errors.global_logout.as_deref(), Some("/errors/globalLogout.html"));
     }
 
     #[test]

@@ -14,6 +14,7 @@ const DOC_SIGNATURE_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces
 const DOC_VALID_UNTIL_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696214/RequireValidUntilMetadataFilter";
 const DOC_METADATA_PROVIDER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider";
 const DOC_STATUS_HANDLER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334870/Status+Handler";
+const DOC_APP_DEFAULTS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults";
 
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     let mut results = Vec::new();
@@ -300,6 +301,128 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     } else {
         results.push(CheckResult::pass("SEC-015", CAT, Severity::Info, "No Status handler found (not exposed)"));
+    }
+
+    // SEC-017: cookieProps includes SameSite
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref cookie_props) = sessions.cookie_props {
+            let lower = cookie_props.to_lowercase();
+            // "https" shorthand does NOT imply SameSite in Shibboleth
+            if lower.contains("samesite") {
+                results.push(CheckResult::pass(
+                    "SEC-017", CAT, Severity::Info,
+                    "cookieProps includes SameSite attribute",
+                ));
+            } else {
+                results.push(CheckResult::fail(
+                    "SEC-017", CAT, Severity::Info,
+                    "cookieProps does not include SameSite attribute",
+                    Some("Add 'SameSite=None' to cookieProps for cross-site SSO in modern browsers"),
+                ).with_doc(DOC_SESSIONS));
+            }
+        } else {
+            results.push(CheckResult::fail(
+                "SEC-017", CAT, Severity::Info,
+                "cookieProps not set on Sessions",
+                Some("Set cookieProps with SameSite attribute for modern browser compatibility"),
+            ).with_doc(DOC_SESSIONS));
+        }
+    }
+
+    // SEC-018: entityID uses HTTPS (prefer over HTTP)
+    if let Some(ref entity_id) = sc.entity_id {
+        if entity_id.starts_with("https://") || entity_id.starts_with("urn:") {
+            results.push(CheckResult::pass(
+                "SEC-018", CAT, Severity::Info,
+                "entityID uses HTTPS or URN scheme",
+            ));
+        } else if entity_id.starts_with("http://") {
+            results.push(CheckResult::fail(
+                "SEC-018", CAT, Severity::Info,
+                &format!("entityID uses HTTP instead of HTTPS: {}", entity_id),
+                Some("Consider using an HTTPS entityID for consistency with TLS best practices"),
+            ).with_doc(DOC_APP_DEFAULTS));
+        }
+    }
+
+    // SEC-019: Sessions lifetime is reasonable
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref lifetime_str) = sessions.lifetime {
+            if let Ok(lifetime) = lifetime_str.parse::<u64>() {
+                if lifetime == 0 {
+                    results.push(CheckResult::fail(
+                        "SEC-019", CAT, Severity::Info,
+                        "Sessions lifetime is 0 (sessions never expire by time)",
+                        Some("Set a reasonable session lifetime (e.g., 28800 for 8 hours)"),
+                    ).with_doc(DOC_SESSIONS));
+                } else if lifetime > 86400 {
+                    results.push(CheckResult::fail(
+                        "SEC-019", CAT, Severity::Info,
+                        &format!("Sessions lifetime is {} seconds ({:.1} days)", lifetime, lifetime as f64 / 86400.0),
+                        Some("Consider a shorter session lifetime (default is 28800 seconds / 8 hours)"),
+                    ).with_doc(DOC_SESSIONS));
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-019", CAT, Severity::Info,
+                        &format!("Sessions lifetime is {} seconds ({:.1} hours)", lifetime, lifetime as f64 / 3600.0),
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-020: Sessions timeout is reasonable
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref timeout_str) = sessions.timeout {
+            if let Ok(timeout) = timeout_str.parse::<u64>() {
+                if timeout == 0 {
+                    results.push(CheckResult::fail(
+                        "SEC-020", CAT, Severity::Info,
+                        "Sessions timeout is 0 (sessions never expire by inactivity)",
+                        Some("Set a reasonable idle timeout (e.g., 3600 for 1 hour)"),
+                    ).with_doc(DOC_SESSIONS));
+                } else if timeout > 28800 {
+                    results.push(CheckResult::fail(
+                        "SEC-020", CAT, Severity::Info,
+                        &format!("Sessions timeout is {} seconds ({:.1} hours)", timeout, timeout as f64 / 3600.0),
+                        Some("Consider a shorter idle timeout (default is 3600 seconds / 1 hour)"),
+                    ).with_doc(DOC_SESSIONS));
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-020", CAT, Severity::Info,
+                        &format!("Sessions timeout is {} seconds ({:.1} hours)", timeout, timeout as f64 / 3600.0),
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-016: Private key file not world-readable (Unix only)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for cr in &sc.credential_resolvers {
+            if let Some(ref key_path) = cr.key {
+                let full_path = config.base_dir.join(key_path);
+                if full_path.exists() {
+                    if let Ok(metadata) = std::fs::metadata(&full_path) {
+                        let mode = metadata.permissions().mode();
+                        if mode & 0o077 == 0 {
+                            results.push(CheckResult::pass(
+                                "SEC-016", CAT, Severity::Warning,
+                                &format!("Key file {} is not world/group-readable (mode {:04o})", key_path, mode & 0o7777),
+                            ));
+                        } else {
+                            results.push(CheckResult::fail(
+                                "SEC-016", CAT, Severity::Warning,
+                                &format!("Key file {} is accessible by group/others (mode {:04o})", key_path, mode & 0o7777),
+                                Some("Set file permissions to 0600 or 0400 to restrict access to the owner only"),
+                            ).with_doc(DOC_CREDENTIAL_RESOLVER));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     results

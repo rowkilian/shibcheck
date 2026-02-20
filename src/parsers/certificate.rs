@@ -6,6 +6,7 @@ use x509_parser::prelude::*;
 use x509_parser::public_key::PublicKey;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct CertInfo {
     pub not_before: DateTime<Utc>,
     pub not_after: DateTime<Utc>,
@@ -60,6 +61,26 @@ pub fn parse_pem_bytes(data: &[u8]) -> Result<CertInfo> {
         key_size_bits,
         subject,
     })
+}
+
+const PEM_KEY_HEADERS: &[&str] = &[
+    "-----BEGIN PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----BEGIN EC PRIVATE KEY-----",
+    "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+];
+
+/// Validate that a file contains a PEM-encoded private key.
+/// Returns Ok(()) if valid, Err with description if not.
+pub fn validate_pem_key_file(path: &Path) -> Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read key file {}", path.display()))?;
+    let trimmed = content.trim();
+    if PEM_KEY_HEADERS.iter().any(|h| trimmed.starts_with(h)) {
+        Ok(())
+    } else {
+        anyhow::bail!("File does not contain a recognized PEM private key header")
+    }
 }
 
 #[cfg(test)]

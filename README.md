@@ -47,7 +47,7 @@ shibcheck --check-remote /etc/shibboleth
 
 ## Checks Reference
 
-### XML Validity (XML-001 to XML-015)
+### XML Validity (XML-001 to XML-019)
 
 | Code | Description | Severity | Documentation |
 |------|-------------|----------|---------------|
@@ -66,8 +66,12 @@ shibcheck --check-remote /etc/shibboleth
 | XML-013 | At least one `MetadataProvider` | Error | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
 | XML-014 | At least one `CredentialResolver` | Warning | [CredentialResolver](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver) |
 | XML-015 | Other XML files well-formed | Warning | — |
+| XML-016 | `entityID` is a valid absolute URI | Warning | [ApplicationDefaults](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults) |
+| XML-017 | `attribute-map.xml` has at least one attribute mapping | Warning | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
+| XML-018 | `handlerURL` starts with `/` | Warning | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
+| XML-019 | `Logout` or `LogoutInitiator` element present | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 
-### Cross-file References (REF-001 to REF-008)
+### Cross-file References (REF-001 to REF-016)
 
 | Code | Description | Severity | Documentation |
 |------|-------------|----------|---------------|
@@ -80,8 +84,15 @@ shibcheck --check-remote /etc/shibboleth
 | REF-007 | Attribute policy IDs match attribute map IDs | Warning | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
 | REF-008 | `REMOTE_USER` attributes defined in attribute map | Warning | [AttributeAccess](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess) |
 | REF-009 | Remote metadata URL reachable and valid SAML metadata (`--check-remote`) | Error/Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
+| REF-010 | Local metadata file contains valid SAML root element | Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
+| REF-011 | Key file is a valid PEM private key | Warning | [CredentialResolver](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver) |
+| REF-012 | No duplicate `MetadataProvider` sources | Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
+| REF-013 | `Errors` template file paths exist | Info | [Errors](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors) |
+| REF-014 | No duplicate attribute IDs in `attribute-map.xml` | Warning | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
+| REF-015 | No duplicate attribute names in `attribute-map.xml` | Info | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
+| REF-016 | `SSO` `entityID` found in loaded metadata | Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
 
-### Security (SEC-001 to SEC-015)
+### Security (SEC-001 to SEC-020)
 
 | Code | Description | Severity | Documentation |
 |------|-------------|----------|---------------|
@@ -100,6 +111,11 @@ shibcheck --check-remote /etc/shibboleth
 | SEC-013 | Certificate key size >= 2048 bits | Warning | [CredentialResolver](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver) |
 | SEC-014 | No plaintext HTTP metadata URLs | Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
 | SEC-015 | Status handler ACL configured | Info | [Status Handler](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334870/Status+Handler) |
+| SEC-016 | Private key file not world-readable (Unix) | Warning | [CredentialResolver](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver) |
+| SEC-017 | `cookieProps` includes `SameSite` attribute | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
+| SEC-018 | `entityID` uses HTTPS (prefer over HTTP) | Info | [ApplicationDefaults](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults) |
+| SEC-019 | `Sessions` `lifetime` is reasonable | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
+| SEC-020 | `Sessions` `timeout` is reasonable | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 
 ## Output
 

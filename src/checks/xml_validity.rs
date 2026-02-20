@@ -64,6 +64,22 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // XML-017: attribute-map.xml has at least one attribute mapping
+    if let Some(ref map) = config.attribute_map {
+        if map.attributes.is_empty() {
+            results.push(CheckResult::fail(
+                "XML-017", CAT, Severity::Warning,
+                "attribute-map.xml contains no attribute mappings",
+                Some("Add <Attribute> elements to attribute-map.xml to map IdP attributes to local names"),
+            ).with_doc(DOC_ATTR_EXTRACTOR));
+        } else {
+            results.push(CheckResult::pass(
+                "XML-017", CAT, Severity::Warning,
+                &format!("attribute-map.xml defines {} attribute mapping(s)", map.attributes.len()),
+            ));
+        }
+    }
+
     // XML-005: attribute-policy.xml exists
     if config.attribute_policy_exists {
         results.push(CheckResult::pass("XML-005", CAT, Severity::Info, "attribute-policy.xml exists"));
@@ -180,6 +196,59 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "No CredentialResolver configured",
                 Some("Add a <CredentialResolver> for SP signing/encryption credentials"),
             ).with_doc(DOC_CREDENTIAL_RESOLVER));
+        }
+
+        // XML-018: handlerURL starts with /
+        if let Some(ref sessions) = sc.sessions {
+            if let Some(ref handler_url) = sessions.handler_url {
+                if handler_url.starts_with('/') {
+                    results.push(CheckResult::pass(
+                        "XML-018", CAT, Severity::Warning,
+                        &format!("handlerURL is a valid relative path: {}", handler_url),
+                    ));
+                } else {
+                    results.push(CheckResult::fail(
+                        "XML-018", CAT, Severity::Warning,
+                        &format!("handlerURL does not start with '/': {}", handler_url),
+                        Some("handlerURL should be a relative path starting with '/' (e.g., \"/Shibboleth.sso\")"),
+                    ).with_doc(DOC_SESSIONS));
+                }
+            }
+        }
+
+        // XML-019: Logout element present
+        if let Some(ref sessions) = sc.sessions {
+            if sessions.has_logout {
+                results.push(CheckResult::pass(
+                    "XML-019", CAT, Severity::Info,
+                    "Logout or LogoutInitiator configured",
+                ));
+            } else {
+                results.push(CheckResult::fail(
+                    "XML-019", CAT, Severity::Info,
+                    "No Logout or LogoutInitiator element found",
+                    Some("Add a <Logout> or <LogoutInitiator> element inside <Sessions> for logout support"),
+                ).with_doc(DOC_SESSIONS));
+            }
+        }
+
+        // XML-016: entityID is a valid absolute URI
+        if let Some(ref entity_id) = sc.entity_id {
+            if entity_id.starts_with("https://")
+                || entity_id.starts_with("http://")
+                || entity_id.starts_with("urn:")
+            {
+                results.push(CheckResult::pass(
+                    "XML-016", CAT, Severity::Warning,
+                    &format!("entityID is a valid absolute URI: {}", entity_id),
+                ));
+            } else {
+                results.push(CheckResult::fail(
+                    "XML-016", CAT, Severity::Warning,
+                    &format!("entityID is not a valid absolute URI: {}", entity_id),
+                    Some("entityID should be an absolute URI (https://, http://, or urn:)"),
+                ).with_doc(DOC_APP_DEFAULTS));
+            }
         }
     }
 
