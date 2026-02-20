@@ -167,12 +167,12 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-012: handlerURL on Sessions
         if let Some(ref sessions) = sc.sessions {
             if sessions.handler_url.is_some() {
-                results.push(CheckResult::pass("XML-012", CAT, Severity::Warning, "handlerURL is set on Sessions"));
+                results.push(CheckResult::pass("XML-012", CAT, Severity::Info, "handlerURL is set on Sessions"));
             } else {
                 results.push(CheckResult::fail(
-                    "XML-012", CAT, Severity::Warning,
-                    "handlerURL not set on Sessions element",
-                    Some("Set handlerURL on <Sessions> (e.g., \"/Shibboleth.sso\")"),
+                    "XML-012", CAT, Severity::Info,
+                    "handlerURL not set on Sessions element (defaults to /Shibboleth.sso)",
+                    Some("Set handlerURL on <Sessions> to override the default \"/Shibboleth.sso\""),
                 ).with_doc(DOC_SESSIONS));
             }
         }

@@ -329,16 +329,31 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
 
     // REF-014: Duplicate attribute IDs in attribute-map.xml
     if let Some(ref map) = config.attribute_map {
-        let mut seen_ids: HashSet<&str> = HashSet::new();
+        let mut seen_ids: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         let mut has_dup = false;
         for attr in &map.attributes {
-            if !seen_ids.insert(attr.id.as_str()) {
+            if let Some(&prev_name) = seen_ids.get(attr.id.as_str()) {
+                let different_names = prev_name != attr.name.as_str();
+                let suggestion = if different_names {
+                    format!(
+                        "Duplicate id '{}' maps different names ('{}' and '{}'); \
+                         this may be intentional (e.g., NameID vs attribute). \
+                         Remove the one your IdP does not send",
+                        attr.id, prev_name, attr.name
+                    )
+                } else {
+                    format!(
+                        "Remove or rename the duplicate <Attribute> entry; later entries shadow earlier ones"
+                    )
+                };
                 results.push(CheckResult::fail(
                     "REF-014", CAT, Severity::Warning,
                     &format!("Duplicate attribute id '{}' in attribute-map.xml", attr.id),
-                    Some("Remove or rename the duplicate <Attribute> entry; later entries shadow earlier ones"),
+                    Some(&suggestion),
                 ).with_doc(DOC_ATTR_EXTRACTOR));
                 has_dup = true;
+            } else {
+                seen_ids.insert(&attr.id, &attr.name);
             }
         }
         if !has_dup && !map.attributes.is_empty() {

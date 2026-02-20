@@ -62,7 +62,7 @@ shibcheck --check-remote /etc/shibboleth
 | XML-009 | `entityID` attribute set | Error | [ApplicationDefaults](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults) |
 | XML-010 | `Sessions` element present | Error | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 | XML-011 | At least one `SSO` or `SessionInitiator` | Error | [SSO](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334348/SSO) |
-| XML-012 | `handlerURL` set on `Sessions` | Warning | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
+| XML-012 | `handlerURL` set on `Sessions` | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 | XML-013 | At least one `MetadataProvider` | Error | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
 | XML-014 | At least one `CredentialResolver` | Warning | [CredentialResolver](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver) |
 | XML-015 | Other XML files well-formed | Warning | — |
