@@ -7,6 +7,10 @@ All notable changes to shibcheck are documented in this file.
 ### Added
 - SP version detection from `<SPConfig xmlns="...">` namespace (`SpVersion::V2`, `V3`, or `Unknown`)
 - XML-020: Informational check reporting detected SP version (SP2 flagged as end-of-life)
+- XML-021: Warning when `REMOTE_USER` is not set on `ApplicationDefaults`
+- REF-017: Warning when a remote `MetadataProvider` has no `backingFilePath` (SP cannot start if remote source is unavailable)
+- SEC-021: Certificate-key mismatch detection (compares RSA modulus between certificate and private key)
+- Version-aware documentation URLs: SP2 configs now link to the SHIB2 wiki instead of SP3 pages
 
 ### Changed
 - SEC-002/SEC-003: `cookieProps="https"` shorthand is now only treated as secure/httpOnly on SP3 (fixes false-positive pass on SP2)

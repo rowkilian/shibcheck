@@ -47,7 +47,7 @@ shibcheck --check-remote /etc/shibboleth
 
 ## Checks Reference
 
-### XML Validity (XML-001 to XML-020)
+### XML Validity (XML-001 to XML-021)
 
 | Code | Description | Severity | Documentation |
 |------|-------------|----------|---------------|
@@ -71,8 +71,9 @@ shibcheck --check-remote /etc/shibboleth
 | XML-018 | `handlerURL` starts with `/` | Warning | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 | XML-019 | `Logout` or `LogoutInitiator` element present | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 | XML-020 | SP version detected from `SPConfig` `xmlns` | Info | [SPConfig](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695926/SPConfig) |
+| XML-021 | `REMOTE_USER` attribute set on `ApplicationDefaults` | Warning | [ApplicationDefaults](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults) |
 
-### Cross-file References (REF-001 to REF-016)
+### Cross-file References (REF-001 to REF-017)
 
 | Code | Description | Severity | Documentation |
 |------|-------------|----------|---------------|
@@ -92,8 +93,9 @@ shibcheck --check-remote /etc/shibboleth
 | REF-014 | No duplicate attribute IDs in `attribute-map.xml` | Warning | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
 | REF-015 | No duplicate attribute names in `attribute-map.xml` | Info | [XMLAttributeExtractor](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor) |
 | REF-016 | `SSO` `entityID` found in loaded metadata | Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
+| REF-017 | Remote `MetadataProvider` has `backingFilePath` | Warning | [MetadataProvider](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider) |
 
-### Security (SEC-001 to SEC-020)
+### Security (SEC-001 to SEC-021)
 
 | Code | Description | Severity | Documentation |
 |------|-------------|----------|---------------|
@@ -117,6 +119,7 @@ shibcheck --check-remote /etc/shibboleth
 | SEC-018 | `entityID` uses HTTPS (prefer over HTTP) | Info | [ApplicationDefaults](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults) |
 | SEC-019 | `Sessions` `lifetime` is reasonable | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
 | SEC-020 | `Sessions` `timeout` is reasonable | Info | [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions) |
+| SEC-021 | Certificate and private key match | Error | [CredentialResolver](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver) |
 
 ## Output
 

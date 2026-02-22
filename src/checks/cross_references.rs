@@ -5,6 +5,7 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::config::DiscoveredConfig;
+use crate::model::shibboleth_config::SpVersion;
 use crate::parsers::certificate;
 use crate::result::{CheckCategory, CheckResult, Severity};
 
@@ -19,6 +20,15 @@ const DOC_ATTR_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/
 const DOC_ATTR_ACCESS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess";
 const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors";
 
+const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
+
+fn doc_for(sp3_url: &str, version: SpVersion) -> &str {
+    match version {
+        SpVersion::V2 => DOC_SP2_WIKI,
+        _ => sp3_url,
+    }
+}
+
 pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     let mut results = Vec::new();
 
@@ -26,6 +36,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         Some(sc) => sc,
         None => return results, // Can't check references without a parsed config
     };
+
+    let v = sc.sp_version;
 
     // REF-001: CredentialResolver certificate files exist
     for cr in &sc.credential_resolvers {
@@ -41,7 +53,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-001", CAT, Severity::Error,
                     &format!("Certificate file not found: {}", cert_path),
                     Some("Ensure the certificate file path is correct and the file exists"),
-                ).with_doc(DOC_CREDENTIAL_RESOLVER));
+                ).with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)));
             }
         }
     }
@@ -60,7 +72,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-002", CAT, Severity::Error,
                     &format!("Key file not found: {}", key_path),
                     Some("Ensure the key file path is correct and the file exists"),
-                ).with_doc(DOC_CREDENTIAL_RESOLVER));
+                ).with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)));
             }
         }
     }
@@ -81,7 +93,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-003", CAT, Severity::Error,
                         &format!("Metadata file not found: {}", path),
                         Some("Ensure the metadata file path is correct and the file exists"),
-                    ).with_doc(DOC_METADATA_PROVIDER));
+                    ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
                 }
             }
         }
@@ -103,7 +115,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-003", CAT, Severity::Info,
                     &format!("Backing file not found (will be auto-created on first fetch): {}", backing),
                     Some("The backing file is created automatically when metadata is first fetched; ensure the parent directory is writable"),
-                ).with_doc(DOC_METADATA_PROVIDER));
+                ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
             }
         }
 
@@ -124,7 +136,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-003", CAT, Severity::Error,
                     &format!("Source directory not found: {}", src_dir),
                     Some("Ensure the sourceDirectory path points to an existing directory containing per-entity metadata files"),
-                ).with_doc(DOC_METADATA_PROVIDER));
+                ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
             }
         }
     }
@@ -135,7 +147,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             let remote_url = mp.uri.as_deref().or(mp.url.as_deref());
             if let Some(url) = remote_url {
                 if url.starts_with("http://") || url.starts_with("https://") {
-                    check_remote_metadata(url, &mut results);
+                    check_remote_metadata(url, &mut results, v);
                 }
             }
         }
@@ -156,7 +168,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-004", CAT, Severity::Warning,
                         &format!("MetadataFilter certificate not found: {}", cert_path),
                         Some("Ensure the metadata signature verification certificate exists"),
-                    ).with_doc(DOC_METADATA_FILTER));
+                    ).with_doc(doc_for(DOC_METADATA_FILTER, v)));
                 }
             }
         }
@@ -175,7 +187,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 "REF-005", CAT, Severity::Warning,
                 &format!("AttributeExtractor file not found: {}", path),
                 Some("Ensure the AttributeExtractor path points to a valid file"),
-            ).with_doc(DOC_ATTR_EXTRACTOR));
+            ).with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)));
         }
     }
 
@@ -192,7 +204,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 "REF-006", CAT, Severity::Warning,
                 &format!("AttributeFilter file not found: {}", path),
                 Some("Ensure the AttributeFilter path points to a valid file"),
-            ).with_doc(DOC_ATTR_FILTER));
+            ).with_doc(doc_for(DOC_ATTR_FILTER, v)));
         }
     }
 
@@ -211,7 +223,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         rule.attribute_id
                     ),
                     Some("Add a matching <Attribute> entry in attribute-map.xml or remove the rule from attribute-policy.xml"),
-                ).with_doc(DOC_ATTR_EXTRACTOR));
+                ).with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)));
                 all_match = false;
             }
         }
@@ -241,7 +253,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                 attr
                             ),
                             Some("Add a mapping for this attribute in attribute-map.xml"),
-                        ).with_doc(DOC_ATTR_ACCESS));
+                        ).with_doc(doc_for(DOC_ATTR_ACCESS, v)));
                         all_found = false;
                     }
                 }
@@ -261,7 +273,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             if !path.starts_with("http://") && !path.starts_with("https://") {
                 let full_path = config.base_dir.join(path);
                 if full_path.exists() {
-                    check_local_metadata_saml(&full_path, path, &mut results);
+                    check_local_metadata_saml(&full_path, path, &mut results, v);
                 }
             }
         }
@@ -284,7 +296,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                             "REF-011", CAT, Severity::Warning,
                             &format!("Key file is not a recognized PEM private key: {}", key_path),
                             Some("Ensure the key file contains a PEM-encoded private key (PKCS#8 or traditional format)"),
-                        ).with_doc(DOC_CREDENTIAL_RESOLVER));
+                        ).with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)));
                     }
                 }
             }
@@ -314,7 +326,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-012", CAT, Severity::Warning,
                         &format!("Duplicate MetadataProvider source: {}", src),
                         Some("Remove the duplicate MetadataProvider or use different sources"),
-                    ).with_doc(DOC_METADATA_PROVIDER));
+                    ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
                     has_duplicate = true;
                 }
             }
@@ -350,7 +362,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-014", CAT, Severity::Warning,
                     &format!("Duplicate attribute id '{}' in attribute-map.xml", attr.id),
                     Some(&suggestion),
-                ).with_doc(DOC_ATTR_EXTRACTOR));
+                ).with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)));
                 has_dup = true;
             } else {
                 seen_ids.insert(&attr.id, &attr.name);
@@ -374,7 +386,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-015", CAT, Severity::Info,
                     &format!("Duplicate attribute name '{}' in attribute-map.xml", attr.name),
                     Some("The same OID/URN is mapped more than once; this is usually unintentional"),
-                ).with_doc(DOC_ATTR_EXTRACTOR));
+                ).with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)));
                 has_dup = true;
             }
         }
@@ -419,7 +431,34 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-016", CAT, Severity::Warning,
                     &format!("SSO entityID '{}' not found in any loaded metadata", sso_entity_id),
                     Some("Ensure a MetadataProvider loads metadata for the IdP referenced in <SSO>"),
-                ).with_doc(DOC_METADATA_PROVIDER));
+                ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+            }
+        }
+    }
+
+    // REF-017: Remote MetadataProvider should have backingFilePath
+    {
+        let mut has_missing_backing = false;
+        for mp in &sc.metadata_providers {
+            let remote_url = mp.uri.as_deref().or(mp.url.as_deref());
+            if let Some(url) = remote_url {
+                if mp.backing_file_path.is_none() {
+                    results.push(CheckResult::fail(
+                        "REF-017", CAT, Severity::Warning,
+                        &format!("Remote MetadataProvider has no backingFilePath: {}", url),
+                        Some("Add backingFilePath to cache metadata locally; without it the SP cannot start if the remote source is unavailable"),
+                    ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+                    has_missing_backing = true;
+                }
+            }
+        }
+        if !has_missing_backing {
+            let has_remote = sc.metadata_providers.iter().any(|mp| mp.uri.is_some() || mp.url.is_some());
+            if has_remote {
+                results.push(CheckResult::pass(
+                    "REF-017", CAT, Severity::Warning,
+                    "All remote MetadataProviders have backingFilePath configured",
+                ));
             }
         }
     }
@@ -452,7 +491,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-013", CAT, Severity::Info,
                         &format!("Errors {} template not found: {}", attr_name, path),
                         Some("Ensure the error template file path is correct and the file exists"),
-                    ).with_doc(DOC_ERRORS));
+                    ).with_doc(doc_for(DOC_ERRORS, v)));
                 }
             }
         }
@@ -496,7 +535,7 @@ fn metadata_contains_entity(full_path: &Path, entity_id: &str) -> bool {
     false
 }
 
-fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut Vec<CheckResult>) {
+fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut Vec<CheckResult>, v: SpVersion) {
     let content = match std::fs::read_to_string(full_path) {
         Ok(c) => c,
         Err(_) => {
@@ -504,7 +543,7 @@ fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut
                 "REF-010", CAT, Severity::Warning,
                 &format!("Could not read local metadata file: {}", display_path),
                 Some("Ensure the metadata file is readable"),
-            ).with_doc(DOC_METADATA_PROVIDER));
+            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
             return;
         }
     };
@@ -527,7 +566,7 @@ fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut
                     "REF-010", CAT, Severity::Warning,
                     &format!("Local metadata file is not well-formed XML: {}", display_path),
                     Some("Fix XML syntax errors in the metadata file"),
-                ).with_doc(DOC_METADATA_PROVIDER));
+                ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
                 return;
             }
             _ => {}
@@ -546,19 +585,19 @@ fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut
                 "REF-010", CAT, Severity::Warning,
                 &format!("Local metadata has unexpected root element <{}>: {}", other, display_path),
                 Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
-            ).with_doc(DOC_METADATA_PROVIDER));
+            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
         }
         None => {
             results.push(CheckResult::fail(
                 "REF-010", CAT, Severity::Warning,
                 &format!("Local metadata file is empty: {}", display_path),
                 Some("The metadata file should contain a SAML EntityDescriptor or EntitiesDescriptor"),
-            ).with_doc(DOC_METADATA_PROVIDER));
+            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
         }
     }
 }
 
-fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>) {
+fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>, v: SpVersion) {
     let body = match ureq::get(url).call() {
         Ok(response) => {
             match response.into_body().read_to_string() {
@@ -568,7 +607,7 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>) {
                         "REF-009", CAT, Severity::Error,
                         &format!("Failed to read response body from {}: {}", url, e),
                         Some("Ensure the remote metadata URL returns valid content"),
-                    ).with_doc(DOC_METADATA_PROVIDER));
+                    ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
                     return;
                 }
             }
@@ -578,7 +617,7 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>) {
                 "REF-009", CAT, Severity::Error,
                 &format!("Remote metadata URL unreachable: {} ({})", url, e),
                 Some("Ensure the remote metadata URL is correct and the server is reachable"),
-            ).with_doc(DOC_METADATA_PROVIDER));
+            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
             return;
         }
     };
@@ -611,7 +650,7 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>) {
             "REF-009", CAT, Severity::Warning,
             &format!("Remote metadata is not well-formed XML: {}", url),
             Some("The remote URL returned content that is not valid XML"),
-        ).with_doc(DOC_METADATA_PROVIDER));
+        ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
         return;
     }
 
@@ -628,14 +667,14 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>) {
                 "REF-009", CAT, Severity::Warning,
                 &format!("Remote URL returned XML but not SAML metadata (root element: <{}>): {}", other, url),
                 Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
-            ).with_doc(DOC_METADATA_PROVIDER));
+            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
         }
         None => {
             results.push(CheckResult::fail(
                 "REF-009", CAT, Severity::Warning,
                 &format!("Remote URL returned empty XML document: {}", url),
                 Some("The remote metadata URL returned an empty document"),
-            ).with_doc(DOC_METADATA_PROVIDER));
+            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
         }
     }
 }

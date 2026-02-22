@@ -14,6 +14,16 @@ const DOC_CREDENTIAL_RESOLVER: &str = "https://shibboleth.atlassian.net/wiki/spa
 const DOC_ATTR_EXTRACTOR: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor";
 const DOC_ATTR_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
 
+const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
+
+/// Return the SP2 wiki root for V2 configs, otherwise the SP3-specific page URL.
+fn doc_for(sp3_url: &str, version: SpVersion) -> &str {
+    match version {
+        SpVersion::V2 => DOC_SP2_WIKI,
+        _ => sp3_url,
+    }
+}
+
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     let mut results = Vec::new();
 
@@ -107,6 +117,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // The following checks require a parsed shibboleth config
     if let Some(ref sc) = config.shibboleth_config {
+        let v = sc.sp_version;
+
         // XML-007: SPConfig root element
         if sc.has_sp_config {
             results.push(CheckResult::pass("XML-007", CAT, Severity::Error, "SPConfig root element present"));
@@ -115,7 +127,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "XML-007", CAT, Severity::Error,
                 "SPConfig root element not found",
                 Some("The root element of shibboleth2.xml must be <SPConfig>"),
-            ).with_doc(DOC_SPCONFIG));
+            ).with_doc(doc_for(DOC_SPCONFIG, v)));
         }
 
         // XML-008: ApplicationDefaults element
@@ -126,7 +138,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "XML-008", CAT, Severity::Error,
                 "ApplicationDefaults element not found",
                 Some("Add an <ApplicationDefaults> element inside <SPConfig>"),
-            ).with_doc(DOC_APP_DEFAULTS));
+            ).with_doc(doc_for(DOC_APP_DEFAULTS, v)));
         }
 
         // XML-009: entityID attribute
@@ -137,7 +149,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "XML-009", CAT, Severity::Error,
                 "entityID attribute not set on ApplicationDefaults",
                 Some("Set entityID on <ApplicationDefaults> to your SP's entity ID"),
-            ).with_doc(DOC_APP_DEFAULTS));
+            ).with_doc(doc_for(DOC_APP_DEFAULTS, v)));
         }
 
         // XML-010: Sessions element
@@ -148,7 +160,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "XML-010", CAT, Severity::Error,
                 "Sessions element not found",
                 Some("Add a <Sessions> element inside <ApplicationDefaults>"),
-            ).with_doc(DOC_SESSIONS));
+            ).with_doc(doc_for(DOC_SESSIONS, v)));
         }
 
         // XML-011: At least one SSO/SessionInitiator
@@ -160,7 +172,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "XML-011", CAT, Severity::Error,
                     "No SSO or SessionInitiator element found",
                     Some("Add an <SSO> or <SessionInitiator> element inside <Sessions>"),
-                ).with_doc(DOC_SSO));
+                ).with_doc(doc_for(DOC_SSO, v)));
             }
         }
 
@@ -173,7 +185,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "XML-012", CAT, Severity::Info,
                     "handlerURL not set on Sessions element (defaults to /Shibboleth.sso)",
                     Some("Set handlerURL on <Sessions> to override the default \"/Shibboleth.sso\""),
-                ).with_doc(DOC_SESSIONS));
+                ).with_doc(doc_for(DOC_SESSIONS, v)));
             }
         }
 
@@ -185,7 +197,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "XML-013", CAT, Severity::Error,
                 "No MetadataProvider configured",
                 Some("Add a <MetadataProvider> element to load IdP metadata"),
-            ).with_doc(DOC_METADATA_PROVIDER));
+            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
         }
 
         // XML-014: At least one CredentialResolver
@@ -196,7 +208,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "XML-014", CAT, Severity::Warning,
                 "No CredentialResolver configured",
                 Some("Add a <CredentialResolver> for SP signing/encryption credentials"),
-            ).with_doc(DOC_CREDENTIAL_RESOLVER));
+            ).with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)));
         }
 
         // XML-018: handlerURL starts with /
@@ -212,7 +224,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "XML-018", CAT, Severity::Warning,
                         &format!("handlerURL does not start with '/': {}", handler_url),
                         Some("handlerURL should be a relative path starting with '/' (e.g., \"/Shibboleth.sso\")"),
-                    ).with_doc(DOC_SESSIONS));
+                    ).with_doc(doc_for(DOC_SESSIONS, v)));
                 }
             }
         }
@@ -225,7 +237,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "Logout or LogoutInitiator configured",
                 ));
             } else {
-                let suggestion = match sc.sp_version {
+                let suggestion = match v {
                     SpVersion::V3 => "Add a <Logout>SAML2 Local</Logout> element inside <Sessions> for logout support",
                     SpVersion::V2 => "Add a <LogoutInitiator> element inside <Sessions> for logout support",
                     SpVersion::Unknown => "Add a <Logout> or <LogoutInitiator> element inside <Sessions> for logout support",
@@ -234,12 +246,12 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "XML-019", CAT, Severity::Info,
                     "No Logout or LogoutInitiator element found",
                     Some(suggestion),
-                ).with_doc(DOC_SESSIONS));
+                ).with_doc(doc_for(DOC_SESSIONS, v)));
             }
         }
 
         // XML-020: SP version detection
-        match sc.sp_version {
+        match v {
             SpVersion::V3 => {
                 results.push(CheckResult::pass(
                     "XML-020", CAT, Severity::Info,
@@ -262,6 +274,22 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             }
         }
 
+        // XML-021: REMOTE_USER attribute set
+        if let Some(ref app) = sc.application_defaults {
+            if app.remote_user.is_some() {
+                results.push(CheckResult::pass(
+                    "XML-021", CAT, Severity::Warning,
+                    "REMOTE_USER attribute is set on ApplicationDefaults",
+                ));
+            } else {
+                results.push(CheckResult::fail(
+                    "XML-021", CAT, Severity::Warning,
+                    "REMOTE_USER not set on ApplicationDefaults",
+                    Some("Set REMOTE_USER on <ApplicationDefaults> (e.g., REMOTE_USER=\"eppn\") so applications can identify users"),
+                ).with_doc(doc_for(DOC_APP_DEFAULTS, v)));
+            }
+        }
+
         // XML-016: entityID is a valid absolute URI
         if let Some(ref entity_id) = sc.entity_id {
             if entity_id.starts_with("https://")
@@ -277,7 +305,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "XML-016", CAT, Severity::Warning,
                     &format!("entityID is not a valid absolute URI: {}", entity_id),
                     Some("entityID should be an absolute URI (https://, http://, or urn:)"),
-                ).with_doc(DOC_APP_DEFAULTS));
+                ).with_doc(doc_for(DOC_APP_DEFAULTS, v)));
             }
         }
     }

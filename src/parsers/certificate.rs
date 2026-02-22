@@ -83,6 +83,107 @@ pub fn validate_pem_key_file(path: &Path) -> Result<()> {
     }
 }
 
+/// Check if a certificate and private key file form a matching pair.
+/// Returns Ok(true) if they match, Ok(false) if mismatch.
+/// Returns Err if the files can't be parsed or aren't RSA (non-RSA is skipped by the caller).
+pub fn check_cert_key_match(cert_path: &Path, key_path: &Path) -> Result<bool> {
+    let cert_modulus = extract_cert_rsa_modulus(cert_path)?;
+    let key_modulus = extract_key_rsa_modulus(key_path)?;
+    Ok(cert_modulus == key_modulus)
+}
+
+fn extract_cert_rsa_modulus(cert_path: &Path) -> Result<Vec<u8>> {
+    let content = std::fs::read(cert_path)
+        .with_context(|| format!("Failed to read certificate {}", cert_path.display()))?;
+    let (_, pem) = parse_x509_pem(&content)
+        .map_err(|e| anyhow::anyhow!("PEM parse error: {}", e))?;
+    let (_, cert) = X509Certificate::from_der(&pem.contents)
+        .map_err(|e| anyhow::anyhow!("X509 parse error: {}", e))?;
+    match cert.public_key().parsed() {
+        Ok(PublicKey::RSA(rsa)) => Ok(rsa.modulus.to_vec()),
+        _ => anyhow::bail!("Not an RSA certificate"),
+    }
+}
+
+fn extract_key_rsa_modulus(key_path: &Path) -> Result<Vec<u8>> {
+    let data = std::fs::read(key_path)
+        .with_context(|| format!("Failed to read key file {}", key_path.display()))?;
+    let parsed = ::pem::parse(&data)
+        .map_err(|e| anyhow::anyhow!("PEM parse error: {}", e))?;
+    match parsed.tag() {
+        "RSA PRIVATE KEY" => extract_rsa_modulus_pkcs1(parsed.contents()),
+        "PRIVATE KEY" => extract_rsa_modulus_pkcs8(parsed.contents()),
+        other => anyhow::bail!("Unsupported key type: {}", other),
+    }
+}
+
+/// Extract RSA modulus from a PKCS#8 DER-encoded private key.
+fn extract_rsa_modulus_pkcs8(der: &[u8]) -> Result<Vec<u8>> {
+    // PrivateKeyInfo ::= SEQUENCE { version INTEGER, algorithmId SEQUENCE, privateKey OCTET STRING }
+    let inner = der_enter_sequence(der)?;
+    let rest = der_skip_element(inner)?;
+    let rest = der_skip_element(rest)?;
+    let (octet_contents, _) = der_read_octet_string(rest)?;
+    extract_rsa_modulus_pkcs1(octet_contents)
+}
+
+/// Extract RSA modulus from a PKCS#1 DER-encoded RSA private key.
+fn extract_rsa_modulus_pkcs1(der: &[u8]) -> Result<Vec<u8>> {
+    // RSAPrivateKey ::= SEQUENCE { version INTEGER, modulus INTEGER, ... }
+    let inner = der_enter_sequence(der)?;
+    let rest = der_skip_element(inner)?;
+    let (modulus, _) = der_read_integer(rest)?;
+    Ok(modulus.to_vec())
+}
+
+fn der_enter_sequence(data: &[u8]) -> Result<&[u8]> {
+    anyhow::ensure!(!data.is_empty() && data[0] == 0x30, "Expected SEQUENCE tag");
+    let (len, hdr) = der_read_length(&data[1..])?;
+    anyhow::ensure!(data.len() >= 1 + hdr + len, "SEQUENCE data too short");
+    Ok(&data[1 + hdr..1 + hdr + len])
+}
+
+fn der_skip_element(data: &[u8]) -> Result<&[u8]> {
+    anyhow::ensure!(!data.is_empty(), "Unexpected end of DER data");
+    let (len, hdr) = der_read_length(&data[1..])?;
+    let total = 1 + hdr + len;
+    anyhow::ensure!(data.len() >= total, "Element data too short");
+    Ok(&data[total..])
+}
+
+fn der_read_integer(data: &[u8]) -> Result<(&[u8], &[u8])> {
+    anyhow::ensure!(!data.is_empty() && data[0] == 0x02, "Expected INTEGER tag");
+    let (len, hdr) = der_read_length(&data[1..])?;
+    let start = 1 + hdr;
+    let end = start + len;
+    anyhow::ensure!(data.len() >= end, "INTEGER data too short");
+    Ok((&data[start..end], &data[end..]))
+}
+
+fn der_read_octet_string(data: &[u8]) -> Result<(&[u8], &[u8])> {
+    anyhow::ensure!(!data.is_empty() && data[0] == 0x04, "Expected OCTET STRING tag");
+    let (len, hdr) = der_read_length(&data[1..])?;
+    let start = 1 + hdr;
+    let end = start + len;
+    anyhow::ensure!(data.len() >= end, "OCTET STRING data too short");
+    Ok((&data[start..end], &data[end..]))
+}
+
+fn der_read_length(data: &[u8]) -> Result<(usize, usize)> {
+    anyhow::ensure!(!data.is_empty(), "Empty length field");
+    if data[0] < 0x80 {
+        Ok((data[0] as usize, 1))
+    } else {
+        let num = (data[0] & 0x7f) as usize;
+        anyhow::ensure!(data.len() >= 1 + num, "Length bytes missing");
+        let mut len = 0usize;
+        for i in 0..num {
+            len = (len << 8) | data[1 + i] as usize;
+        }
+        Ok((len, 1 + num))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
