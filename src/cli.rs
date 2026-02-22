@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 /// Shibboleth SP Configuration Checker
@@ -17,6 +17,7 @@ EXAMPLES:
   shibcheck -v                       Show all checks including passed
   shibcheck --json /etc/shibboleth   Output results as JSON
   shibcheck --no-color | less        Pipe output without ANSI codes
+  shibcheck init-test-idp /tmp/shib  Set up mocksaml.com test IdP
 
 EXIT CODES:
   0  All checks passed (no errors)
@@ -32,6 +33,9 @@ CHECKS:
   See https://github.com/<owner>/shibcheck#checks-reference for details."
 )]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
     /// Directory containing Shibboleth SP config files
     #[arg(default_value = ".", value_name = "PATH")]
     pub path: PathBuf,
@@ -51,4 +55,19 @@ pub struct Cli {
     /// Fetch and validate remote metadata URLs
     #[arg(long)]
     pub check_remote: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Set up mocksaml.com as a test IdP
+    #[command(name = "init-test-idp")]
+    InitTestIdp {
+        /// Directory containing Shibboleth SP config files
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+
+        /// Overwrite existing metadata file
+        #[arg(long)]
+        force: bool,
+    },
 }

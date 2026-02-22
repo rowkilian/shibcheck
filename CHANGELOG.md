@@ -5,6 +5,7 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- `init-test-idp` subcommand: fetches [mocksaml.com](https://mocksaml.com) metadata and prints the XML snippet to add to `shibboleth2.xml` for quick test IdP setup
 - SP version detection from `<SPConfig xmlns="...">` namespace (`SpVersion::V2`, `V3`, or `Unknown`)
 - XML-020: Informational check reporting detected SP version (SP2 flagged as end-of-life)
 - XML-021: Warning when `REMOTE_USER` is not set on `ApplicationDefaults`

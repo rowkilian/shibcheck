@@ -37,6 +37,20 @@ shibcheck --no-color /etc/shibboleth
 shibcheck --check-remote /etc/shibboleth
 ```
 
+### Test IdP Setup
+
+Use `init-test-idp` to set up [mocksaml.com](https://mocksaml.com) as a test Identity Provider:
+
+```bash
+# Fetch mocksaml.com metadata and get the config snippet
+shibcheck init-test-idp /etc/shibboleth
+
+# Overwrite an existing metadata file
+shibcheck init-test-idp --force /etc/shibboleth
+```
+
+This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the target directory and prints the `<MetadataProvider>` and `<SSO>` elements to add to your `shibboleth2.xml`.
+
 ## Exit Codes
 
 | Code | Meaning |
