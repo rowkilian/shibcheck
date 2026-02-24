@@ -35,7 +35,10 @@ pub fn run(base_dir: &Path, force: bool) -> Result<(), String> {
     eprintln!();
     eprintln!("Add the following to your shibboleth2.xml:");
     eprintln!();
-    eprintln!("  <MetadataProvider type=\"XML\" path=\"{}\"/>", METADATA_FILENAME);
+    eprintln!(
+        "  <MetadataProvider type=\"XML\" path=\"{}\"/>",
+        METADATA_FILENAME
+    );
     eprintln!();
     eprintln!("  <SSO entityID=\"{}\">", ENTITY_ID);
     eprintln!("    SAML2");

@@ -4,7 +4,12 @@ pub mod terminal;
 use crate::config::DiscoveredConfig;
 use crate::result::{CheckResult, CheckSummary};
 
-pub fn print_results(results: &[CheckResult], verbose: bool, json_output: bool, config: &DiscoveredConfig) {
+pub fn print_results(
+    results: &[CheckResult],
+    verbose: bool,
+    json_output: bool,
+    config: &DiscoveredConfig,
+) {
     let summary = CheckSummary::from_results(results);
 
     if json_output {

@@ -24,9 +24,12 @@ struct JsonReport<'a> {
 }
 
 pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &DiscoveredConfig) {
-    let metadata_sources = config.shibboleth_config.as_ref()
+    let metadata_sources = config
+        .shibboleth_config
+        .as_ref()
         .map(|sc| {
-            sc.metadata_providers.iter()
+            sc.metadata_providers
+                .iter()
                 .filter(|mp| mp.provider_type != "Chaining")
                 .map(|mp| MetadataSource {
                     provider_type: mp.provider_type.clone(),
@@ -39,7 +42,11 @@ pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &Discovere
         })
         .unwrap_or_default();
 
-    let report = JsonReport { metadata_sources, results, summary };
+    let report = JsonReport {
+        metadata_sources,
+        results,
+        summary,
+    };
     match serde_json::to_string_pretty(&report) {
         Ok(json) => println!("{}", json),
         Err(e) => eprintln!("Failed to serialize JSON: {}", e),

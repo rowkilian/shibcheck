@@ -3,7 +3,12 @@ use colored::Colorize;
 use crate::config::DiscoveredConfig;
 use crate::result::{CheckCategory, CheckResult, CheckSummary, Severity};
 
-pub fn print(results: &[CheckResult], summary: &CheckSummary, verbose: bool, config: &DiscoveredConfig) {
+pub fn print(
+    results: &[CheckResult],
+    summary: &CheckSummary,
+    verbose: bool,
+    config: &DiscoveredConfig,
+) {
     print_metadata_sources(config);
 
     let categories = [
@@ -62,7 +67,9 @@ fn print_metadata_sources(config: &DiscoveredConfig) {
         None => return,
     };
 
-    let providers: Vec<_> = sc.metadata_providers.iter()
+    let providers: Vec<_> = sc
+        .metadata_providers
+        .iter()
         .filter(|mp| mp.provider_type != "Chaining")
         .collect();
 

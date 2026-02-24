@@ -36,9 +36,7 @@ fn run_init_test_idp(path: &std::path::Path, force: bool) {
     let base_dir = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join(path)
+        std::env::current_dir().unwrap_or_default().join(path)
     };
 
     if let Err(e) = init_test_idp::run(&base_dir, force) {
@@ -51,9 +49,7 @@ fn run_check(cli: &Cli) {
     let base_dir = if cli.path.is_absolute() {
         cli.path.clone()
     } else {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join(&cli.path)
+        std::env::current_dir().unwrap_or_default().join(&cli.path)
     };
 
     if !base_dir.is_dir() {

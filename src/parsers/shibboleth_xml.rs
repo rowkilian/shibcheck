@@ -19,7 +19,11 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
 
     loop {
         match reader.read_event() {
-            Err(e) => anyhow::bail!("XML parse error at position {}: {}", reader.error_position(), e),
+            Err(e) => anyhow::bail!(
+                "XML parse error at position {}: {}",
+                reader.error_position(),
+                e
+            ),
             Ok(Event::Eof) => break,
             Ok(Event::Start(e)) => {
                 let name = local_name(&e);
@@ -191,12 +195,12 @@ fn process_element(
             });
         }
         "Handler" => {
-            if get_attr(e, "type")
-                .as_deref()
-                .map_or(false, |t| t.contains("StatusHandler") || t.contains("Status"))
-            {
+            if get_attr(e, "type").as_deref().map_or(false, |t| {
+                t.contains("StatusHandler") || t.contains("Status")
+            }) {
                 config.status_handler = Some(StatusHandler {
-                    acl: get_attr(e, "acl").or_else(|| get_attr(e, "Location").map(|_| String::new())),
+                    acl: get_attr(e, "acl")
+                        .or_else(|| get_attr(e, "Location").map(|_| String::new())),
                 });
             }
         }
@@ -320,13 +324,28 @@ mod tests {
         let errors = config.errors.as_ref().expect("errors should be parsed");
         assert_eq!(errors.support_contact.as_deref(), Some("admin@example.org"));
         assert_eq!(errors.help_location.as_deref(), Some("/help"));
-        assert_eq!(errors.style_sheet.as_deref(), Some("/shibboleth-sp/main.css"));
-        assert_eq!(errors.session_error.as_deref(), Some("/errors/session.html"));
+        assert_eq!(
+            errors.style_sheet.as_deref(),
+            Some("/shibboleth-sp/main.css")
+        );
+        assert_eq!(
+            errors.session_error.as_deref(),
+            Some("/errors/session.html")
+        );
         assert_eq!(errors.access_error.as_deref(), Some("/errors/access.html"));
         assert_eq!(errors.ssl_error.as_deref(), Some("/errors/ssl.html"));
-        assert_eq!(errors.local_logout.as_deref(), Some("/errors/localLogout.html"));
-        assert_eq!(errors.metadata_error.as_deref(), Some("/errors/metadata.html"));
-        assert_eq!(errors.global_logout.as_deref(), Some("/errors/globalLogout.html"));
+        assert_eq!(
+            errors.local_logout.as_deref(),
+            Some("/errors/localLogout.html")
+        );
+        assert_eq!(
+            errors.metadata_error.as_deref(),
+            Some("/errors/metadata.html")
+        );
+        assert_eq!(
+            errors.global_logout.as_deref(),
+            Some("/errors/globalLogout.html")
+        );
     }
 
     #[test]
@@ -351,10 +370,16 @@ mod tests {
 
         let config = parse_str(xml).unwrap();
         // Chaining provider + 3 nested providers = 4 total
-        assert_eq!(config.metadata_providers.len(), 4, "Expected 4 providers (chaining + 3 nested)");
+        assert_eq!(
+            config.metadata_providers.len(),
+            4,
+            "Expected 4 providers (chaining + 3 nested)"
+        );
 
         // Find the providers by type/attributes
-        let xml_providers: Vec<_> = config.metadata_providers.iter()
+        let xml_providers: Vec<_> = config
+            .metadata_providers
+            .iter()
             .filter(|mp| mp.provider_type == "XML")
             .collect();
         assert_eq!(xml_providers.len(), 2);
@@ -362,23 +387,42 @@ mod tests {
         // First XML provider has path and backingFilePath
         let local_mp = xml_providers.iter().find(|mp| mp.path.is_some()).unwrap();
         assert_eq!(local_mp.path.as_deref(), Some("idp-metadata.xml"));
-        assert_eq!(local_mp.backing_file_path.as_deref(), Some("/var/cache/shib/idp-metadata.xml"));
+        assert_eq!(
+            local_mp.backing_file_path.as_deref(),
+            Some("/var/cache/shib/idp-metadata.xml")
+        );
 
         // Second XML provider has uri and backingFilePath
         let remote_mp = xml_providers.iter().find(|mp| mp.uri.is_some()).unwrap();
-        assert_eq!(remote_mp.uri.as_deref(), Some("https://federation.example.org/metadata.xml"));
-        assert_eq!(remote_mp.backing_file_path.as_deref(), Some("/var/cache/shib/fed-metadata.xml"));
+        assert_eq!(
+            remote_mp.uri.as_deref(),
+            Some("https://federation.example.org/metadata.xml")
+        );
+        assert_eq!(
+            remote_mp.backing_file_path.as_deref(),
+            Some("/var/cache/shib/fed-metadata.xml")
+        );
         assert_eq!(remote_mp.filters.len(), 1);
-        assert_eq!(remote_mp.filters[0].certificate.as_deref(), Some("fed-signer.pem"));
+        assert_eq!(
+            remote_mp.filters[0].certificate.as_deref(),
+            Some("fed-signer.pem")
+        );
 
         // LocalDynamic provider has sourceDirectory
-        let local_dyn = config.metadata_providers.iter()
+        let local_dyn = config
+            .metadata_providers
+            .iter()
             .find(|mp| mp.provider_type == "LocalDynamic")
             .unwrap();
-        assert_eq!(local_dyn.source_directory.as_deref(), Some("/etc/shibboleth/metadata"));
+        assert_eq!(
+            local_dyn.source_directory.as_deref(),
+            Some("/etc/shibboleth/metadata")
+        );
 
         // Chaining provider
-        let chaining = config.metadata_providers.iter()
+        let chaining = config
+            .metadata_providers
+            .iter()
             .find(|mp| mp.provider_type == "Chaining")
             .unwrap();
         assert_eq!(chaining.provider_type, "Chaining");

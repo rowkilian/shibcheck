@@ -37,8 +37,8 @@ pub fn parse_pem_bytes(data: &[u8]) -> Result<CertInfo> {
                     let oid_str = oid.to_string();
                     match oid_str.as_str() {
                         "1.2.840.10045.3.1.7" => 256, // P-256
-                        "1.3.132.0.34" => 384,         // P-384
-                        "1.3.132.0.35" => 521,         // P-521
+                        "1.3.132.0.34" => 384,        // P-384
+                        "1.3.132.0.35" => 521,        // P-521
                         _ => 256,
                     }
                 } else {
@@ -54,10 +54,8 @@ pub fn parse_pem_bytes(data: &[u8]) -> Result<CertInfo> {
     let subject = cert.subject().to_string();
 
     Ok(CertInfo {
-        not_before: DateTime::from_timestamp(not_before.unix_timestamp(), 0)
-            .unwrap_or_default(),
-        not_after: DateTime::from_timestamp(not_after.unix_timestamp(), 0)
-            .unwrap_or_default(),
+        not_before: DateTime::from_timestamp(not_before.unix_timestamp(), 0).unwrap_or_default(),
+        not_after: DateTime::from_timestamp(not_after.unix_timestamp(), 0).unwrap_or_default(),
         key_size_bits,
         subject,
     })
@@ -95,8 +93,8 @@ pub fn check_cert_key_match(cert_path: &Path, key_path: &Path) -> Result<bool> {
 fn extract_cert_rsa_modulus(cert_path: &Path) -> Result<Vec<u8>> {
     let content = std::fs::read(cert_path)
         .with_context(|| format!("Failed to read certificate {}", cert_path.display()))?;
-    let (_, pem) = parse_x509_pem(&content)
-        .map_err(|e| anyhow::anyhow!("PEM parse error: {}", e))?;
+    let (_, pem) =
+        parse_x509_pem(&content).map_err(|e| anyhow::anyhow!("PEM parse error: {}", e))?;
     let (_, cert) = X509Certificate::from_der(&pem.contents)
         .map_err(|e| anyhow::anyhow!("X509 parse error: {}", e))?;
     match cert.public_key().parsed() {
@@ -108,8 +106,7 @@ fn extract_cert_rsa_modulus(cert_path: &Path) -> Result<Vec<u8>> {
 fn extract_key_rsa_modulus(key_path: &Path) -> Result<Vec<u8>> {
     let data = std::fs::read(key_path)
         .with_context(|| format!("Failed to read key file {}", key_path.display()))?;
-    let parsed = ::pem::parse(&data)
-        .map_err(|e| anyhow::anyhow!("PEM parse error: {}", e))?;
+    let parsed = ::pem::parse(&data).map_err(|e| anyhow::anyhow!("PEM parse error: {}", e))?;
     match parsed.tag() {
         "RSA PRIVATE KEY" => extract_rsa_modulus_pkcs1(parsed.contents()),
         "PRIVATE KEY" => extract_rsa_modulus_pkcs8(parsed.contents()),
@@ -161,7 +158,10 @@ fn der_read_integer(data: &[u8]) -> Result<(&[u8], &[u8])> {
 }
 
 fn der_read_octet_string(data: &[u8]) -> Result<(&[u8], &[u8])> {
-    anyhow::ensure!(!data.is_empty() && data[0] == 0x04, "Expected OCTET STRING tag");
+    anyhow::ensure!(
+        !data.is_empty() && data[0] == 0x04,
+        "Expected OCTET STRING tag"
+    );
     let (len, hdr) = der_read_length(&data[1..])?;
     let start = 1 + hdr;
     let end = start + len;

@@ -12,12 +12,18 @@ use crate::result::{CheckCategory, CheckResult, Severity};
 const CAT: CheckCategory = CheckCategory::CrossReferences;
 
 // Shibboleth SP3 documentation URLs
-const DOC_CREDENTIAL_RESOLVER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver";
-const DOC_METADATA_PROVIDER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider";
-const DOC_METADATA_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696193/MetadataFilter";
-const DOC_ATTR_EXTRACTOR: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor";
-const DOC_ATTR_FILTER: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
-const DOC_ATTR_ACCESS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess";
+const DOC_CREDENTIAL_RESOLVER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver";
+const DOC_METADATA_PROVIDER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider";
+const DOC_METADATA_FILTER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696193/MetadataFilter";
+const DOC_ATTR_EXTRACTOR: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor";
+const DOC_ATTR_FILTER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
+const DOC_ATTR_ACCESS: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess";
 const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors";
 
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
@@ -45,15 +51,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             let full_path = config.base_dir.join(cert_path);
             if full_path.exists() {
                 results.push(CheckResult::pass(
-                    "REF-001", CAT, Severity::Error,
+                    "REF-001",
+                    CAT,
+                    Severity::Error,
                     &format!("Certificate file exists: {}", cert_path),
                 ));
             } else {
-                results.push(CheckResult::fail(
-                    "REF-001", CAT, Severity::Error,
-                    &format!("Certificate file not found: {}", cert_path),
-                    Some("Ensure the certificate file path is correct and the file exists"),
-                ).with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)));
+                results.push(
+                    CheckResult::fail(
+                        "REF-001",
+                        CAT,
+                        Severity::Error,
+                        &format!("Certificate file not found: {}", cert_path),
+                        Some("Ensure the certificate file path is correct and the file exists"),
+                    )
+                    .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                );
             }
         }
     }
@@ -64,15 +77,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             let full_path = config.base_dir.join(key_path);
             if full_path.exists() {
                 results.push(CheckResult::pass(
-                    "REF-002", CAT, Severity::Error,
+                    "REF-002",
+                    CAT,
+                    Severity::Error,
                     &format!("Key file exists: {}", key_path),
                 ));
             } else {
-                results.push(CheckResult::fail(
-                    "REF-002", CAT, Severity::Error,
-                    &format!("Key file not found: {}", key_path),
-                    Some("Ensure the key file path is correct and the file exists"),
-                ).with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)));
+                results.push(
+                    CheckResult::fail(
+                        "REF-002",
+                        CAT,
+                        Severity::Error,
+                        &format!("Key file not found: {}", key_path),
+                        Some("Ensure the key file path is correct and the file exists"),
+                    )
+                    .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                );
             }
         }
     }
@@ -85,15 +105,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 let full_path = config.base_dir.join(path);
                 if full_path.exists() {
                     results.push(CheckResult::pass(
-                        "REF-003", CAT, Severity::Error,
+                        "REF-003",
+                        CAT,
+                        Severity::Error,
                         &format!("Metadata file exists: {}", path),
                     ));
                 } else {
-                    results.push(CheckResult::fail(
-                        "REF-003", CAT, Severity::Error,
-                        &format!("Metadata file not found: {}", path),
-                        Some("Ensure the metadata file path is correct and the file exists"),
-                    ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+                    results.push(
+                        CheckResult::fail(
+                            "REF-003",
+                            CAT,
+                            Severity::Error,
+                            &format!("Metadata file not found: {}", path),
+                            Some("Ensure the metadata file path is correct and the file exists"),
+                        )
+                        .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                    );
                 }
             }
         }
@@ -107,7 +134,9 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             };
             if full_path.exists() {
                 results.push(CheckResult::pass(
-                    "REF-003", CAT, Severity::Info,
+                    "REF-003",
+                    CAT,
+                    Severity::Info,
                     &format!("Backing file exists: {}", backing),
                 ));
             } else {
@@ -128,7 +157,9 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             };
             if full_path.is_dir() {
                 results.push(CheckResult::pass(
-                    "REF-003", CAT, Severity::Error,
+                    "REF-003",
+                    CAT,
+                    Severity::Error,
                     &format!("Source directory exists: {}", src_dir),
                 ));
             } else {
@@ -160,15 +191,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 let full_path = config.base_dir.join(cert_path);
                 if full_path.exists() {
                     results.push(CheckResult::pass(
-                        "REF-004", CAT, Severity::Warning,
+                        "REF-004",
+                        CAT,
+                        Severity::Warning,
                         &format!("MetadataFilter certificate exists: {}", cert_path),
                     ));
                 } else {
-                    results.push(CheckResult::fail(
-                        "REF-004", CAT, Severity::Warning,
-                        &format!("MetadataFilter certificate not found: {}", cert_path),
-                        Some("Ensure the metadata signature verification certificate exists"),
-                    ).with_doc(doc_for(DOC_METADATA_FILTER, v)));
+                    results.push(
+                        CheckResult::fail(
+                            "REF-004",
+                            CAT,
+                            Severity::Warning,
+                            &format!("MetadataFilter certificate not found: {}", cert_path),
+                            Some("Ensure the metadata signature verification certificate exists"),
+                        )
+                        .with_doc(doc_for(DOC_METADATA_FILTER, v)),
+                    );
                 }
             }
         }
@@ -179,15 +217,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         let full_path = config.base_dir.join(path);
         if full_path.exists() {
             results.push(CheckResult::pass(
-                "REF-005", CAT, Severity::Warning,
+                "REF-005",
+                CAT,
+                Severity::Warning,
                 &format!("AttributeExtractor file exists: {}", path),
             ));
         } else {
-            results.push(CheckResult::fail(
-                "REF-005", CAT, Severity::Warning,
-                &format!("AttributeExtractor file not found: {}", path),
-                Some("Ensure the AttributeExtractor path points to a valid file"),
-            ).with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)));
+            results.push(
+                CheckResult::fail(
+                    "REF-005",
+                    CAT,
+                    Severity::Warning,
+                    &format!("AttributeExtractor file not found: {}", path),
+                    Some("Ensure the AttributeExtractor path points to a valid file"),
+                )
+                .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
+            );
         }
     }
 
@@ -196,22 +241,28 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         let full_path = config.base_dir.join(path);
         if full_path.exists() {
             results.push(CheckResult::pass(
-                "REF-006", CAT, Severity::Warning,
+                "REF-006",
+                CAT,
+                Severity::Warning,
                 &format!("AttributeFilter file exists: {}", path),
             ));
         } else {
-            results.push(CheckResult::fail(
-                "REF-006", CAT, Severity::Warning,
-                &format!("AttributeFilter file not found: {}", path),
-                Some("Ensure the AttributeFilter path points to a valid file"),
-            ).with_doc(doc_for(DOC_ATTR_FILTER, v)));
+            results.push(
+                CheckResult::fail(
+                    "REF-006",
+                    CAT,
+                    Severity::Warning,
+                    &format!("AttributeFilter file not found: {}", path),
+                    Some("Ensure the AttributeFilter path points to a valid file"),
+                )
+                .with_doc(doc_for(DOC_ATTR_FILTER, v)),
+            );
         }
     }
 
     // REF-007: Attribute policy IDs match attribute map IDs
     if let (Some(ref map), Some(ref policy)) = (&config.attribute_map, &config.attribute_policy) {
-        let map_ids: HashSet<&str> =
-            map.attributes.iter().map(|a| a.id.as_str()).collect();
+        let map_ids: HashSet<&str> = map.attributes.iter().map(|a| a.id.as_str()).collect();
 
         let mut all_match = true;
         for rule in &policy.rules {
@@ -229,7 +280,9 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         }
         if all_match && !policy.rules.is_empty() {
             results.push(CheckResult::pass(
-                "REF-007", CAT, Severity::Warning,
+                "REF-007",
+                CAT,
+                Severity::Warning,
                 "All attribute policy IDs match attribute map entries",
             ));
         }
@@ -239,27 +292,33 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     if let Some(ref app_defaults) = sc.application_defaults {
         if let Some(ref remote_user) = app_defaults.remote_user {
             if let Some(ref map) = config.attribute_map {
-                let map_ids: HashSet<&str> =
-                    map.attributes.iter().map(|a| a.id.as_str()).collect();
+                let map_ids: HashSet<&str> = map.attributes.iter().map(|a| a.id.as_str()).collect();
 
                 let attrs: Vec<&str> = remote_user.split_whitespace().collect();
                 let mut all_found = true;
                 for attr in &attrs {
                     if !map_ids.contains(attr) {
-                        results.push(CheckResult::fail(
-                            "REF-008", CAT, Severity::Warning,
-                            &format!(
+                        results.push(
+                            CheckResult::fail(
+                                "REF-008",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
                                 "REMOTE_USER attribute '{}' is not defined in attribute-map.xml",
                                 attr
                             ),
-                            Some("Add a mapping for this attribute in attribute-map.xml"),
-                        ).with_doc(doc_for(DOC_ATTR_ACCESS, v)));
+                                Some("Add a mapping for this attribute in attribute-map.xml"),
+                            )
+                            .with_doc(doc_for(DOC_ATTR_ACCESS, v)),
+                        );
                         all_found = false;
                     }
                 }
                 if all_found && !attrs.is_empty() {
                     results.push(CheckResult::pass(
-                        "REF-008", CAT, Severity::Warning,
+                        "REF-008",
+                        CAT,
+                        Severity::Warning,
                         "All REMOTE_USER attributes are defined in attribute-map.xml",
                     ));
                 }
@@ -287,7 +346,9 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 match certificate::validate_pem_key_file(&full_path) {
                     Ok(()) => {
                         results.push(CheckResult::pass(
-                            "REF-011", CAT, Severity::Warning,
+                            "REF-011",
+                            CAT,
+                            Severity::Warning,
                             &format!("Key file is a valid PEM private key: {}", key_path),
                         ));
                     }
@@ -322,18 +383,25 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             };
             if let Some(src) = source {
                 if !seen_sources.insert(src.clone()) {
-                    results.push(CheckResult::fail(
-                        "REF-012", CAT, Severity::Warning,
-                        &format!("Duplicate MetadataProvider source: {}", src),
-                        Some("Remove the duplicate MetadataProvider or use different sources"),
-                    ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+                    results.push(
+                        CheckResult::fail(
+                            "REF-012",
+                            CAT,
+                            Severity::Warning,
+                            &format!("Duplicate MetadataProvider source: {}", src),
+                            Some("Remove the duplicate MetadataProvider or use different sources"),
+                        )
+                        .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                    );
                     has_duplicate = true;
                 }
             }
         }
         if !has_duplicate && seen_sources.len() > 1 {
             results.push(CheckResult::pass(
-                "REF-012", CAT, Severity::Warning,
+                "REF-012",
+                CAT,
+                Severity::Warning,
                 "No duplicate MetadataProvider sources found",
             ));
         }
@@ -358,11 +426,16 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "Remove or rename the duplicate <Attribute> entry; later entries shadow earlier ones"
                     )
                 };
-                results.push(CheckResult::fail(
-                    "REF-014", CAT, Severity::Warning,
-                    &format!("Duplicate attribute id '{}' in attribute-map.xml", attr.id),
-                    Some(&suggestion),
-                ).with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)));
+                results.push(
+                    CheckResult::fail(
+                        "REF-014",
+                        CAT,
+                        Severity::Warning,
+                        &format!("Duplicate attribute id '{}' in attribute-map.xml", attr.id),
+                        Some(&suggestion),
+                    )
+                    .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
+                );
                 has_dup = true;
             } else {
                 seen_ids.insert(&attr.id, &attr.name);
@@ -370,7 +443,9 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         }
         if !has_dup && !map.attributes.is_empty() {
             results.push(CheckResult::pass(
-                "REF-014", CAT, Severity::Warning,
+                "REF-014",
+                CAT,
+                Severity::Warning,
                 "No duplicate attribute IDs in attribute-map.xml",
             ));
         }
@@ -392,7 +467,9 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         }
         if !has_dup && !map.attributes.is_empty() {
             results.push(CheckResult::pass(
-                "REF-015", CAT, Severity::Info,
+                "REF-015",
+                CAT,
+                Severity::Info,
                 "No duplicate attribute names in attribute-map.xml",
             ));
         }
@@ -417,14 +494,25 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             }
             if found {
                 results.push(CheckResult::pass(
-                    "REF-016", CAT, Severity::Warning,
+                    "REF-016",
+                    CAT,
+                    Severity::Warning,
                     &format!("SSO entityID '{}' found in local metadata", sso_entity_id),
                 ));
-            } else if sc.metadata_providers.iter().any(|mp| mp.uri.is_some() || mp.url.is_some()) {
+            } else if sc
+                .metadata_providers
+                .iter()
+                .any(|mp| mp.uri.is_some() || mp.url.is_some())
+            {
                 // Remote providers exist that we can't check without --check-remote
                 results.push(CheckResult::pass(
-                    "REF-016", CAT, Severity::Warning,
-                    &format!("SSO entityID '{}' not found in local metadata (remote providers present)", sso_entity_id),
+                    "REF-016",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "SSO entityID '{}' not found in local metadata (remote providers present)",
+                        sso_entity_id
+                    ),
                 ));
             } else {
                 results.push(CheckResult::fail(
@@ -453,10 +541,15 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             }
         }
         if !has_missing_backing {
-            let has_remote = sc.metadata_providers.iter().any(|mp| mp.uri.is_some() || mp.url.is_some());
+            let has_remote = sc
+                .metadata_providers
+                .iter()
+                .any(|mp| mp.uri.is_some() || mp.url.is_some());
             if has_remote {
                 results.push(CheckResult::pass(
-                    "REF-017", CAT, Severity::Warning,
+                    "REF-017",
+                    CAT,
+                    Severity::Warning,
                     "All remote MetadataProviders have backingFilePath configured",
                 ));
             }
@@ -483,7 +576,9 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 let full_path = config.base_dir.join(path);
                 if full_path.exists() {
                     results.push(CheckResult::pass(
-                        "REF-013", CAT, Severity::Info,
+                        "REF-013",
+                        CAT,
+                        Severity::Info,
                         &format!("Errors {} template exists: {}", attr_name, path),
                     ));
                 } else {
@@ -535,15 +630,25 @@ fn metadata_contains_entity(full_path: &Path, entity_id: &str) -> bool {
     false
 }
 
-fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut Vec<CheckResult>, v: SpVersion) {
+fn check_local_metadata_saml(
+    full_path: &Path,
+    display_path: &str,
+    results: &mut Vec<CheckResult>,
+    v: SpVersion,
+) {
     let content = match std::fs::read_to_string(full_path) {
         Ok(c) => c,
         Err(_) => {
-            results.push(CheckResult::fail(
-                "REF-010", CAT, Severity::Warning,
-                &format!("Could not read local metadata file: {}", display_path),
-                Some("Ensure the metadata file is readable"),
-            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+            results.push(
+                CheckResult::fail(
+                    "REF-010",
+                    CAT,
+                    Severity::Warning,
+                    &format!("Could not read local metadata file: {}", display_path),
+                    Some("Ensure the metadata file is readable"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
             return;
         }
     };
@@ -557,16 +662,28 @@ fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut
             Ok(Event::Start(e)) => {
                 if root_element.is_none() {
                     let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    let local = full_name.rsplit(':').next().unwrap_or(&full_name).to_string();
+                    let local = full_name
+                        .rsplit(':')
+                        .next()
+                        .unwrap_or(&full_name)
+                        .to_string();
                     root_element = Some(local);
                 }
             }
             Err(_) => {
-                results.push(CheckResult::fail(
-                    "REF-010", CAT, Severity::Warning,
-                    &format!("Local metadata file is not well-formed XML: {}", display_path),
-                    Some("Fix XML syntax errors in the metadata file"),
-                ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+                results.push(
+                    CheckResult::fail(
+                        "REF-010",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "Local metadata file is not well-formed XML: {}",
+                            display_path
+                        ),
+                        Some("Fix XML syntax errors in the metadata file"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
                 return;
             }
             _ => {}
@@ -576,16 +693,29 @@ fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut
     match root_element.as_deref() {
         Some("EntityDescriptor") | Some("EntitiesDescriptor") => {
             results.push(CheckResult::pass(
-                "REF-010", CAT, Severity::Warning,
-                &format!("Local metadata contains valid SAML root element: {}", display_path),
+                "REF-010",
+                CAT,
+                Severity::Warning,
+                &format!(
+                    "Local metadata contains valid SAML root element: {}",
+                    display_path
+                ),
             ));
         }
         Some(other) => {
-            results.push(CheckResult::fail(
-                "REF-010", CAT, Severity::Warning,
-                &format!("Local metadata has unexpected root element <{}>: {}", other, display_path),
-                Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
-            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+            results.push(
+                CheckResult::fail(
+                    "REF-010",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "Local metadata has unexpected root element <{}>: {}",
+                        other, display_path
+                    ),
+                    Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
         }
         None => {
             results.push(CheckResult::fail(
@@ -599,25 +729,33 @@ fn check_local_metadata_saml(full_path: &Path, display_path: &str, results: &mut
 
 fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>, v: SpVersion) {
     let body = match ureq::get(url).call() {
-        Ok(response) => {
-            match response.into_body().read_to_string() {
-                Ok(body) => body,
-                Err(e) => {
-                    results.push(CheckResult::fail(
-                        "REF-009", CAT, Severity::Error,
+        Ok(response) => match response.into_body().read_to_string() {
+            Ok(body) => body,
+            Err(e) => {
+                results.push(
+                    CheckResult::fail(
+                        "REF-009",
+                        CAT,
+                        Severity::Error,
                         &format!("Failed to read response body from {}: {}", url, e),
                         Some("Ensure the remote metadata URL returns valid content"),
-                    ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
-                    return;
-                }
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
+                return;
             }
-        }
+        },
         Err(e) => {
-            results.push(CheckResult::fail(
-                "REF-009", CAT, Severity::Error,
-                &format!("Remote metadata URL unreachable: {} ({})", url, e),
-                Some("Ensure the remote metadata URL is correct and the server is reachable"),
-            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+            results.push(
+                CheckResult::fail(
+                    "REF-009",
+                    CAT,
+                    Severity::Error,
+                    &format!("Remote metadata URL unreachable: {} ({})", url, e),
+                    Some("Ensure the remote metadata URL is correct and the server is reachable"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
             return;
         }
     };
@@ -633,7 +771,11 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>, v: SpVersion
             Ok(Event::Start(e)) => {
                 if root_element.is_none() {
                     let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    let local = full_name.rsplit(':').next().unwrap_or(&full_name).to_string();
+                    let local = full_name
+                        .rsplit(':')
+                        .next()
+                        .unwrap_or(&full_name)
+                        .to_string();
                     root_element = Some(local);
                 }
             }
@@ -646,11 +788,16 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>, v: SpVersion
     }
 
     if !is_well_formed {
-        results.push(CheckResult::fail(
-            "REF-009", CAT, Severity::Warning,
-            &format!("Remote metadata is not well-formed XML: {}", url),
-            Some("The remote URL returned content that is not valid XML"),
-        ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+        results.push(
+            CheckResult::fail(
+                "REF-009",
+                CAT,
+                Severity::Warning,
+                &format!("Remote metadata is not well-formed XML: {}", url),
+                Some("The remote URL returned content that is not valid XML"),
+            )
+            .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+        );
         return;
     }
 
@@ -658,23 +805,38 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>, v: SpVersion
     match root_element.as_deref() {
         Some("EntityDescriptor") | Some("EntitiesDescriptor") => {
             results.push(CheckResult::pass(
-                "REF-009", CAT, Severity::Error,
+                "REF-009",
+                CAT,
+                Severity::Error,
                 &format!("Remote metadata is valid SAML metadata: {}", url),
             ));
         }
         Some(other) => {
-            results.push(CheckResult::fail(
-                "REF-009", CAT, Severity::Warning,
-                &format!("Remote URL returned XML but not SAML metadata (root element: <{}>): {}", other, url),
-                Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
-            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+            results.push(
+                CheckResult::fail(
+                    "REF-009",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "Remote URL returned XML but not SAML metadata (root element: <{}>): {}",
+                        other, url
+                    ),
+                    Some("Expected <EntityDescriptor> or <EntitiesDescriptor> as root element"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
         }
         None => {
-            results.push(CheckResult::fail(
-                "REF-009", CAT, Severity::Warning,
-                &format!("Remote URL returned empty XML document: {}", url),
-                Some("The remote metadata URL returned an empty document"),
-            ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
+            results.push(
+                CheckResult::fail(
+                    "REF-009",
+                    CAT,
+                    Severity::Warning,
+                    &format!("Remote URL returned empty XML document: {}", url),
+                    Some("The remote metadata URL returned an empty document"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
         }
     }
 }
