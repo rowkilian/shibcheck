@@ -195,7 +195,7 @@ fn process_element(
             });
         }
         "Handler" => {
-            if get_attr(e, "type").as_deref().map_or(false, |t| {
+            if get_attr(e, "type").as_deref().is_some_and(|t| {
                 t.contains("StatusHandler") || t.contains("Status")
             }) {
                 config.status_handler = Some(StatusHandler {
@@ -210,7 +210,7 @@ fn process_element(
 }
 
 fn parent_is(stack: &[String], name: &str) -> bool {
-    stack.last().map_or(false, |s| s == name)
+    stack.last().is_some_and(|s| s == name)
 }
 
 /// Check if XML is well-formed

@@ -162,7 +162,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     let has_signing = sc.credential_resolvers.iter().any(|cr| {
         cr.use_attr
             .as_deref()
-            .map_or(true, |u| u.contains("signing"))
+            .is_none_or(|u| u.contains("signing"))
     });
     if has_signing && !sc.credential_resolvers.is_empty() {
         results.push(CheckResult::pass(
@@ -188,7 +188,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     let has_encryption = sc.credential_resolvers.iter().any(|cr| {
         cr.use_attr
             .as_deref()
-            .map_or(true, |u| u.contains("encryption"))
+            .is_none_or(|u| u.contains("encryption"))
     });
     if has_encryption && !sc.credential_resolvers.is_empty() {
         results.push(CheckResult::pass(
@@ -317,7 +317,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
                     // SEC-009: Certificate expiring within 30 days
                     let days_until_expiry = (cert_info.not_after - now).num_days();
-                    if days_until_expiry >= 0 && days_until_expiry <= 30 {
+                    if (0..=30).contains(&days_until_expiry) {
                         results.push(
                             CheckResult::fail(
                                 "SEC-009",
@@ -523,7 +523,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // SEC-015: Status handler ACL configured
     if let Some(ref handler) = sc.status_handler {
-        if handler.acl.as_ref().map_or(false, |acl| !acl.is_empty()) {
+        if handler.acl.as_ref().is_some_and(|acl| !acl.is_empty()) {
             results.push(CheckResult::pass(
                 "SEC-015",
                 CAT,

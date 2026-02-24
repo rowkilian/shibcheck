@@ -376,10 +376,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 Some(format!("path={}", path))
             } else if let Some(ref uri) = mp.uri {
                 Some(format!("uri={}", uri))
-            } else if let Some(ref url) = mp.url {
-                Some(format!("url={}", url))
             } else {
-                None
+                mp.url.as_ref().map(|url| format!("url={}", url))
             };
             if let Some(src) = source {
                 if !seen_sources.insert(src.clone()) {
@@ -422,9 +420,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         attr.id, prev_name, attr.name
                     )
                 } else {
-                    format!(
-                        "Remove or rename the duplicate <Attribute> entry; later entries shadow earlier ones"
-                    )
+                    "Remove or rename the duplicate <Attribute> entry; later entries shadow earlier ones".to_string()
                 };
                 results.push(
                     CheckResult::fail(
@@ -483,11 +479,11 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 if let Some(ref path) = mp.path {
                     if !path.starts_with("http://") && !path.starts_with("https://") {
                         let full_path = config.base_dir.join(path);
-                        if full_path.exists() {
-                            if metadata_contains_entity(&full_path, sso_entity_id) {
-                                found = true;
-                                break;
-                            }
+                        if full_path.exists()
+                            && metadata_contains_entity(&full_path, sso_entity_id)
+                        {
+                            found = true;
+                            break;
                         }
                     }
                 }

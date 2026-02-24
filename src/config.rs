@@ -83,7 +83,7 @@ pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
 
     if let Ok(entries) = glob::glob(&pattern) {
         for entry in entries.filter_map(|e| e.ok()) {
-            if !main_files.iter().any(|f| *f == entry) {
+            if !main_files.contains(&entry) {
                 other_xml_files.push(entry.clone());
                 if let Err(e) = parsers::shibboleth_xml::check_well_formed(&entry) {
                     other_xml_malformed.push((entry, e.to_string()));

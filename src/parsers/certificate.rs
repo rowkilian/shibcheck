@@ -175,7 +175,7 @@ fn der_read_length(data: &[u8]) -> Result<(usize, usize)> {
         Ok((data[0] as usize, 1))
     } else {
         let num = (data[0] & 0x7f) as usize;
-        anyhow::ensure!(data.len() >= 1 + num, "Length bytes missing");
+        anyhow::ensure!(data.len() > num, "Length bytes missing");
         let mut len = 0usize;
         for i in 0..num {
             len = (len << 8) | data[1 + i] as usize;
