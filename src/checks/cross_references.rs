@@ -992,6 +992,67 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         }
     }
 
+    // REF-032: MetadataProvider ignoreTransport="true" without compensating Signature filter
+    for mp in &sc.metadata_providers {
+        if mp.provider_type == "Chaining" {
+            continue;
+        }
+        if mp.ignore_transport.as_deref() == Some("true") {
+            let has_sig_filter = mp.filters.iter().any(|f| f.filter_type == "Signature");
+            if !has_sig_filter {
+                results.push(
+                    CheckResult::fail(
+                        "REF-032",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "MetadataProvider type='{}' has ignoreTransport=\"true\" but no Signature filter to compensate",
+                            mp.provider_type
+                        ),
+                        Some("Add a SignatureMetadataFilter to verify metadata integrity when transport security is disabled"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_FILTER, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "REF-032",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "MetadataProvider type='{}' has ignoreTransport with Signature filter",
+                        mp.provider_type
+                    ),
+                ));
+            }
+        }
+    }
+
+    // REF-033: RequestMap root applicationId is not "default"
+    if let Some(ref root_app_id) = sc.request_map_root_app_id {
+        if root_app_id != "default" {
+            results.push(
+                CheckResult::fail(
+                    "REF-033",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "RequestMap root applicationId is '{}' instead of 'default'",
+                        root_app_id
+                    ),
+                    Some("The RequestMap root applicationId should typically be 'default' to match ApplicationDefaults"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "REF-033",
+                CAT,
+                Severity::Warning,
+                "RequestMap root applicationId is 'default'",
+            ));
+        }
+    }
+
     // REF-013: Error template file paths exist
     if let Some(ref errors) = sc.errors {
         let template_fields: &[(&str, &Option<String>)] = &[

@@ -15,7 +15,9 @@
             handlerSSL="true"
             cookieProps="https"
             redirectLimit="exact"
-            sameSiteFallback="true">
+            sameSiteFallback="true"
+            maxTimeSinceAuthn="28800"
+            redirectAllow="https://sp.example.org">
 
             <SSO entityID="https://idp.example.org/idp/shibboleth">SAML2</SSO>
             <Logout outgoingBindings="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect">SAML2 Local</Logout>
@@ -24,6 +26,8 @@
         </Sessions>
 
         <MetadataProvider type="XML"
+            id="primary"
+            validate="true"
             path="idp-metadata.xml"
             backingFilePath="idp-metadata-cache.xml">
             <MetadataFilter type="Signature" certificate="idp-signing.pem"/>

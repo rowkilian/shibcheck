@@ -534,5 +534,170 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // MIG-020: MetadataProvider legacyOrgNames="true" deprecated
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("legacyOrgNames=\"true\"") {
+            results.push(
+                CheckResult::fail(
+                    "MIG-020",
+                    CAT,
+                    Severity::Warning,
+                    "MetadataProvider legacyOrgNames=\"true\" is deprecated",
+                    Some("Remove legacyOrgNames=\"true\" — legacy organization name handling is no longer recommended"),
+                )
+                .with_doc(DOC_UPGRADE),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "MIG-020",
+                CAT,
+                Severity::Warning,
+                "No deprecated legacyOrgNames attribute found",
+            ));
+        }
+    }
+
+    // MIG-021: attribute-map.xml aliases attribute deprecated
+    {
+        let attr_map_path = config.base_dir.join("attribute-map.xml");
+        if attr_map_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&attr_map_path) {
+                if content.contains("aliases=") {
+                    results.push(
+                        CheckResult::fail(
+                            "MIG-021",
+                            CAT,
+                            Severity::Info,
+                            "attribute-map.xml uses deprecated 'aliases' attribute",
+                            Some(
+                                "Replace aliases with separate <Attribute> elements for each name",
+                            ),
+                        )
+                        .with_doc(DOC_UPGRADE),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "MIG-021",
+                        CAT,
+                        Severity::Info,
+                        "attribute-map.xml does not use deprecated aliases attribute",
+                    ));
+                }
+            }
+        }
+    }
+
+    // MIG-022: SessionInitiator type="Shib1" or type="WAYF" (legacy)
+    for si in &sc.session_initiators {
+        if let Some(ref t) = si.initiator_type {
+            if t == "Shib1" || t == "WAYF" {
+                results.push(
+                    CheckResult::fail(
+                        "MIG-022",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "SessionInitiator type=\"{}\" is a legacy protocol{}",
+                            t,
+                            si.id
+                                .as_ref()
+                                .map(|id| format!(" (id=\"{}\")", id))
+                                .unwrap_or_default()
+                        ),
+                        Some("Replace with type=\"SAML2\" for modern SAML 2.0 authentication"),
+                    )
+                    .with_doc(DOC_UPGRADE),
+                );
+            }
+        }
+    }
+
+    // MIG-023: SSO defaultACSIndex/acsIndex explicitly set (deprecated in SP3)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("defaultACSIndex") || content.contains("acsIndex") {
+            results.push(
+                CheckResult::fail(
+                    "MIG-023",
+                    CAT,
+                    Severity::Info,
+                    "SSO uses deprecated defaultACSIndex or acsIndex attribute",
+                    Some("Remove defaultACSIndex/acsIndex — SP3 manages ACS index automatically"),
+                )
+                .with_doc(DOC_UPGRADE),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "MIG-023",
+                CAT,
+                Severity::Info,
+                "No deprecated ACS index attributes found",
+            ));
+        }
+    }
+
+    // MIG-024: ApplicationOverride <Sessions> missing handlerSSL/cookieProps (not inherited)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        // Simple scan: find <Sessions inside ApplicationOverride blocks
+        let mut in_override = false;
+        let mut found_issue = false;
+        let mut sessions_buf = String::new();
+        let mut collecting_sessions = false;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("<ApplicationOverride") {
+                in_override = true;
+            }
+            if in_override && trimmed.contains("<Sessions") {
+                collecting_sessions = true;
+                sessions_buf.clear();
+            }
+            if collecting_sessions {
+                sessions_buf.push_str(trimmed);
+                sessions_buf.push(' ');
+                // Check if tag is closed (self-closing or opening tag end)
+                if trimmed.contains("/>") || trimmed.contains(">") {
+                    let missing_handler_ssl = !sessions_buf.contains("handlerSSL");
+                    let missing_cookie_props = !sessions_buf.contains("cookieProps");
+                    if missing_handler_ssl || missing_cookie_props {
+                        let mut missing = Vec::new();
+                        if missing_handler_ssl {
+                            missing.push("handlerSSL");
+                        }
+                        if missing_cookie_props {
+                            missing.push("cookieProps");
+                        }
+                        results.push(
+                            CheckResult::fail(
+                                "MIG-024",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "ApplicationOverride <Sessions> missing {} (NOT inherited from ApplicationDefaults)",
+                                    missing.join(", ")
+                                ),
+                                Some("Add handlerSSL and cookieProps to <Sessions> inside <ApplicationOverride> — they are not inherited"),
+                            )
+                            .with_doc(DOC_UPGRADE),
+                        );
+                        found_issue = true;
+                    }
+                    collecting_sessions = false;
+                }
+            }
+            if trimmed.contains("</ApplicationOverride") {
+                in_override = false;
+            }
+        }
+        if !found_issue && !sc.application_override_ids.is_empty() {
+            results.push(CheckResult::pass(
+                "MIG-024",
+                CAT,
+                Severity::Warning,
+                "ApplicationOverride Sessions elements have required attributes",
+            ));
+        }
+    }
+
     results
 }

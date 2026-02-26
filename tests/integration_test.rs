@@ -292,6 +292,78 @@ fn check_sec_044_tcp_listener_insecure_binding() {
 }
 
 #[test]
+fn check_sec_062_external_auth_no_acl() {
+    let output = shibcheck()
+        .args(["--check", "SEC-062", "--json", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let results = parsed["results"].as_array().unwrap();
+    let sec_062: Vec<_> = results
+        .iter()
+        .filter(|r| r["code"].as_str().unwrap() == "SEC-062")
+        .collect();
+    assert!(
+        !sec_062.is_empty(),
+        "Expected SEC-062 check for ExternalAuth handler without ACL"
+    );
+    assert!(
+        !sec_062[0]["passed"].as_bool().unwrap(),
+        "Expected SEC-062 to fail on ExternalAuth handler without ACL"
+    );
+}
+
+#[test]
+fn check_sec_055_ignore_transport_no_sig() {
+    let output = shibcheck()
+        .args(["--check", "SEC-055", "--json", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let results = parsed["results"].as_array().unwrap();
+    let sec_055: Vec<_> = results
+        .iter()
+        .filter(|r| r["code"].as_str().unwrap() == "SEC-055")
+        .collect();
+    assert!(
+        !sec_055.is_empty(),
+        "Expected SEC-055 check for ignoreTransport without Signature filter"
+    );
+    assert!(
+        !sec_055[0]["passed"].as_bool().unwrap(),
+        "Expected SEC-055 to fail on ignoreTransport without Signature filter"
+    );
+}
+
+#[test]
+fn check_mig_022_shib1_session_initiator() {
+    let output = shibcheck()
+        .args(["--check", "MIG-022", "--json", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let results = parsed["results"].as_array().unwrap();
+    let mig_022: Vec<_> = results
+        .iter()
+        .filter(|r| r["code"].as_str().unwrap() == "MIG-022")
+        .collect();
+    assert!(
+        !mig_022.is_empty(),
+        "Expected MIG-022 check for Shib1 SessionInitiator"
+    );
+    assert!(
+        !mig_022[0]["passed"].as_bool().unwrap(),
+        "Expected MIG-022 to fail on Shib1 SessionInitiator"
+    );
+}
+
+#[test]
 fn check_mig_019_wayf_deprecated() {
     let output = shibcheck()
         .args(["--check", "MIG-019", "--json", "tests/fixtures/insecure"])

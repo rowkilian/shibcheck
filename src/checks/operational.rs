@@ -683,5 +683,274 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         ));
     }
 
+    // OPS-022: maxTimeSinceAuthn not set (no authentication freshness check)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.max_time_since_authn.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-022",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "maxTimeSinceAuthn is set: {}s",
+                    sessions.max_time_since_authn.as_deref().unwrap_or("?")
+                ),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-022",
+                    CAT,
+                    Severity::Info,
+                    "maxTimeSinceAuthn not set on Sessions (no authentication freshness check)",
+                    Some("Set maxTimeSinceAuthn on <Sessions> to enforce re-authentication after a period (e.g., 28800 for 8 hours)"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-023: cookieLifetime set (persistent session cookies increase theft window)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref cl) = sessions.cookie_lifetime {
+            results.push(
+                CheckResult::fail(
+                    "OPS-023",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "cookieLifetime is set to {} (persistent session cookies increase theft window)",
+                        cl
+                    ),
+                    Some("Persistent cookies survive browser restarts; remove cookieLifetime for session-scoped cookies"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "OPS-023",
+                CAT,
+                Severity::Info,
+                "cookieLifetime is not set (session cookies are browser-scoped)",
+            ));
+        }
+    }
+
+    // OPS-024: MetadataProvider missing id in multi-provider setup (hard to debug)
+    {
+        let non_chaining: Vec<_> = sc
+            .metadata_providers
+            .iter()
+            .filter(|mp| mp.provider_type != "Chaining")
+            .collect();
+        if non_chaining.len() >= 2 {
+            let missing_id = non_chaining.iter().any(|mp| mp.id_attr.is_none());
+            if missing_id {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-024",
+                        CAT,
+                        Severity::Info,
+                        "One or more MetadataProviders lack an 'id' attribute in a multi-provider setup",
+                        Some("Add id attributes to MetadataProviders to simplify debugging and log analysis"),
+                    )
+                    .with_doc(DOC_METADATA_PROVIDER),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "OPS-024",
+                    CAT,
+                    Severity::Info,
+                    "All MetadataProviders have id attributes in multi-provider setup",
+                ));
+            }
+        }
+    }
+
+    // OPS-025: LogoutInitiator notifyWithout not set (local logouts won't trigger app notifications)
+    for li in &sc.logout_initiators {
+        if li.notify_without.is_none() {
+            results.push(
+                CheckResult::fail(
+                    "OPS-025",
+                    CAT,
+                    Severity::Info,
+                    "LogoutInitiator has no notifyWithout attribute (local logouts won't trigger application notifications)",
+                    Some("Set notifyWithout=\"true\" on LogoutInitiator to send Notify messages even for local-only logouts"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "OPS-025",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "LogoutInitiator notifyWithout is set: {}",
+                    li.notify_without.as_deref().unwrap_or("?")
+                ),
+            ));
+        }
+    }
+
+    // OPS-026: LogoutInitiator asynchronous is true/unset (logout may not return to SP)
+    for li in &sc.logout_initiators {
+        let is_async = li.asynchronous.as_deref() != Some("false");
+        if is_async && li.asynchronous.is_some() {
+            results.push(
+                CheckResult::fail(
+                    "OPS-026",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "LogoutInitiator asynchronous=\"{}\" (IdP may not return user to SP after logout)",
+                        li.asynchronous.as_deref().unwrap_or("true")
+                    ),
+                    Some("Set asynchronous=\"false\" on LogoutInitiator if you need the user to return to the SP after logout"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-027: Multiple SessionInitiators without isDefault (first is implicitly default)
+    if sc.session_initiators.len() > 1 {
+        let has_explicit_default = sc
+            .session_initiators
+            .iter()
+            .any(|si| si.is_default.is_some());
+        if !has_explicit_default {
+            results.push(
+                CheckResult::fail(
+                    "OPS-027",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "{} SessionInitiators found without any isDefault attribute (first is implicitly default)",
+                        sc.session_initiators.len()
+                    ),
+                    Some("Add isDefault=\"true\" to one SessionInitiator to make the default explicit"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "OPS-027",
+                CAT,
+                Severity::Info,
+                "Multiple SessionInitiators with explicit isDefault",
+            ));
+        }
+    }
+
+    // OPS-028: forceAuthn="true" at Host scope (excessive re-auth for all paths)
+    for cs in &sc.request_map_content_settings {
+        if cs.element == "Host" && cs.force_authn.as_deref() == Some("true") {
+            results.push(
+                CheckResult::fail(
+                    "OPS-028",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "<Host{}> has forceAuthn=\"true\" (all paths under this host will require re-authentication)",
+                        cs.name
+                            .as_ref()
+                            .map(|n| format!(" name=\"{}\"", n))
+                            .unwrap_or_default()
+                    ),
+                    Some("Consider moving forceAuthn=\"true\" to specific <Path> elements to avoid excessive re-authentication"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-029: SignatureMetadataFilter verifyBackup="false" (backed-up metadata not verified)
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if filter.filter_type == "Signature" {
+                if filter.verify_backup.as_deref() == Some("false") {
+                    results.push(
+                        CheckResult::fail(
+                            "OPS-029",
+                            CAT,
+                            Severity::Info,
+                            "SignatureMetadataFilter has verifyBackup=\"false\" (backed-up metadata will not be signature-verified on load)",
+                            Some("Set verifyBackup=\"true\" or remove the attribute to verify backed-up metadata"),
+                        )
+                        .with_doc(DOC_METADATA_PROVIDER),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "OPS-029",
+                        CAT,
+                        Severity::Info,
+                        "SignatureMetadataFilter verifyBackup is not disabled",
+                    ));
+                }
+            }
+        }
+    }
+
+    // OPS-030: cipherSuites does not disable TLSv1/1.1
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref suites) = app.cipher_suites {
+            // Check if TLSv1 or TLSv1.1 are explicitly disabled
+            let disables_tls10 = suites.contains("!TLSv1") || suites.contains("-TLSv1");
+            let disables_tls11 = suites.contains("!TLSv1.1") || suites.contains("-TLSv1.1");
+            if !disables_tls10 || !disables_tls11 {
+                let mut missing = Vec::new();
+                if !disables_tls10 {
+                    missing.push("TLSv1");
+                }
+                if !disables_tls11 {
+                    missing.push("TLSv1.1");
+                }
+                results.push(
+                    CheckResult::fail(
+                        "OPS-030",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "cipherSuites does not explicitly disable: {}",
+                            missing.join(", ")
+                        ),
+                        Some("Add !TLSv1:!TLSv1.1 to cipherSuites to disable legacy TLS versions"),
+                    )
+                    .with_doc(DOC_APP_DEFAULTS),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "OPS-030",
+                    CAT,
+                    Severity::Info,
+                    "cipherSuites explicitly disables TLSv1 and TLSv1.1",
+                ));
+            }
+        }
+    }
+
+    // OPS-031: DataSealer type="Static" (no key rotation for session recovery)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("DataSealer") && content.contains("type=\"Static\"") {
+            results.push(
+                CheckResult::fail(
+                    "OPS-031",
+                    CAT,
+                    Severity::Info,
+                    "DataSealer type=\"Static\" found (no key rotation for session recovery)",
+                    Some("Consider using DataSealer type=\"Versioned\" for automatic key rotation"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        } else if content.contains("DataSealer") {
+            results.push(CheckResult::pass(
+                "OPS-031",
+                CAT,
+                Severity::Info,
+                "DataSealer does not use static key type",
+            ));
+        }
+    }
+
     results
 }

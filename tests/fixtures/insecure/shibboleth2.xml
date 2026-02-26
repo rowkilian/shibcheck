@@ -13,16 +13,21 @@
             handlerSSL="false"
             cookieProps=""
             redirectLimit="whitelist"
-            consistentAddress="false">
+            consistentAddress="false"
+            exportLocation="/export"
+            exportACL="0.0.0.0/0">
 
             <SSO entityID="https://idp.example.org/idp/shibboleth"
                  discoveryProtocol="WAYF">SAML2 SAML1</SSO>
+
+            <SessionInitiator type="Shib1" id="legacy"/>
 
             <Notify Channel="http://app.example.org/notify"/>
         </Sessions>
 
         <MetadataProvider type="XML"
-            uri="http://idp.example.org/metadata">
+            uri="http://idp.example.org/metadata"
+            ignoreTransport="true">
             <MetadataFilter type="Whitelist"/>
         </MetadataProvider>
 
@@ -33,5 +38,6 @@
         <Errors supportContact="admin@localhost"/>
 
         <Handler type="Session" Location="/Session" showAttributeValues="true"/>
+        <Handler type="ExternalAuth" Location="/ExternalAuth"/>
     </ApplicationDefaults>
 </SPConfig>

@@ -1607,6 +1607,361 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // SEC-052: signingAlg uses SHA-1 (rsa-sha1)
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref alg) = app.signing_alg {
+            let lower = alg.to_lowercase();
+            if lower.contains("sha1") || lower.contains("sha-1") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-052",
+                        CAT,
+                        Severity::Warning,
+                        &format!("signingAlg uses SHA-1: {}", alg),
+                        Some(
+                            "Use a stronger algorithm like rsa-sha256 or ecdsa-sha256 for signing",
+                        ),
+                    )
+                    .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-052",
+                    CAT,
+                    Severity::Warning,
+                    &format!("signingAlg does not use SHA-1: {}", alg),
+                ));
+            }
+        }
+    }
+
+    // SEC-053: digestAlg uses SHA-1
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref alg) = app.digest_alg {
+            let lower = alg.to_lowercase();
+            if lower.contains("sha1") || lower.contains("sha-1") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-053",
+                        CAT,
+                        Severity::Warning,
+                        &format!("digestAlg uses SHA-1: {}", alg),
+                        Some("Use a stronger digest algorithm like sha256 or sha384"),
+                    )
+                    .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-053",
+                    CAT,
+                    Severity::Warning,
+                    &format!("digestAlg does not use SHA-1: {}", alg),
+                ));
+            }
+        }
+    }
+
+    // SEC-054: SignatureMetadataFilter has verifyName="false"
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if filter.filter_type == "Signature" {
+                if filter.verify_name.as_deref() == Some("false") {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-054",
+                            CAT,
+                            Severity::Warning,
+                            "SignatureMetadataFilter has verifyName=\"false\" (signature name verification disabled)",
+                            Some("Remove verifyName=\"false\" or set to \"true\" to verify the signer's name matches"),
+                        )
+                        .with_doc(doc_for(DOC_SIGNATURE_FILTER, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-054",
+                        CAT,
+                        Severity::Warning,
+                        "SignatureMetadataFilter verifyName is not disabled",
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-055: MetadataProvider ignoreTransport="true" without Signature filter
+    for mp in &sc.metadata_providers {
+        if mp.ignore_transport.as_deref() == Some("true") {
+            let has_sig_filter = mp.filters.iter().any(|f| f.filter_type == "Signature");
+            if !has_sig_filter {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-055",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "MetadataProvider type='{}' has ignoreTransport=\"true\" without a Signature filter",
+                            mp.provider_type
+                        ),
+                        Some("Add a SignatureMetadataFilter or remove ignoreTransport=\"true\" to validate transport security"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-055",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "MetadataProvider type='{}' has ignoreTransport=\"true\" with compensating Signature filter",
+                        mp.provider_type
+                    ),
+                ));
+            }
+        }
+    }
+
+    // SEC-056: requireTransportAuth="false" (disables TLS cert validation on back-channel)
+    if let Some(ref app) = sc.application_defaults {
+        if app.require_transport_auth.as_deref() == Some("false") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-056",
+                    CAT,
+                    Severity::Warning,
+                    "requireTransportAuth=\"false\" disables TLS certificate validation on back-channel",
+                    Some("Remove requireTransportAuth=\"false\" or set to \"true\" to validate TLS certificates"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        } else if app.require_transport_auth.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-056",
+                CAT,
+                Severity::Warning,
+                "requireTransportAuth is not disabled",
+            ));
+        }
+    }
+
+    // SEC-057: requireConfidentiality="false" (allows unencrypted back-channel)
+    if let Some(ref app) = sc.application_defaults {
+        if app.require_confidentiality.as_deref() == Some("false") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-057",
+                    CAT,
+                    Severity::Warning,
+                    "requireConfidentiality=\"false\" allows unencrypted back-channel communication",
+                    Some("Remove requireConfidentiality=\"false\" or set to \"true\" to require encrypted back-channel"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        } else if app.require_confidentiality.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-057",
+                CAT,
+                Severity::Warning,
+                "requireConfidentiality is not disabled",
+            ));
+        }
+    }
+
+    // SEC-058: exportACL set beyond localhost (assertion export exposed)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref acl) = sessions.export_acl {
+            let trimmed = acl.trim();
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            let is_localhost_only = parts
+                .iter()
+                .all(|p| *p == "127.0.0.1" || *p == "::1" || *p == "localhost");
+            if !is_localhost_only {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-058",
+                        CAT,
+                        Severity::Warning,
+                        &format!("exportACL extends beyond localhost: {}", acl),
+                        Some("Restrict exportACL to \"127.0.0.1 ::1\" to limit assertion export access"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-058",
+                    CAT,
+                    Severity::Warning,
+                    "exportACL is restricted to localhost",
+                ));
+            }
+        }
+    }
+
+    // SEC-059: exportLocation set (assertion export is enabled)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref loc) = sessions.export_location {
+            let acl_safe = sessions
+                .export_acl
+                .as_ref()
+                .map(|a| {
+                    let parts: Vec<&str> = a.split_whitespace().collect();
+                    parts
+                        .iter()
+                        .all(|p| *p == "127.0.0.1" || *p == "::1" || *p == "localhost")
+                })
+                .unwrap_or(false);
+            if acl_safe {
+                results.push(CheckResult::pass(
+                    "SEC-059",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "exportLocation is set ({}) with localhost-only exportACL",
+                        loc
+                    ),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-059",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "exportLocation is set ({}) without restrictive exportACL",
+                            loc
+                        ),
+                        Some("Set exportACL=\"127.0.0.1 ::1\" when using exportLocation to restrict access"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-060: LogoutInitiator signing not set (logout requests may be unsigned)
+    for li in &sc.logout_initiators {
+        if li.signing.is_none() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-060",
+                    CAT,
+                    Severity::Warning,
+                    "LogoutInitiator has no 'signing' attribute (logout requests may be unsigned)",
+                    Some("Set signing=\"true\" on LogoutInitiator to sign logout requests"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "SEC-060",
+                CAT,
+                Severity::Warning,
+                &format!(
+                    "LogoutInitiator signing is set: {}",
+                    li.signing.as_deref().unwrap_or("?")
+                ),
+            ));
+        }
+    }
+
+    // SEC-061: redirectLimit contains "+allow" but redirectAllow is missing
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref limit) = sessions.redirect_limit {
+            if limit.contains("allow") && sessions.redirect_allow.is_none() {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-061",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "redirectLimit=\"{}\" references allow-list but redirectAllow is not set",
+                            limit
+                        ),
+                        Some("Set redirectAllow on <Sessions> with allowed redirect URLs"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else if limit.contains("allow") {
+                results.push(CheckResult::pass(
+                    "SEC-061",
+                    CAT,
+                    Severity::Warning,
+                    "redirectLimit allow-list has redirectAllow configured",
+                ));
+            }
+        }
+    }
+
+    // SEC-062: ExternalAuth handler has no ACL (authentication bypass risk)
+    for handler in &sc.handlers {
+        if handler.handler_type == "ExternalAuth" {
+            if handler.acl.is_some() {
+                results.push(CheckResult::pass(
+                    "SEC-062",
+                    CAT,
+                    Severity::Warning,
+                    "ExternalAuth handler has ACL restriction",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-062",
+                        CAT,
+                        Severity::Warning,
+                        "ExternalAuth handler has no ACL (authentication bypass risk)",
+                        Some("Add acl=\"127.0.0.1 ::1\" to the ExternalAuth handler to restrict access"),
+                    )
+                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-063: AttributeResolver handler has no ACL (PII exposure)
+    for handler in &sc.handlers {
+        if handler.handler_type == "AttributeResolver" {
+            if handler.acl.is_some() {
+                results.push(CheckResult::pass(
+                    "SEC-063",
+                    CAT,
+                    Severity::Warning,
+                    "AttributeResolver handler has ACL restriction",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-063",
+                        CAT,
+                        Severity::Warning,
+                        "AttributeResolver handler has no ACL (PII exposure risk)",
+                        Some("Add acl=\"127.0.0.1 ::1\" to the AttributeResolver handler to restrict access"),
+                    )
+                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-064: Handler ACL contains broad CIDR (0.0.0.0/0 or ::/0)
+    for handler in &sc.handlers {
+        if let Some(ref acl) = handler.acl {
+            if acl.contains("0.0.0.0/0") || acl.contains("::/0") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-064",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Handler type='{}' ACL contains broad CIDR: {}",
+                            handler.handler_type, acl
+                        ),
+                        Some("Restrict ACL to specific IP addresses or subnets instead of 0.0.0.0/0 or ::/0"),
+                    )
+                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                );
+            }
+        }
+    }
+
     // SEC-016: Private key file not world-readable (Unix only)
     #[cfg(unix)]
     {

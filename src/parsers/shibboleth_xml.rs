@@ -177,6 +177,10 @@ fn process_element(
                 encryption: get_attr(e, "encryption"),
                 cipher_suites: get_attr(e, "cipherSuites"),
                 home_url: get_attr(e, "homeURL"),
+                signing_alg: get_attr(e, "signingAlg"),
+                digest_alg: get_attr(e, "digestAlg"),
+                require_transport_auth: get_attr(e, "requireTransportAuth"),
+                require_confidentiality: get_attr(e, "requireConfidentiality"),
             });
         }
         "Sessions" => {
@@ -206,6 +210,11 @@ fn process_element(
                     same_site_fallback: get_attr(e, "sameSiteFallback"),
                     post_data: get_attr(e, "postData"),
                     logout_outgoing_bindings: None,
+                    max_time_since_authn: get_attr(e, "maxTimeSinceAuthn"),
+                    cookie_lifetime: get_attr(e, "cookieLifetime"),
+                    export_acl: get_attr(e, "exportACL"),
+                    export_location: get_attr(e, "exportLocation"),
+                    redirect_allow: get_attr(e, "redirectAllow"),
                 });
             }
         }
@@ -233,6 +242,13 @@ fn process_element(
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_session_initiator = true;
             }
+            config
+                .session_initiators
+                .push(crate::model::shibboleth_config::SessionInitiatorInfo {
+                    initiator_type: get_attr(e, "type"),
+                    id: get_attr(e, "id"),
+                    is_default: get_attr(e, "isDefault"),
+                });
         }
         "Logout" | "LogoutInitiator" => {
             if let Some(ref mut sessions) = config.sessions {
@@ -241,6 +257,14 @@ fn process_element(
                     sessions.logout_outgoing_bindings = get_attr(e, "outgoingBindings");
                 }
             }
+            config
+                .logout_initiators
+                .push(crate::model::shibboleth_config::LogoutInitiatorInfo {
+                    initiator_type: get_attr(e, "type"),
+                    signing: get_attr(e, "signing"),
+                    asynchronous: get_attr(e, "asynchronous"),
+                    notify_without: get_attr(e, "notifyWithout"),
+                });
         }
         "MetadataProvider" => {
             let mp = MetadataProvider {
@@ -255,6 +279,9 @@ fn process_element(
                 filters: Vec::new(),
                 max_refresh_delay: get_attr(e, "maxRefreshDelay"),
                 children_count: 0,
+                id_attr: get_attr(e, "id"),
+                validate_attr: get_attr(e, "validate"),
+                ignore_transport: get_attr(e, "ignoreTransport"),
             };
             if is_empty {
                 // If there's a parent Chaining MP on the stack, increment its count
@@ -275,6 +302,8 @@ fn process_element(
                 max_validity_interval: get_attr(e, "maxValidityInterval"),
                 require_valid_until: get_attr(e, "requireValidUntil"),
                 has_trust_engine: false,
+                verify_name: get_attr(e, "verifyName"),
+                verify_backup: get_attr(e, "verifyBackup"),
             };
             if let Some(mp) = mp_stack.last_mut() {
                 mp.filters.push(filter);
@@ -380,11 +409,28 @@ fn process_element(
                 config.notify_endpoints.push(loc);
             }
         }
+        "RequestMapper" => {
+            config.request_map_type = get_attr(e, "type");
+        }
+        "RequestMap" => {
+            config.request_map_root_app_id = get_attr(e, "applicationId");
+        }
         "Host" | "Path" => {
             if in_request_map {
                 if let Some(app_id) = get_attr(e, "applicationId") {
                     config.request_map_application_ids.push(app_id);
                 }
+                config.request_map_content_settings.push(
+                    crate::model::shibboleth_config::ContentSetting {
+                        element: name.to_string(),
+                        name: get_attr(e, "name"),
+                        require_session: get_attr(e, "requireSession"),
+                        auth_type: get_attr(e, "authType"),
+                        is_passive: get_attr(e, "isPassive"),
+                        force_authn: get_attr(e, "forceAuthn"),
+                        redirect_to_ssl: get_attr(e, "redirectToSSL"),
+                    },
+                );
             }
         }
         _ => {}
@@ -920,5 +966,215 @@ mod tests {
             .find(|mp| mp.provider_type == "Chaining")
             .unwrap();
         assert_eq!(chaining.children_count, 3);
+    }
+
+    #[test]
+    fn test_parse_session_initiator_info() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso">
+                    <SessionInitiator type="SAML2" id="default-init" isDefault="true"/>
+                    <SessionInitiator type="Shib1" id="legacy-init"/>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.session_initiators.len(), 2);
+        assert_eq!(
+            config.session_initiators[0].initiator_type.as_deref(),
+            Some("SAML2")
+        );
+        assert_eq!(
+            config.session_initiators[0].id.as_deref(),
+            Some("default-init")
+        );
+        assert_eq!(
+            config.session_initiators[0].is_default.as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            config.session_initiators[1].initiator_type.as_deref(),
+            Some("Shib1")
+        );
+        assert!(config.session_initiators[1].is_default.is_none());
+    }
+
+    #[test]
+    fn test_parse_logout_initiator_info() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso">
+                    <LogoutInitiator type="SAML2" signing="true" asynchronous="false" notifyWithout="true"/>
+                    <Logout>SAML2 Local</Logout>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.logout_initiators.len(), 2);
+        assert_eq!(
+            config.logout_initiators[0].initiator_type.as_deref(),
+            Some("SAML2")
+        );
+        assert_eq!(config.logout_initiators[0].signing.as_deref(), Some("true"));
+        assert_eq!(
+            config.logout_initiators[0].asynchronous.as_deref(),
+            Some("false")
+        );
+        assert_eq!(
+            config.logout_initiators[0].notify_without.as_deref(),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn test_parse_request_map_content_settings() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <RequestMap>
+                <Host name="sp.example.org" requireSession="true" authType="shibboleth">
+                    <Path name="/admin" forceAuthn="true" isPassive="false"/>
+                </Host>
+            </RequestMap>
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.request_map_content_settings.len(), 2);
+        let host = &config.request_map_content_settings[0];
+        assert_eq!(host.element, "Host");
+        assert_eq!(host.name.as_deref(), Some("sp.example.org"));
+        assert_eq!(host.require_session.as_deref(), Some("true"));
+        assert_eq!(host.auth_type.as_deref(), Some("shibboleth"));
+        let path = &config.request_map_content_settings[1];
+        assert_eq!(path.element, "Path");
+        assert_eq!(path.name.as_deref(), Some("/admin"));
+        assert_eq!(path.force_authn.as_deref(), Some("true"));
+        assert_eq!(path.is_passive.as_deref(), Some("false"));
+    }
+
+    #[test]
+    fn test_parse_new_sessions_attrs() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso"
+                          maxTimeSinceAuthn="28800"
+                          cookieLifetime="86400"
+                          exportACL="127.0.0.1 ::1"
+                          exportLocation="/export"
+                          redirectAllow="https://sp.example.org">
+                    <SSO entityID="https://idp.example.org">SAML2</SSO>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let sessions = config.sessions.as_ref().unwrap();
+        assert_eq!(sessions.max_time_since_authn.as_deref(), Some("28800"));
+        assert_eq!(sessions.cookie_lifetime.as_deref(), Some("86400"));
+        assert_eq!(sessions.export_acl.as_deref(), Some("127.0.0.1 ::1"));
+        assert_eq!(sessions.export_location.as_deref(), Some("/export"));
+        assert_eq!(
+            sessions.redirect_allow.as_deref(),
+            Some("https://sp.example.org")
+        );
+    }
+
+    #[test]
+    fn test_parse_new_app_defaults_attrs() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"
+                                 signingAlg="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
+                                 digestAlg="http://www.w3.org/2001/04/xmlenc#sha256"
+                                 requireTransportAuth="true"
+                                 requireConfidentiality="true"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let app = config.application_defaults.as_ref().unwrap();
+        assert_eq!(
+            app.signing_alg.as_deref(),
+            Some("http://www.w3.org/2001/04/xmldsig-more#rsa-sha256")
+        );
+        assert_eq!(
+            app.digest_alg.as_deref(),
+            Some("http://www.w3.org/2001/04/xmlenc#sha256")
+        );
+        assert_eq!(app.require_transport_auth.as_deref(), Some("true"));
+        assert_eq!(app.require_confidentiality.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn test_parse_new_metadata_provider_attrs() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <MetadataProvider type="XML" id="primary" validate="true" ignoreTransport="true"
+                                 path="idp-metadata.xml"/>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let mp = config
+            .metadata_providers
+            .iter()
+            .find(|m| m.provider_type == "XML")
+            .unwrap();
+        assert_eq!(mp.id_attr.as_deref(), Some("primary"));
+        assert_eq!(mp.validate_attr.as_deref(), Some("true"));
+        assert_eq!(mp.ignore_transport.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn test_parse_new_metadata_filter_attrs() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <MetadataProvider type="XML" uri="https://fed.example.org/metadata.xml">
+                    <MetadataFilter type="Signature" verifyName="false" verifyBackup="true"/>
+                </MetadataProvider>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let mp = config
+            .metadata_providers
+            .iter()
+            .find(|m| m.provider_type == "XML")
+            .unwrap();
+        assert_eq!(mp.filters.len(), 1);
+        assert_eq!(mp.filters[0].verify_name.as_deref(), Some("false"));
+        assert_eq!(mp.filters[0].verify_backup.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn test_parse_request_mapper_type() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <RequestMapper type="XML"/>
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.request_map_type.as_deref(), Some("XML"));
+    }
+
+    #[test]
+    fn test_parse_request_map_root_app_id() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <RequestMap applicationId="custom">
+                <Host name="sp.example.org"/>
+            </RequestMap>
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.request_map_root_app_id.as_deref(), Some("custom"));
     }
 }

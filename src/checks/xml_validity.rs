@@ -1088,6 +1088,109 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 ));
             }
         }
+
+        // XML-044: MetadataProvider has no validate attribute (schema validation off)
+        for mp in &sc.metadata_providers {
+            if mp.provider_type == "Chaining" {
+                continue;
+            }
+            if mp.validate_attr.is_some() {
+                results.push(CheckResult::pass(
+                    "XML-044",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "MetadataProvider type='{}' has validate attribute set",
+                        mp.provider_type
+                    ),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "XML-044",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "MetadataProvider type='{}' has no validate attribute (schema validation off by default)",
+                            mp.provider_type
+                        ),
+                        Some("Add validate=\"true\" to MetadataProvider to enable schema validation of metadata"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
+            }
+        }
+
+        // XML-045: isPassive="true" combined with requireSession="true" (users get errors, not login)
+        for cs in &sc.request_map_content_settings {
+            if cs.is_passive.as_deref() == Some("true")
+                && cs.require_session.as_deref() == Some("true")
+            {
+                results.push(
+                    CheckResult::fail(
+                        "XML-045",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "<{}{}> has isPassive=\"true\" with requireSession=\"true\" (users get errors instead of login prompts)",
+                            cs.element,
+                            cs.name
+                                .as_ref()
+                                .map(|n| format!(" name=\"{}\"", n))
+                                .unwrap_or_default()
+                        ),
+                        Some("Remove isPassive=\"true\" or requireSession=\"true\" — combining them causes authentication errors for unauthenticated users"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            }
+        }
+
+        // XML-046: requireSession="true" without authType="shibboleth" (SP ignores resource)
+        for cs in &sc.request_map_content_settings {
+            if cs.require_session.as_deref() == Some("true") && cs.auth_type.is_none() {
+                results.push(
+                    CheckResult::fail(
+                        "XML-046",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "<{}{}> has requireSession=\"true\" without authType (SP may not enforce protection)",
+                            cs.element,
+                            cs.name
+                                .as_ref()
+                                .map(|n| format!(" name=\"{}\"", n))
+                                .unwrap_or_default()
+                        ),
+                        Some("Add authType=\"shibboleth\" alongside requireSession=\"true\" in web server configuration, or ensure the web server module enforces it"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            }
+        }
+
+        // XML-047: RequestMapper type="XML" (web server directives ignored)
+        if let Some(ref rm_type) = sc.request_map_type {
+            if rm_type == "XML" {
+                results.push(
+                    CheckResult::fail(
+                        "XML-047",
+                        CAT,
+                        Severity::Info,
+                        "RequestMapper type=\"XML\" — web server directives (e.g., Apache <Location>) are ignored",
+                        Some("With type=\"XML\", all access control must be in shibboleth2.xml RequestMap; web server directives have no effect"),
+                    )
+                    .with_doc(doc_for(DOC_SPCONFIG, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "XML-047",
+                    CAT,
+                    Severity::Info,
+                    &format!("RequestMapper type is '{}' (not XML-only)", rm_type),
+                ));
+            }
+        }
     }
 
     // XML-015: Other XML files well-formed

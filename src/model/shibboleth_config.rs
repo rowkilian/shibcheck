@@ -32,6 +32,11 @@ pub struct ShibbolethConfig {
     pub security_policy_provider_validate: Option<String>,
     pub tcp_listener_address: Option<String>,
     pub request_map_application_ids: Vec<String>,
+    pub session_initiators: Vec<SessionInitiatorInfo>,
+    pub logout_initiators: Vec<LogoutInitiatorInfo>,
+    pub request_map_content_settings: Vec<ContentSetting>,
+    pub request_map_type: Option<String>,
+    pub request_map_root_app_id: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -41,6 +46,10 @@ pub struct ApplicationDefaults {
     pub encryption: Option<String>,
     pub cipher_suites: Option<String>,
     pub home_url: Option<String>,
+    pub signing_alg: Option<String>,
+    pub digest_alg: Option<String>,
+    pub require_transport_auth: Option<String>,
+    pub require_confidentiality: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +78,11 @@ pub struct SessionsConfig {
     pub same_site_fallback: Option<String>,
     pub post_data: Option<String>,
     pub logout_outgoing_bindings: Option<String>,
+    pub max_time_since_authn: Option<String>,
+    pub cookie_lifetime: Option<String>,
+    pub export_acl: Option<String>,
+    pub export_location: Option<String>,
+    pub redirect_allow: Option<String>,
 }
 
 #[derive(Debug)]
@@ -84,6 +98,9 @@ pub struct MetadataProvider {
     pub filters: Vec<MetadataFilter>,
     pub max_refresh_delay: Option<String>,
     pub children_count: usize,
+    pub id_attr: Option<String>,
+    pub validate_attr: Option<String>,
+    pub ignore_transport: Option<String>,
 }
 
 #[derive(Debug)]
@@ -94,6 +111,8 @@ pub struct MetadataFilter {
     pub max_validity_interval: Option<String>,
     pub require_valid_until: Option<String>,
     pub has_trust_engine: bool,
+    pub verify_name: Option<String>,
+    pub verify_backup: Option<String>,
 }
 
 #[derive(Debug)]
@@ -131,4 +150,32 @@ pub struct HandlerInfo {
     pub location: Option<String>,
     pub show_attribute_values: Option<String>,
     pub acl: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct SessionInitiatorInfo {
+    pub initiator_type: Option<String>,
+    pub id: Option<String>,
+    pub is_default: Option<String>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct LogoutInitiatorInfo {
+    pub initiator_type: Option<String>,
+    pub signing: Option<String>,
+    pub asynchronous: Option<String>,
+    pub notify_without: Option<String>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct ContentSetting {
+    pub element: String,
+    pub name: Option<String>,
+    pub require_session: Option<String>,
+    pub auth_type: Option<String>,
+    pub is_passive: Option<String>,
+    pub force_authn: Option<String>,
+    pub redirect_to_ssl: Option<String>,
 }
