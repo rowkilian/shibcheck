@@ -16,6 +16,8 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
     let mut config = ShibbolethConfig::default();
     let mut element_stack: Vec<String> = Vec::new();
     let mut mp_stack: Vec<MetadataProvider> = Vec::new();
+    let mut cr_stack: Vec<CredentialResolver> = Vec::new();
+    let mut text_target: Option<String> = None;
 
     loop {
         match reader.read_event() {
@@ -27,18 +29,66 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
             Ok(Event::Eof) => break,
             Ok(Event::Start(e)) => {
                 let name = local_name(&e);
-                process_element(&name, &e, &element_stack, &mut config, &mut mp_stack, false)?;
+                process_element(
+                    &name,
+                    &e,
+                    &element_stack,
+                    &mut config,
+                    &mut mp_stack,
+                    &mut cr_stack,
+                    false,
+                )?;
+                // Track elements whose text content we need
+                if name == "SSO" || name == "Logout" {
+                    text_target = Some(name.clone());
+                } else {
+                    text_target = None;
+                }
                 element_stack.push(name);
             }
             Ok(Event::Empty(e)) => {
                 let name = local_name(&e);
-                process_element(&name, &e, &element_stack, &mut config, &mut mp_stack, true)?;
+                process_element(
+                    &name,
+                    &e,
+                    &element_stack,
+                    &mut config,
+                    &mut mp_stack,
+                    &mut cr_stack,
+                    true,
+                )?;
+                text_target = None;
+            }
+            Ok(Event::Text(e)) => {
+                if let Some(ref target) = text_target {
+                    let text = e.unescape().unwrap_or_default().trim().to_string();
+                    if !text.is_empty() {
+                        if let Some(ref mut sessions) = config.sessions {
+                            match target.as_str() {
+                                "SSO" => sessions.sso_protocols = Some(text),
+                                "Logout" => sessions.logout_protocols = Some(text),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
             }
             Ok(Event::End(_)) => {
+                text_target = None;
                 if let Some(name) = element_stack.pop() {
                     if name == "MetadataProvider" {
                         if let Some(mp) = mp_stack.pop() {
                             config.metadata_providers.push(mp);
+                        }
+                    } else if name == "CredentialResolver" {
+                        if let Some(cr) = cr_stack.pop() {
+                            // If there's a parent Chaining CR on the stack, increment its count
+                            if let Some(parent) = cr_stack.last_mut() {
+                                if parent.resolver_type == "Chaining" {
+                                    parent.children_count += 1;
+                                }
+                            }
+                            config.credential_resolvers.push(cr);
                         }
                     }
                 }
@@ -50,6 +100,11 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
     // Push any remaining metadata providers
     for mp in mp_stack.drain(..) {
         config.metadata_providers.push(mp);
+    }
+
+    // Push any remaining credential resolvers
+    for cr in cr_stack.drain(..) {
+        config.credential_resolvers.push(cr);
     }
 
     Ok(config)
@@ -79,6 +134,7 @@ fn process_element(
     stack: &[String],
     config: &mut ShibbolethConfig,
     mp_stack: &mut Vec<MetadataProvider>,
+    cr_stack: &mut Vec<CredentialResolver>,
     is_empty: bool,
 ) -> Result<()> {
     match name {
@@ -89,6 +145,7 @@ fn process_element(
                 Some("urn:mace:shibboleth:2.0:native:sp:config") => SpVersion::V2,
                 _ => SpVersion::Unknown,
             };
+            config.clock_skew = get_attr(e, "clockSkew");
         }
         "ApplicationDefaults" => {
             config.has_application_defaults = true;
@@ -97,6 +154,7 @@ fn process_element(
                 remote_user: get_attr(e, "REMOTE_USER"),
                 signing: get_attr(e, "signing"),
                 encryption: get_attr(e, "encryption"),
+                cipher_suites: get_attr(e, "cipherSuites"),
             });
         }
         "Sessions" => {
@@ -111,6 +169,18 @@ fn process_element(
                     has_session_initiator: false,
                     has_logout: false,
                     sso_entity_id: None,
+                    redirect_limit: get_attr(e, "redirectLimit"),
+                    consistent_address: get_attr(e, "consistentAddress"),
+                    relay_state: get_attr(e, "relayState"),
+                    redirect_whitelist: get_attr(e, "redirectWhitelist"),
+                    sso_discovery_url: None,
+                    sso_discovery_protocol: None,
+                    sso_protocols: None,
+                    logout_protocols: None,
+                    post_limit: get_attr(e, "postLimit"),
+                    idp_history: get_attr(e, "idpHistory"),
+                    idp_history_days: get_attr(e, "idpHistoryDays"),
+                    check_address: get_attr(e, "checkAddress"),
                 });
             }
         }
@@ -120,6 +190,18 @@ fn process_element(
                 if sessions.sso_entity_id.is_none() {
                     sessions.sso_entity_id = get_attr(e, "entityID");
                 }
+                if sessions.sso_discovery_url.is_none() {
+                    sessions.sso_discovery_url = get_attr(e, "discoveryURL");
+                }
+                if sessions.sso_discovery_protocol.is_none() {
+                    sessions.sso_discovery_protocol = get_attr(e, "discoveryProtocol");
+                }
+            }
+            if config.sso_authn_context_class_ref.is_none() {
+                config.sso_authn_context_class_ref = get_attr(e, "authnContextClassRef");
+            }
+            if config.sso_ecp.is_none() {
+                config.sso_ecp = get_attr(e, "ECP");
             }
         }
         "SessionInitiator" => {
@@ -140,7 +222,10 @@ fn process_element(
                 url: get_attr(e, "url"),
                 backing_file_path: get_attr(e, "backingFilePath"),
                 source_directory: get_attr(e, "sourceDirectory"),
+                reload_interval: get_attr(e, "reloadInterval"),
+                file_attr: get_attr(e, "file"),
                 filters: Vec::new(),
+                max_refresh_delay: get_attr(e, "maxRefreshDelay"),
             };
             if is_empty {
                 config.metadata_providers.push(mp);
@@ -154,9 +239,20 @@ fn process_element(
                 certificate: get_attr(e, "certificate"),
                 max_validity_interval: get_attr(e, "maxValidityInterval"),
                 require_valid_until: get_attr(e, "requireValidUntil"),
+                has_trust_engine: false,
             };
             if let Some(mp) = mp_stack.last_mut() {
                 mp.filters.push(filter);
+            }
+        }
+        "TrustEngine" => {
+            // If inside a MetadataFilter, mark the parent filter as having a TrustEngine
+            if parent_is(stack, "MetadataFilter") {
+                if let Some(mp) = mp_stack.last_mut() {
+                    if let Some(filter) = mp.filters.last_mut() {
+                        filter.has_trust_engine = true;
+                    }
+                }
             }
         }
         "CredentialResolver" => {
@@ -165,8 +261,19 @@ fn process_element(
                 use_attr: get_attr(e, "use"),
                 certificate: get_attr(e, "certificate"),
                 key: get_attr(e, "key"),
+                children_count: 0,
             };
-            config.credential_resolvers.push(cr);
+            if is_empty {
+                // If there's a parent Chaining CR on the stack, increment its count
+                if let Some(parent) = cr_stack.last_mut() {
+                    if parent.resolver_type == "Chaining" {
+                        parent.children_count += 1;
+                    }
+                }
+                config.credential_resolvers.push(cr);
+            } else {
+                cr_stack.push(cr);
+            }
         }
         "AttributeExtractor" => {
             if let Some(path) = get_attr(e, "path") {
@@ -194,14 +301,48 @@ fn process_element(
                 global_logout: get_attr(e, "globalLogout"),
             });
         }
+        "SecurityPolicyProvider" => {
+            config.security_policy_provider_path = get_attr(e, "path");
+            config.security_policy_provider_validate = get_attr(e, "validate");
+        }
+        "ApplicationOverride" => {
+            let id = get_attr(e, "id");
+            let entity_id = get_attr(e, "entityID");
+            if let Some(ref id_val) = id {
+                config.application_override_ids.push(id_val.clone());
+                config
+                    .application_override_entity_ids
+                    .push((id_val.clone(), entity_id));
+            }
+        }
         "Handler" => {
-            if get_attr(e, "type").as_deref().is_some_and(|t| {
-                t.contains("StatusHandler") || t.contains("Status")
-            }) {
+            let handler_type = get_attr(e, "type").unwrap_or_default();
+            let location = get_attr(e, "Location");
+            let show_attr_values = get_attr(e, "showAttributeValues");
+            let acl = get_attr(e, "acl");
+
+            // Keep backward-compat StatusHandler special-case
+            if handler_type.contains("StatusHandler") || handler_type.contains("Status") {
                 config.status_handler = Some(StatusHandler {
-                    acl: get_attr(e, "acl")
-                        .or_else(|| get_attr(e, "Location").map(|_| String::new())),
+                    acl: acl
+                        .clone()
+                        .or_else(|| location.as_ref().map(|_| String::new())),
                 });
+            }
+
+            config.handlers.push(HandlerInfo {
+                handler_type,
+                location,
+                show_attribute_values: show_attr_values,
+                acl,
+            });
+        }
+        "Notify" => {
+            // Capture Channel or Location attr as notify endpoint
+            if let Some(channel) = get_attr(e, "Channel") {
+                config.notify_endpoints.push(channel);
+            } else if let Some(loc) = get_attr(e, "Location") {
+                config.notify_endpoints.push(loc);
             }
         }
         _ => {}
@@ -459,5 +600,163 @@ mod tests {
         "#;
         let config = parse_str(xml).unwrap();
         assert_eq!(config.sp_version, SpVersion::Unknown);
+    }
+
+    #[test]
+    fn test_parse_handlers() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Handler type="Status" Location="/Status" acl="127.0.0.1 ::1"/>
+                <Handler type="Session" Location="/Session" showAttributeValues="true"/>
+                <Handler type="MetadataGenerator" Location="/Metadata"/>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.handlers.len(), 3);
+        assert!(config.status_handler.is_some());
+        assert_eq!(config.handlers[1].handler_type, "Session");
+        assert_eq!(
+            config.handlers[1].show_attribute_values.as_deref(),
+            Some("true")
+        );
+        assert_eq!(config.handlers[2].handler_type, "MetadataGenerator");
+    }
+
+    #[test]
+    fn test_parse_notify() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso">
+                    <Notify Channel="https://app.example.org/notify"/>
+                    <Notify Location="https://app2.example.org/logout"/>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.notify_endpoints.len(), 2);
+        assert_eq!(config.notify_endpoints[0], "https://app.example.org/notify");
+        assert_eq!(
+            config.notify_endpoints[1],
+            "https://app2.example.org/logout"
+        );
+    }
+
+    #[test]
+    fn test_parse_trust_engine_in_metadata_filter() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <MetadataProvider type="XML" uri="https://fed.example.org/metadata.xml">
+                    <MetadataFilter type="Signature">
+                        <TrustEngine type="StaticPKIX"/>
+                    </MetadataFilter>
+                </MetadataProvider>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let mp = config
+            .metadata_providers
+            .iter()
+            .find(|m| m.provider_type == "XML")
+            .unwrap();
+        assert_eq!(mp.filters.len(), 1);
+        assert!(mp.filters[0].has_trust_engine);
+    }
+
+    #[test]
+    fn test_parse_chaining_credential_resolver() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <CredentialResolver type="Chaining">
+                    <CredentialResolver type="File" certificate="sp-cert1.pem" key="sp-key1.pem"/>
+                    <CredentialResolver type="File" certificate="sp-cert2.pem" key="sp-key2.pem"/>
+                </CredentialResolver>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        // 3 total: Chaining + 2 children
+        assert_eq!(config.credential_resolvers.len(), 3);
+        let chaining = config
+            .credential_resolvers
+            .iter()
+            .find(|cr| cr.resolver_type == "Chaining")
+            .unwrap();
+        assert_eq!(chaining.children_count, 2);
+    }
+
+    #[test]
+    fn test_parse_new_session_attrs() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso"
+                          postLimit="1048576"
+                          idpHistory="true"
+                          idpHistoryDays="7"
+                          checkAddress="true">
+                    <SSO entityID="https://idp.example.org"
+                         authnContextClassRef="urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"
+                         ECP="true">SAML2</SSO>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let sessions = config.sessions.as_ref().unwrap();
+        assert_eq!(sessions.post_limit.as_deref(), Some("1048576"));
+        assert_eq!(sessions.idp_history.as_deref(), Some("true"));
+        assert_eq!(sessions.idp_history_days.as_deref(), Some("7"));
+        assert_eq!(sessions.check_address.as_deref(), Some("true"));
+        assert_eq!(
+            config.sso_authn_context_class_ref.as_deref(),
+            Some("urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport")
+        );
+        assert_eq!(config.sso_ecp.as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn test_parse_application_override_entity_ids() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <ApplicationOverride id="app1" entityID="https://sp.example.org/shibboleth"/>
+                <ApplicationOverride id="app2" entityID="https://sp2.example.org/shibboleth"/>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.application_override_entity_ids.len(), 2);
+        assert_eq!(config.application_override_entity_ids[0].0, "app1");
+        assert_eq!(
+            config.application_override_entity_ids[0].1.as_deref(),
+            Some("https://sp.example.org/shibboleth")
+        );
+    }
+
+    #[test]
+    fn test_parse_security_policy_provider_validate() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <SecurityPolicyProvider path="security-policy.xml" validate="true"/>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(
+            config.security_policy_provider_path.as_deref(),
+            Some("security-policy.xml")
+        );
+        assert_eq!(
+            config.security_policy_provider_validate.as_deref(),
+            Some("true")
+        );
     }
 }

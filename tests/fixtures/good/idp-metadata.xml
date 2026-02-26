@@ -1,0 +1,8 @@
+<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata"
+    entityID="https://idp.example.org/idp/shibboleth">
+    <IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+        <SingleSignOnService
+            Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+            Location="https://idp.example.org/idp/profile/SAML2/Redirect/SSO"/>
+    </IDPSSODescriptor>
+</EntityDescriptor>

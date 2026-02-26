@@ -1,4 +1,6 @@
 pub mod cross_references;
+pub mod migration;
+pub mod operational;
 pub mod security;
 pub mod xml_validity;
 
@@ -10,5 +12,7 @@ pub fn run_all(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult
     results.extend(xml_validity::run(config));
     results.extend(cross_references::run(config, check_remote));
     results.extend(security::run(config));
+    results.extend(migration::run(config));
+    results.extend(operational::run(config));
     results
 }

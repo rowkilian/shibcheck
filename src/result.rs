@@ -24,6 +24,8 @@ pub enum CheckCategory {
     XmlValidity,
     CrossReferences,
     Security,
+    Migration,
+    Operational,
 }
 
 impl std::fmt::Display for CheckCategory {
@@ -32,6 +34,8 @@ impl std::fmt::Display for CheckCategory {
             CheckCategory::XmlValidity => write!(f, "XML Validity"),
             CheckCategory::CrossReferences => write!(f, "Cross-file References"),
             CheckCategory::Security => write!(f, "Security"),
+            CheckCategory::Migration => write!(f, "SP2→SP3 Migration"),
+            CheckCategory::Operational => write!(f, "Operational"),
         }
     }
 }
@@ -122,7 +126,12 @@ impl CheckSummary {
         }
     }
 
-    pub fn has_errors(&self) -> bool {
-        self.errors > 0
+    /// Returns true if there are failures at or above the given severity threshold.
+    pub fn has_failures_at_severity(&self, threshold: Severity) -> bool {
+        match threshold {
+            Severity::Error => self.errors > 0,
+            Severity::Warning => self.errors > 0 || self.warnings > 0,
+            Severity::Info => self.errors > 0 || self.warnings > 0 || self.info > 0,
+        }
     }
 }

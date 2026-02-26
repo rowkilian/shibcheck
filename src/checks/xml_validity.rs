@@ -457,6 +457,259 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             }
         }
 
+        // XML-022: Errors supportContact is present
+        if let Some(ref errors) = sc.errors {
+            if errors.support_contact.is_some() {
+                results.push(CheckResult::pass(
+                    "XML-022",
+                    CAT,
+                    Severity::Warning,
+                    "Errors supportContact is configured",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "XML-022",
+                        CAT,
+                        Severity::Warning,
+                        "Errors element has no supportContact attribute",
+                        Some("Set supportContact on <Errors> to provide a contact email for error pages"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            }
+        }
+
+        // XML-023: SSO has entityID or discoveryURL
+        if let Some(ref sessions) = sc.sessions {
+            if sessions.has_sso {
+                if sessions.sso_entity_id.is_some() || sessions.sso_discovery_url.is_some() {
+                    results.push(CheckResult::pass(
+                        "XML-023",
+                        CAT,
+                        Severity::Warning,
+                        "SSO has entityID or discoveryURL configured",
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "XML-023",
+                            CAT,
+                            Severity::Warning,
+                            "SSO element has neither entityID nor discoveryURL",
+                            Some(
+                                "Set entityID or discoveryURL on <SSO> to identify the target IdP",
+                            ),
+                        )
+                        .with_doc(doc_for(DOC_SSO, v)),
+                    );
+                }
+            }
+        }
+
+        // XML-024: SSO has entityID XOR discoveryURL, not both
+        if let Some(ref sessions) = sc.sessions {
+            if sessions.sso_entity_id.is_some() && sessions.sso_discovery_url.is_some() {
+                results.push(
+                    CheckResult::fail(
+                        "XML-024",
+                        CAT,
+                        Severity::Info,
+                        "SSO has both entityID and discoveryURL (entityID takes precedence)",
+                        Some("Use either entityID (single IdP) or discoveryURL (discovery service), not both"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
+                );
+            } else if sessions.sso_entity_id.is_some() || sessions.sso_discovery_url.is_some() {
+                results.push(CheckResult::pass(
+                    "XML-024",
+                    CAT,
+                    Severity::Info,
+                    "SSO uses entityID or discoveryURL exclusively",
+                ));
+            }
+        }
+
+        // XML-025: SecurityPolicyProvider path file exists
+        if let Some(ref spp_path) = sc.security_policy_provider_path {
+            let full_path = config.base_dir.join(spp_path);
+            if full_path.exists() {
+                results.push(CheckResult::pass(
+                    "XML-025",
+                    CAT,
+                    Severity::Error,
+                    &format!("SecurityPolicyProvider file exists: {}", spp_path),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "XML-025",
+                        CAT,
+                        Severity::Error,
+                        &format!("SecurityPolicyProvider file not found: {}", spp_path),
+                        Some("Ensure the security-policy.xml file exists at the configured path"),
+                    )
+                    .with_doc(doc_for(DOC_SPCONFIG, v)),
+                );
+            }
+        }
+
+        // XML-026: ApplicationOverride IDs are unique
+        if !sc.application_override_ids.is_empty() {
+            let mut seen = std::collections::HashSet::new();
+            let mut has_dup = false;
+            for id in &sc.application_override_ids {
+                if !seen.insert(id.as_str()) {
+                    results.push(
+                        CheckResult::fail(
+                            "XML-026",
+                            CAT,
+                            Severity::Error,
+                            &format!("Duplicate ApplicationOverride id: {}", id),
+                            Some("Each ApplicationOverride must have a unique id attribute"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                    has_dup = true;
+                }
+            }
+            if !has_dup {
+                results.push(CheckResult::pass(
+                    "XML-026",
+                    CAT,
+                    Severity::Error,
+                    "All ApplicationOverride IDs are unique",
+                ));
+            }
+        }
+
+        // XML-027: SSO protocol text is valid (SAML2/SAML1/empty)
+        if let Some(ref sessions) = sc.sessions {
+            if let Some(ref protocols) = sessions.sso_protocols {
+                let valid = ["SAML2", "SAML1"];
+                let parts: Vec<&str> = protocols.split_whitespace().collect();
+                let all_valid = parts.iter().all(|p| valid.contains(p));
+                if all_valid {
+                    results.push(CheckResult::pass(
+                        "XML-027",
+                        CAT,
+                        Severity::Warning,
+                        &format!("SSO protocol text is valid: {}", protocols),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "XML-027",
+                            CAT,
+                            Severity::Warning,
+                            &format!("SSO protocol text contains invalid value: {}", protocols),
+                            Some("Valid SSO protocol values are: SAML2, SAML1"),
+                        )
+                        .with_doc(doc_for(DOC_SSO, v)),
+                    );
+                }
+            }
+        }
+
+        // XML-028: Logout protocol text is valid (SAML2/Local/empty)
+        if let Some(ref sessions) = sc.sessions {
+            if let Some(ref protocols) = sessions.logout_protocols {
+                let valid = ["SAML2", "Local"];
+                let parts: Vec<&str> = protocols.split_whitespace().collect();
+                let all_valid = parts.iter().all(|p| valid.contains(p));
+                if all_valid {
+                    results.push(CheckResult::pass(
+                        "XML-028",
+                        CAT,
+                        Severity::Warning,
+                        &format!("Logout protocol text is valid: {}", protocols),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "XML-028",
+                            CAT,
+                            Severity::Warning,
+                            &format!("Logout protocol text contains invalid value: {}", protocols),
+                            Some("Valid Logout protocol values are: SAML2, Local"),
+                        )
+                        .with_doc(doc_for(DOC_SESSIONS, v)),
+                    );
+                }
+            }
+        }
+
+        // XML-029: MetadataProvider has a source (path/url/uri/sourceDirectory)
+        for mp in &sc.metadata_providers {
+            if mp.provider_type == "Chaining" {
+                continue;
+            }
+            let has_source = mp.path.is_some()
+                || mp.uri.is_some()
+                || mp.url.is_some()
+                || mp.source_directory.is_some();
+            if has_source {
+                results.push(CheckResult::pass(
+                    "XML-029",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "MetadataProvider type={} has a data source configured",
+                        mp.provider_type
+                    ),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "XML-029",
+                        CAT,
+                        Severity::Error,
+                        &format!(
+                            "MetadataProvider type={} has no data source (path/url/uri/sourceDirectory)",
+                            mp.provider_type
+                        ),
+                        Some("Add a path, url, uri, or sourceDirectory attribute to the MetadataProvider"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
+            }
+        }
+
+        // XML-030: File CredentialResolver has both key and certificate
+        for cr in &sc.credential_resolvers {
+            if cr.resolver_type == "File" {
+                if cr.certificate.is_some() && cr.key.is_some() {
+                    results.push(CheckResult::pass(
+                        "XML-030",
+                        CAT,
+                        Severity::Warning,
+                        "File CredentialResolver has both certificate and key",
+                    ));
+                } else {
+                    let missing = if cr.certificate.is_none() && cr.key.is_none() {
+                        "certificate and key"
+                    } else if cr.certificate.is_none() {
+                        "certificate"
+                    } else {
+                        "key"
+                    };
+                    results.push(
+                        CheckResult::fail(
+                            "XML-030",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "File CredentialResolver is missing {}",
+                                missing
+                            ),
+                            Some("A File CredentialResolver should have both certificate and key attributes"),
+                        )
+                        .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                    );
+                }
+            }
+        }
+
         // XML-016: entityID is a valid absolute URI
         if let Some(ref entity_id) = sc.entity_id {
             if entity_id.starts_with("https://")
@@ -479,6 +732,239 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Some("entityID should be an absolute URI (https://, http://, or urn:)"),
                     )
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            }
+        }
+    }
+
+    // The following checks require a parsed shibboleth config (continued)
+    if let Some(ref sc) = config.shibboleth_config {
+        let v = sc.sp_version;
+
+        // XML-031: No <Errors> element configured
+        if sc.errors.is_some() {
+            results.push(CheckResult::pass(
+                "XML-031",
+                CAT,
+                Severity::Info,
+                "Errors element is configured",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "XML-031",
+                    CAT,
+                    Severity::Info,
+                    "No <Errors> element configured",
+                    Some("Add an <Errors> element to customize error pages and provide a support contact"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+
+        // XML-032: Errors has no helpLocation
+        if let Some(ref errors) = sc.errors {
+            if errors.help_location.is_some() {
+                results.push(CheckResult::pass(
+                    "XML-032",
+                    CAT,
+                    Severity::Info,
+                    "Errors helpLocation is configured",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "XML-032",
+                        CAT,
+                        Severity::Info,
+                        "Errors element has no helpLocation attribute",
+                        Some("Set helpLocation on <Errors> to provide a help page URL for error pages"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            }
+        }
+
+        // XML-033: MetadataProvider type not recognized
+        {
+            let known_types = [
+                "XML",
+                "Dynamic",
+                "MDQ",
+                "Chaining",
+                "Folder",
+                "LocalDynamic",
+                "Null",
+            ];
+            for mp in &sc.metadata_providers {
+                if known_types.contains(&mp.provider_type.as_str()) {
+                    results.push(CheckResult::pass(
+                        "XML-033",
+                        CAT,
+                        Severity::Error,
+                        &format!("MetadataProvider type '{}' is recognized", mp.provider_type),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "XML-033",
+                            CAT,
+                            Severity::Error,
+                            &format!(
+                                "MetadataProvider type '{}' is not recognized",
+                                mp.provider_type
+                            ),
+                            Some("Valid types: XML, Dynamic, MDQ, Chaining, Folder, LocalDynamic, Null"),
+                        )
+                        .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                    );
+                }
+            }
+        }
+
+        // XML-034: CredentialResolver type not recognized
+        {
+            let known_types = ["File", "Chaining", "PKCS12"];
+            for cr in &sc.credential_resolvers {
+                if known_types.contains(&cr.resolver_type.as_str()) {
+                    results.push(CheckResult::pass(
+                        "XML-034",
+                        CAT,
+                        Severity::Error,
+                        &format!(
+                            "CredentialResolver type '{}' is recognized",
+                            cr.resolver_type
+                        ),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "XML-034",
+                            CAT,
+                            Severity::Error,
+                            &format!(
+                                "CredentialResolver type '{}' is not recognized",
+                                cr.resolver_type
+                            ),
+                            Some("Valid types: File, Chaining, PKCS12"),
+                        )
+                        .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                    );
+                }
+            }
+        }
+
+        // XML-035: MetadataFilter type not recognized
+        {
+            let known_types = [
+                "Signature",
+                "RequireValidUntil",
+                "EntityRoleWhiteList",
+                "EntityRole",
+                "Whitelist",
+                "Blacklist",
+                "Include",
+                "Exclude",
+                "EntityAttributes",
+                "NameIDFormat",
+                "Predicate",
+                "Algorithm",
+            ];
+            for mp in &sc.metadata_providers {
+                for filter in &mp.filters {
+                    if known_types.contains(&filter.filter_type.as_str()) {
+                        results.push(CheckResult::pass(
+                            "XML-035",
+                            CAT,
+                            Severity::Warning,
+                            &format!("MetadataFilter type '{}' is recognized", filter.filter_type),
+                        ));
+                    } else {
+                        results.push(
+                            CheckResult::fail(
+                                "XML-035",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "MetadataFilter type '{}' is not recognized",
+                                    filter.filter_type
+                                ),
+                                Some("Check the MetadataFilter type spelling against Shibboleth SP3 documentation"),
+                            )
+                            .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                        );
+                    }
+                }
+            }
+        }
+
+        // XML-036: Logout missing Local protocol for fallback
+        if let Some(ref sessions) = sc.sessions {
+            if sessions.has_logout {
+                if let Some(ref protocols) = sessions.logout_protocols {
+                    if protocols.contains("Local") {
+                        results.push(CheckResult::pass(
+                            "XML-036",
+                            CAT,
+                            Severity::Info,
+                            "Logout includes 'Local' protocol for fallback",
+                        ));
+                    } else {
+                        results.push(
+                            CheckResult::fail(
+                                "XML-036",
+                                CAT,
+                                Severity::Info,
+                                "Logout does not include 'Local' protocol",
+                                Some("Add 'Local' to <Logout> protocols (e.g., <Logout>SAML2 Local</Logout>) for local-only logout fallback"),
+                            )
+                            .with_doc(doc_for(DOC_SESSIONS, v)),
+                        );
+                    }
+                }
+            }
+        }
+
+        // XML-037: ECP support status on SSO
+        if sc.sso_ecp.is_some() {
+            results.push(CheckResult::pass(
+                "XML-037",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "ECP attribute is set on SSO: {}",
+                    sc.sso_ecp.as_deref().unwrap_or("?")
+                ),
+            ));
+        } else if sc.sessions.as_ref().is_some_and(|s| s.has_sso) {
+            results.push(CheckResult::pass(
+                "XML-037",
+                CAT,
+                Severity::Info,
+                "ECP not configured on SSO (disabled by default)",
+            ));
+        }
+
+        // XML-038: authnContextClassRef on SSO is not a valid URI
+        if let Some(ref acr) = sc.sso_authn_context_class_ref {
+            if acr.starts_with("urn:") || acr.starts_with("http://") || acr.starts_with("https://")
+            {
+                results.push(CheckResult::pass(
+                    "XML-038",
+                    CAT,
+                    Severity::Warning,
+                    &format!("SSO authnContextClassRef is a valid URI: {}", acr),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "XML-038",
+                        CAT,
+                        Severity::Warning,
+                        &format!("SSO authnContextClassRef is not a valid URI: {}", acr),
+                        Some("authnContextClassRef should be a URI (e.g., urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport)"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
                 );
             }
         }

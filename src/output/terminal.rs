@@ -15,6 +15,8 @@ pub fn print(
         CheckCategory::XmlValidity,
         CheckCategory::CrossReferences,
         CheckCategory::Security,
+        CheckCategory::Migration,
+        CheckCategory::Operational,
     ];
 
     for category in &categories {

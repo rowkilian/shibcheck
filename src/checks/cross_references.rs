@@ -479,8 +479,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 if let Some(ref path) = mp.path {
                     if !path.starts_with("http://") && !path.starts_with("https://") {
                         let full_path = config.base_dir.join(path);
-                        if full_path.exists()
-                            && metadata_contains_entity(&full_path, sso_entity_id)
+                        if full_path.exists() && metadata_contains_entity(&full_path, sso_entity_id)
                         {
                             found = true;
                             break;
@@ -548,6 +547,380 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     Severity::Warning,
                     "All remote MetadataProviders have backingFilePath configured",
                 ));
+            }
+        }
+    }
+
+    // REF-018: SecurityPolicyProvider file exists
+    if let Some(ref spp_path) = sc.security_policy_provider_path {
+        let full_path = config.base_dir.join(spp_path);
+        if full_path.exists() {
+            results.push(CheckResult::pass(
+                "REF-018",
+                CAT,
+                Severity::Error,
+                &format!("SecurityPolicyProvider file exists: {}", spp_path),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-018",
+                    CAT,
+                    Severity::Error,
+                    &format!("SecurityPolicyProvider file not found: {}", spp_path),
+                    Some("Ensure the security-policy.xml file exists at the configured path"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
+        }
+    }
+
+    // REF-019: Logging config files exist (shibd.logger, native.logger)
+    {
+        let logger_files = ["shibd.logger", "native.logger"];
+        for logger in &logger_files {
+            let full_path = config.base_dir.join(logger);
+            if full_path.exists() {
+                results.push(CheckResult::pass(
+                    "REF-019",
+                    CAT,
+                    Severity::Info,
+                    &format!("Logging config file exists: {}", logger),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "REF-019",
+                        CAT,
+                        Severity::Info,
+                        &format!("Logging config file not found: {}", logger),
+                        Some("Create the logger file to customize logging output"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
+            }
+        }
+    }
+
+    // REF-020: MetadataFilter Signature certificate is valid PEM
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if !filter.filter_type.contains("Signature") {
+                continue;
+            }
+            if let Some(ref cert_path) = filter.certificate {
+                let full_path = config.base_dir.join(cert_path);
+                if full_path.exists() {
+                    match certificate::parse_pem_file(&full_path) {
+                        Ok(_) => {
+                            results.push(CheckResult::pass(
+                                "REF-020",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "MetadataFilter Signature certificate is valid PEM: {}",
+                                    cert_path
+                                ),
+                            ));
+                        }
+                        Err(_) => {
+                            results.push(
+                                CheckResult::fail(
+                                    "REF-020",
+                                    CAT,
+                                    Severity::Warning,
+                                    &format!(
+                                        "MetadataFilter Signature certificate is not valid PEM: {}",
+                                        cert_path
+                                    ),
+                                    Some("Ensure the certificate file contains a valid PEM-encoded certificate"),
+                                )
+                                .with_doc(doc_for(DOC_METADATA_FILTER, v)),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // REF-021: MetadataFilter Signature certificate not expired
+    {
+        let now = chrono::Utc::now();
+        for mp in &sc.metadata_providers {
+            for filter in &mp.filters {
+                if !filter.filter_type.contains("Signature") {
+                    continue;
+                }
+                if let Some(ref cert_path) = filter.certificate {
+                    let full_path = config.base_dir.join(cert_path);
+                    if full_path.exists() {
+                        if let Ok(cert_info) = certificate::parse_pem_file(&full_path) {
+                            if cert_info.not_after < now {
+                                results.push(
+                                    CheckResult::fail(
+                                        "REF-021",
+                                        CAT,
+                                        Severity::Warning,
+                                        &format!(
+                                            "MetadataFilter Signature certificate has expired: {} ({})",
+                                            cert_path,
+                                            cert_info.not_after.format("%Y-%m-%d")
+                                        ),
+                                        Some("Replace the expired metadata signing certificate"),
+                                    )
+                                    .with_doc(doc_for(DOC_METADATA_FILTER, v)),
+                                );
+                            } else {
+                                results.push(CheckResult::pass(
+                                    "REF-021",
+                                    CAT,
+                                    Severity::Warning,
+                                    &format!(
+                                        "MetadataFilter Signature certificate is not expired: {}",
+                                        cert_path
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // REF-022: postTemplate file path doesn't exist
+    if let Some(ref content) = config.shibboleth_xml_content {
+        // Scan for postTemplate="..." in raw XML
+        if let Some(start) = content.find("postTemplate=\"") {
+            let rest = &content[start + 14..];
+            if let Some(end) = rest.find('"') {
+                let template_path = &rest[..end];
+                if !template_path.is_empty() {
+                    let full_path = config.base_dir.join(template_path);
+                    if full_path.exists() {
+                        results.push(CheckResult::pass(
+                            "REF-022",
+                            CAT,
+                            Severity::Info,
+                            &format!("postTemplate file exists: {}", template_path),
+                        ));
+                    } else {
+                        results.push(
+                            CheckResult::fail(
+                                "REF-022",
+                                CAT,
+                                Severity::Info,
+                                &format!("postTemplate file not found: {}", template_path),
+                                Some("Ensure the postTemplate file path is correct and the file exists"),
+                            )
+                            .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // REF-024: ApplicationOverride entityID same as parent (redundant)
+    if let Some(ref parent_entity_id) = sc.entity_id {
+        for (override_id, override_entity_id) in &sc.application_override_entity_ids {
+            if let Some(ref eid) = override_entity_id {
+                if eid == parent_entity_id {
+                    results.push(
+                        CheckResult::fail(
+                            "REF-024",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "ApplicationOverride '{}' has same entityID as parent: {}",
+                                override_id, eid
+                            ),
+                            Some("Remove redundant entityID from ApplicationOverride or use a different value"),
+                        )
+                        .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "REF-024",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "ApplicationOverride '{}' has distinct entityID",
+                            override_id
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    // REF-025: Invalid AttributeDecoder type in attribute-map.xml
+    if let Some(ref map) = config.attribute_map {
+        let known_decoders = [
+            "StringAttributeDecoder",
+            "ScopedAttributeDecoder",
+            "NameIDAttributeDecoder",
+            "NameIDFromScopedAttributeDecoder",
+            "Base64AttributeDecoder",
+            "XMLAttributeDecoder",
+            "DOMAttributeDecoder",
+            "KeyInfoAttributeDecoder",
+            "DelegationAttributeDecoder",
+        ];
+        for attr in &map.attributes {
+            if let Some(ref decoder) = attr.decoder_type {
+                if known_decoders.contains(&decoder.as_str()) {
+                    results.push(CheckResult::pass(
+                        "REF-025",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "AttributeDecoder type '{}' for '{}' is valid",
+                            decoder, attr.id
+                        ),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "REF-025",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "AttributeDecoder type '{}' for '{}' is not recognized",
+                                decoder, attr.id
+                            ),
+                            Some("Check the AttributeDecoder xsi:type against Shibboleth SP3 documentation"),
+                        )
+                        .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // REF-026: Signature MetadataFilter has no certificate or TrustEngine
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if filter.filter_type.contains("Signature") {
+                if filter.certificate.is_some() || filter.has_trust_engine {
+                    results.push(CheckResult::pass(
+                        "REF-026",
+                        CAT,
+                        Severity::Warning,
+                        "Signature MetadataFilter has certificate or TrustEngine configured",
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "REF-026",
+                            CAT,
+                            Severity::Warning,
+                            "Signature MetadataFilter has no certificate or TrustEngine",
+                            Some("Add a certificate attribute or <TrustEngine> child to the Signature MetadataFilter"),
+                        )
+                        .with_doc(doc_for(DOC_METADATA_FILTER, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // REF-027: Chaining CredentialResolver has < 2 children
+    for cr in &sc.credential_resolvers {
+        if cr.resolver_type == "Chaining" {
+            if cr.children_count >= 2 {
+                results.push(CheckResult::pass(
+                    "REF-027",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Chaining CredentialResolver has {} children",
+                        cr.children_count
+                    ),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "REF-027",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Chaining CredentialResolver has only {} child(ren)",
+                            cr.children_count
+                        ),
+                        Some("A Chaining CredentialResolver should have at least 2 children; otherwise use a single resolver"),
+                    )
+                    .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                );
+            }
+        }
+    }
+
+    // REF-028: Deprecated eduPersonTargetedID OID mapping present
+    if let Some(ref map) = config.attribute_map {
+        let deprecated_oid = "urn:oid:1.3.6.1.4.1.5923.1.1.1.10";
+        let mut found = false;
+        for attr in &map.attributes {
+            if attr.name == deprecated_oid {
+                results.push(
+                    CheckResult::fail(
+                        "REF-028",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Deprecated eduPersonTargetedID OID mapping present (id='{}')",
+                            attr.id
+                        ),
+                        Some("eduPersonTargetedID is deprecated; consider using pairwise-id or subject-id instead"),
+                    )
+                    .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
+                );
+                found = true;
+            }
+        }
+        if !found {
+            results.push(CheckResult::pass(
+                "REF-028",
+                CAT,
+                Severity::Info,
+                "No deprecated eduPersonTargetedID OID mapping found",
+            ));
+        }
+    }
+
+    // REF-029: Policy rule for scoped attr uses ANY without scope validation
+    if let (Some(ref map), Some(ref policy)) = (&config.attribute_map, &config.attribute_policy) {
+        // Find attributes that use ScopedAttributeDecoder
+        let scoped_attr_ids: std::collections::HashSet<&str> = map
+            .attributes
+            .iter()
+            .filter(|a| {
+                a.decoder_type
+                    .as_deref()
+                    .is_some_and(|d| d.contains("Scoped"))
+            })
+            .map(|a| a.id.as_str())
+            .collect();
+
+        for rule in &policy.rules {
+            if scoped_attr_ids.contains(rule.attribute_id.as_str())
+                && rule.permit_value_rule_type.as_deref() == Some("ANY")
+                && !rule.has_scope_match
+            {
+                results.push(
+                    CheckResult::fail(
+                        "REF-029",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "Policy rule for scoped attribute '{}' uses PermitValueRule type=ANY without scope validation",
+                            rule.attribute_id
+                        ),
+                        Some("Use ScopeMatchesShibMDScope instead of ANY for scoped attributes to prevent scope spoofing"),
+                    )
+                    .with_doc(doc_for(DOC_ATTR_FILTER, v)),
+                );
             }
         }
     }

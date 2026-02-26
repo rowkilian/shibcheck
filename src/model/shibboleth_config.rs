@@ -21,6 +21,15 @@ pub struct ShibbolethConfig {
     pub application_defaults: Option<ApplicationDefaults>,
     pub status_handler: Option<StatusHandler>,
     pub errors: Option<ErrorsConfig>,
+    pub clock_skew: Option<String>,
+    pub security_policy_provider_path: Option<String>,
+    pub application_override_ids: Vec<String>,
+    pub handlers: Vec<HandlerInfo>,
+    pub notify_endpoints: Vec<String>,
+    pub application_override_entity_ids: Vec<(String, Option<String>)>,
+    pub sso_authn_context_class_ref: Option<String>,
+    pub sso_ecp: Option<String>,
+    pub security_policy_provider_validate: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -28,6 +37,7 @@ pub struct ApplicationDefaults {
     pub remote_user: Option<String>,
     pub signing: Option<String>,
     pub encryption: Option<String>,
+    pub cipher_suites: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -41,6 +51,18 @@ pub struct SessionsConfig {
     pub has_session_initiator: bool,
     pub has_logout: bool,
     pub sso_entity_id: Option<String>,
+    pub redirect_limit: Option<String>,
+    pub consistent_address: Option<String>,
+    pub relay_state: Option<String>,
+    pub redirect_whitelist: Option<String>,
+    pub sso_discovery_url: Option<String>,
+    pub sso_discovery_protocol: Option<String>,
+    pub sso_protocols: Option<String>,
+    pub logout_protocols: Option<String>,
+    pub post_limit: Option<String>,
+    pub idp_history: Option<String>,
+    pub idp_history_days: Option<String>,
+    pub check_address: Option<String>,
 }
 
 #[derive(Debug)]
@@ -51,7 +73,10 @@ pub struct MetadataProvider {
     pub url: Option<String>,
     pub backing_file_path: Option<String>,
     pub source_directory: Option<String>,
+    pub reload_interval: Option<String>,
+    pub file_attr: Option<String>,
     pub filters: Vec<MetadataFilter>,
+    pub max_refresh_delay: Option<String>,
 }
 
 #[derive(Debug)]
@@ -61,6 +86,7 @@ pub struct MetadataFilter {
     pub certificate: Option<String>,
     pub max_validity_interval: Option<String>,
     pub require_valid_until: Option<String>,
+    pub has_trust_engine: bool,
 }
 
 #[derive(Debug)]
@@ -70,6 +96,7 @@ pub struct CredentialResolver {
     pub use_attr: Option<String>,
     pub certificate: Option<String>,
     pub key: Option<String>,
+    pub children_count: usize,
 }
 
 #[derive(Debug, Default)]
@@ -89,4 +116,12 @@ pub struct ErrorsConfig {
     pub local_logout: Option<String>,
     pub metadata_error: Option<String>,
     pub global_logout: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct HandlerInfo {
+    pub handler_type: String,
+    pub location: Option<String>,
+    pub show_attribute_values: Option<String>,
+    pub acl: Option<String>,
 }

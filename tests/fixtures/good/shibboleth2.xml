@@ -1,0 +1,44 @@
+<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config"
+    xmlns:conf="urn:mace:shibboleth:3.0:native:sp:config"
+    clockSkew="180">
+
+    <ApplicationDefaults entityID="https://sp.example.org/shibboleth"
+        REMOTE_USER="eppn"
+        signing="true"
+        encryption="true">
+
+        <Sessions lifetime="28800" timeout="3600"
+            handlerURL="/Shibboleth.sso"
+            handlerSSL="true"
+            cookieProps="https"
+            redirectLimit="exact">
+
+            <SSO entityID="https://idp.example.org/idp/shibboleth">SAML2</SSO>
+            <Logout>SAML2 Local</Logout>
+
+            <Notify Channel="https://app.example.org/notify"/>
+        </Sessions>
+
+        <MetadataProvider type="XML"
+            path="idp-metadata.xml"
+            backingFilePath="idp-metadata-cache.xml">
+            <MetadataFilter type="Signature" certificate="idp-signing.pem"/>
+            <MetadataFilter type="RequireValidUntil" maxValidityInterval="2592000"/>
+        </MetadataProvider>
+
+        <CredentialResolver type="File"
+            use="signing"
+            certificate="sp-cert.pem"
+            key="sp-key.pem"/>
+
+        <CredentialResolver type="File"
+            use="encryption"
+            certificate="sp-cert.pem"
+            key="sp-key.pem"/>
+
+        <Errors supportContact="admin@example.org"/>
+
+        <Handler type="Status" Location="/Status" acl="127.0.0.1 ::1"/>
+        <Handler type="Session" Location="/Session" acl="127.0.0.1 ::1"/>
+    </ApplicationDefaults>
+</SPConfig>

@@ -11,4 +11,6 @@ pub struct MappedAttribute {
     pub name: String,
     /// The id attribute (local name used in REMOTE_USER etc.)
     pub id: String,
+    /// The xsi:type from a child <AttributeDecoder> element
+    pub decoder_type: Option<String>,
 }

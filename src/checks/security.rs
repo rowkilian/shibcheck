@@ -23,6 +23,7 @@ const DOC_STATUS_HANDLER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334870/Status+Handler";
 const DOC_APP_DEFAULTS: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults";
+const DOC_SSO: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334348/SSO";
 
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
@@ -159,11 +160,10 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // SEC-004: Signing credentials configured
-    let has_signing = sc.credential_resolvers.iter().any(|cr| {
-        cr.use_attr
-            .as_deref()
-            .is_none_or(|u| u.contains("signing"))
-    });
+    let has_signing = sc
+        .credential_resolvers
+        .iter()
+        .any(|cr| cr.use_attr.as_deref().is_none_or(|u| u.contains("signing")));
     if has_signing && !sc.credential_resolvers.is_empty() {
         results.push(CheckResult::pass(
             "SEC-004",
@@ -691,6 +691,649 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         ),
                     ));
                 }
+            }
+        }
+    }
+
+    // SEC-022: redirectLimit not "none" (open redirect vulnerability)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref redirect_limit) = sessions.redirect_limit {
+            let lower = redirect_limit.to_lowercase();
+            if lower == "none" {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-022",
+                        CAT,
+                        Severity::Warning,
+                        "Sessions redirectLimit is set to 'none' (open redirect vulnerability)",
+                        Some("Set redirectLimit to 'exact' or 'host' to prevent open redirect attacks"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-022",
+                    CAT,
+                    Severity::Warning,
+                    &format!("Sessions redirectLimit is set to '{}'", redirect_limit),
+                ));
+            }
+        }
+    }
+
+    // SEC-023: consistentAddress not explicitly "false"
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref consistent_addr) = sessions.consistent_address {
+            if consistent_addr == "false" {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-023",
+                        CAT,
+                        Severity::Info,
+                        "Sessions consistentAddress is explicitly false",
+                        Some("consistentAddress=\"true\" binds sessions to the client IP for additional security"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-023",
+                    CAT,
+                    Severity::Info,
+                    "Sessions consistentAddress is not disabled",
+                ));
+            }
+        }
+    }
+
+    // SEC-024: clockSkew not > 600s
+    if let Some(ref clock_skew_str) = sc.clock_skew {
+        if let Ok(skew) = clock_skew_str.parse::<u64>() {
+            if skew > 600 {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-024",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "clockSkew is {}s (> 600s increases replay attack window)",
+                            skew
+                        ),
+                        Some("Set clockSkew to 180 or less; large values weaken replay protection"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-024",
+                    CAT,
+                    Severity::Warning,
+                    &format!("clockSkew is {}s (within safe range)", skew),
+                ));
+            }
+        }
+    }
+
+    // SEC-025: SAML1 not in SSO protocols
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref protocols) = sessions.sso_protocols {
+            if protocols.contains("SAML1") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-025",
+                        CAT,
+                        Severity::Info,
+                        "SSO protocols include SAML1 (deprecated and less secure)",
+                        Some("Remove SAML1 from <SSO> and use only SAML2 unless SAML1 is required"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-025",
+                    CAT,
+                    Severity::Info,
+                    "SSO protocols do not include SAML1",
+                ));
+            }
+        }
+    }
+
+    // SEC-026: maxValidityInterval set and <= 30 days (2592000s)
+    {
+        let mut has_check = false;
+        for mp in &sc.metadata_providers {
+            for filter in &mp.filters {
+                if filter.filter_type.contains("RequireValidUntil") {
+                    if let Some(ref interval_str) = filter.max_validity_interval {
+                        has_check = true;
+                        if let Ok(interval) = interval_str.parse::<u64>() {
+                            if interval <= 2_592_000 {
+                                results.push(CheckResult::pass(
+                                    "SEC-026",
+                                    CAT,
+                                    Severity::Info,
+                                    &format!(
+                                        "maxValidityInterval is {}s ({} days)",
+                                        interval,
+                                        interval / 86400
+                                    ),
+                                ));
+                            } else {
+                                results.push(
+                                    CheckResult::fail(
+                                        "SEC-026",
+                                        CAT,
+                                        Severity::Info,
+                                        &format!(
+                                            "maxValidityInterval is {}s ({} days, > 30 days)",
+                                            interval,
+                                            interval / 86400
+                                        ),
+                                        Some(
+                                            "Set maxValidityInterval to 2592000 (30 days) or less",
+                                        ),
+                                    )
+                                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                                );
+                            }
+                        }
+                    } else {
+                        has_check = true;
+                        results.push(
+                            CheckResult::fail(
+                                "SEC-026",
+                                CAT,
+                                Severity::Info,
+                                "RequireValidUntil filter has no maxValidityInterval set",
+                                Some("Set maxValidityInterval on the RequireValidUntil filter (e.g., 2592000 for 30 days)"),
+                            )
+                            .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                        );
+                    }
+                }
+            }
+        }
+        if !has_check && !sc.metadata_providers.is_empty() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-026",
+                    CAT,
+                    Severity::Info,
+                    "No RequireValidUntil filter with maxValidityInterval found",
+                    Some("Add a RequireValidUntil MetadataFilter with maxValidityInterval"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
+        }
+    }
+
+    // SEC-027: security-policy.xml has no disabled AlgorithmBlacklist
+    {
+        let security_policy_path = config.base_dir.join("security-policy.xml");
+        if security_policy_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&security_policy_path) {
+                let lower = content.to_lowercase();
+                if lower.contains("algorithmblacklist") || lower.contains("algorithmfilter") {
+                    results.push(CheckResult::pass(
+                        "SEC-027",
+                        CAT,
+                        Severity::Warning,
+                        "security-policy.xml contains algorithm filtering rules",
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-027",
+                            CAT,
+                            Severity::Warning,
+                            "security-policy.xml has no AlgorithmBlacklist/AlgorithmFilter",
+                            Some("Configure algorithm filtering in security-policy.xml to block weak algorithms"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // SEC-028: entityID not placeholder (example.org)
+    if let Some(ref entity_id) = sc.entity_id {
+        let lower = entity_id.to_lowercase();
+        if lower.contains("example.org")
+            || lower.contains("example.com")
+            || lower.contains("localhost")
+        {
+            results.push(
+                CheckResult::fail(
+                    "SEC-028",
+                    CAT,
+                    Severity::Warning,
+                    &format!("entityID appears to be a placeholder: {}", entity_id),
+                    Some("Set entityID to your actual SP entity ID"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "SEC-028",
+                CAT,
+                Severity::Warning,
+                "entityID is not a placeholder value",
+            ));
+        }
+    }
+
+    // SEC-029: discoveryURL uses HTTPS
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref discovery_url) = sessions.sso_discovery_url {
+            if discovery_url.starts_with("https://") {
+                results.push(CheckResult::pass(
+                    "SEC-029",
+                    CAT,
+                    Severity::Warning,
+                    "SSO discoveryURL uses HTTPS",
+                ));
+            } else if discovery_url.starts_with("http://") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-029",
+                        CAT,
+                        Severity::Warning,
+                        &format!("SSO discoveryURL uses HTTP: {}", discovery_url),
+                        Some("Use HTTPS for the discovery service URL"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-030: Config files not world-writable (Unix)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let config_files = [
+            "shibboleth2.xml",
+            "attribute-map.xml",
+            "attribute-policy.xml",
+        ];
+        for file in &config_files {
+            let full_path = config.base_dir.join(file);
+            if full_path.exists() {
+                if let Ok(metadata) = std::fs::metadata(&full_path) {
+                    let mode = metadata.permissions().mode();
+                    if mode & 0o002 != 0 {
+                        results.push(
+                            CheckResult::fail(
+                                "SEC-030",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "Config file {} is world-writable (mode {:04o})",
+                                    file,
+                                    mode & 0o7777
+                                ),
+                                Some("Remove world-write permission: chmod o-w"),
+                            )
+                            .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                        );
+                    } else {
+                        results.push(CheckResult::pass(
+                            "SEC-030",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "Config file {} is not world-writable (mode {:04o})",
+                                file,
+                                mode & 0o7777
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // SEC-031: relayState uses ss: prefix (cookie-based storage)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref relay_state) = sessions.relay_state {
+            if relay_state.starts_with("ss:") {
+                results.push(CheckResult::pass(
+                    "SEC-031",
+                    CAT,
+                    Severity::Info,
+                    "Sessions relayState uses server-side storage (ss: prefix)",
+                ));
+            } else if relay_state.starts_with("cookie:") || relay_state == "cookie" {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-031",
+                        CAT,
+                        Severity::Info,
+                        "Sessions relayState uses cookie storage",
+                        Some("Consider using ss: prefix for server-side relay state storage"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-031",
+                    CAT,
+                    Severity::Info,
+                    &format!("Sessions relayState is set to '{}'", relay_state),
+                ));
+            }
+        }
+    }
+
+    // SEC-032: Session handler showAttributeValues="true" exposes PII
+    {
+        let mut has_exposed = false;
+        for handler in &sc.handlers {
+            if handler
+                .show_attribute_values
+                .as_deref()
+                .is_some_and(|v| v == "true")
+            {
+                let loc = handler.location.as_deref().unwrap_or("(unknown)");
+                results.push(
+                    CheckResult::fail(
+                        "SEC-032",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "Handler at {} has showAttributeValues=\"true\" (exposes PII)",
+                            loc
+                        ),
+                        Some("Remove showAttributeValues or set to \"false\" in production"),
+                    )
+                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                );
+                has_exposed = true;
+            }
+        }
+        if !has_exposed && !sc.handlers.is_empty() {
+            results.push(CheckResult::pass(
+                "SEC-032",
+                CAT,
+                Severity::Warning,
+                "No handlers expose attribute values",
+            ));
+        }
+    }
+
+    // SEC-033: Session handler lacks ACL restriction
+    {
+        let session_handlers: Vec<_> = sc
+            .handlers
+            .iter()
+            .filter(|h| {
+                h.handler_type.contains("Session")
+                    || h.handler_type.contains("Status")
+                    || h.handler_type.contains("MetadataGenerator")
+            })
+            .collect();
+        let mut has_missing_acl = false;
+        for handler in &session_handlers {
+            if handler.acl.is_none() {
+                let loc = handler.location.as_deref().unwrap_or("(unknown)");
+                results.push(
+                    CheckResult::fail(
+                        "SEC-033",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Handler type='{}' at {} has no ACL restriction",
+                            handler.handler_type, loc
+                        ),
+                        Some("Add acl attribute to restrict handler access (e.g., acl=\"127.0.0.1 ::1\")"),
+                    )
+                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                );
+                has_missing_acl = true;
+            }
+        }
+        if !has_missing_acl && !session_handlers.is_empty() {
+            results.push(CheckResult::pass(
+                "SEC-033",
+                CAT,
+                Severity::Info,
+                "All sensitive handlers have ACL restrictions",
+            ));
+        }
+    }
+
+    // SEC-034: exportAssertion="true" leaks SAML assertion in headers
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("exportAssertion=\"true\"") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-034",
+                    CAT,
+                    Severity::Warning,
+                    "exportAssertion=\"true\" found (leaks full SAML assertion in HTTP headers)",
+                    Some(
+                        "Remove exportAssertion or set to \"false\" unless required for debugging",
+                    ),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "SEC-034",
+                CAT,
+                Severity::Warning,
+                "exportAssertion is not enabled",
+            ));
+        }
+    }
+
+    // SEC-035: Weak cipherSuites on ApplicationDefaults
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref ciphers) = app.cipher_suites {
+            let lower = ciphers.to_lowercase();
+            let weak_patterns = ["rc4", "des", "null", "export"];
+            let found_weak: Vec<&str> = weak_patterns
+                .iter()
+                .filter(|p| lower.contains(**p))
+                .copied()
+                .collect();
+            if found_weak.is_empty() {
+                results.push(CheckResult::pass(
+                    "SEC-035",
+                    CAT,
+                    Severity::Warning,
+                    "cipherSuites does not contain known weak ciphers",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-035",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "cipherSuites contains weak cipher pattern(s): {}",
+                            found_weak.join(", ")
+                        ),
+                        Some(
+                            "Remove weak cipher suites (RC4, DES, NULL, EXPORT) from cipherSuites",
+                        ),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-036: No spoofKey configured (header spoofing risk)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("spoofKey=") {
+            results.push(CheckResult::pass(
+                "SEC-036",
+                CAT,
+                Severity::Warning,
+                "spoofKey is configured",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-036",
+                    CAT,
+                    Severity::Warning,
+                    "No spoofKey configured (header spoofing risk with non-default setup)",
+                    Some("Set spoofKey on <ApplicationDefaults> when using header-based attribute passing"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-038: postLimit set to 0 or > 10MB
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref post_limit_str) = sessions.post_limit {
+            if let Ok(limit) = post_limit_str.parse::<u64>() {
+                if limit == 0 {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-038",
+                            CAT,
+                            Severity::Info,
+                            "Sessions postLimit is 0 (no limit on POST data)",
+                            Some("Set a reasonable postLimit (e.g., 1048576 for 1MB)"),
+                        )
+                        .with_doc(doc_for(DOC_SESSIONS, v)),
+                    );
+                } else if limit > 10_485_760 {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-038",
+                            CAT,
+                            Severity::Info,
+                            &format!("Sessions postLimit is {} bytes (> 10MB)", limit),
+                            Some("Consider a smaller postLimit to prevent abuse"),
+                        )
+                        .with_doc(doc_for(DOC_SESSIONS, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-038",
+                        CAT,
+                        Severity::Info,
+                        &format!("Sessions postLimit is {} bytes", limit),
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-039: SecurityPolicyProvider missing validate="true"
+    if sc.security_policy_provider_path.is_some() {
+        if sc
+            .security_policy_provider_validate
+            .as_deref()
+            .is_some_and(|v| v == "true")
+        {
+            results.push(CheckResult::pass(
+                "SEC-039",
+                CAT,
+                Severity::Info,
+                "SecurityPolicyProvider has validate=\"true\"",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-039",
+                    CAT,
+                    Severity::Info,
+                    "SecurityPolicyProvider missing validate=\"true\"",
+                    Some("Add validate=\"true\" to SecurityPolicyProvider to validate the policy file on load"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-040: AlgorithmBlacklist explicitly disables default blacklist
+    {
+        let security_policy_path = config.base_dir.join("security-policy.xml");
+        if security_policy_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&security_policy_path) {
+                // Check for exclude="#default" or equivalent patterns that disable the default blacklist
+                if content.contains("exclude=\"#default\"")
+                    || content.contains("excludeDefaults=\"true\"")
+                {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-040",
+                            CAT,
+                            Severity::Warning,
+                            "security-policy.xml explicitly disables default algorithm blacklist",
+                            Some("Do not exclude default algorithm blacklists unless you have specific requirements"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-040",
+                        CAT,
+                        Severity::Warning,
+                        "security-policy.xml does not disable default algorithm blacklist",
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-041: Notify endpoint uses plaintext HTTP
+    {
+        let mut has_http = false;
+        for endpoint in &sc.notify_endpoints {
+            if endpoint.starts_with("http://") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-041",
+                        CAT,
+                        Severity::Warning,
+                        &format!("Notify endpoint uses plaintext HTTP: {}", endpoint),
+                        Some("Use HTTPS for Notify endpoints to protect logout notifications"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+                has_http = true;
+            }
+        }
+        if !has_http && !sc.notify_endpoints.is_empty() {
+            results.push(CheckResult::pass(
+                "SEC-041",
+                CAT,
+                Severity::Warning,
+                "All Notify endpoints use HTTPS",
+            ));
+        }
+    }
+
+    // SEC-042: handlerURL is absolute URL using http://
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref handler_url) = sessions.handler_url {
+            if handler_url.starts_with("http://") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-042",
+                        CAT,
+                        Severity::Warning,
+                        &format!("handlerURL uses plaintext HTTP: {}", handler_url),
+                        Some("Use a relative path or HTTPS URL for handlerURL"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-042",
+                    CAT,
+                    Severity::Warning,
+                    "handlerURL does not use plaintext HTTP",
+                ));
             }
         }
     }

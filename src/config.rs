@@ -29,6 +29,9 @@ pub struct DiscoveredConfig {
     pub other_xml_files: Vec<PathBuf>,
     /// Other XML files that failed well-formedness check
     pub other_xml_malformed: Vec<(PathBuf, String)>,
+
+    /// Raw content of shibboleth2.xml for string-scanning checks
+    pub shibboleth_xml_content: Option<String>,
 }
 
 pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
@@ -40,7 +43,13 @@ pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
     let attribute_map_exists = attribute_map_path.exists();
     let attribute_policy_exists = attribute_policy_path.exists();
 
-    // Parse shibboleth2.xml
+    // Read and parse shibboleth2.xml
+    let shibboleth_xml_content = if shibboleth_xml_exists {
+        std::fs::read_to_string(&shibboleth_xml_path).ok()
+    } else {
+        None
+    };
+
     let (shibboleth_xml_well_formed, shibboleth_config) = if shibboleth_xml_exists {
         match parsers::shibboleth_xml::parse(&shibboleth_xml_path) {
             Ok(config) => (true, Some(config)),
@@ -108,5 +117,6 @@ pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
         attribute_policy,
         other_xml_files,
         other_xml_malformed,
+        shibboleth_xml_content,
     })
 }

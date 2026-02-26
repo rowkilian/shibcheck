@@ -1,0 +1,7 @@
+<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+    <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+        <!-- Missing closing tag intentionally -->
+        <Sessions handlerURL="/Shibboleth.sso">
+            <SSO>SAML2</SSO>
+    </ApplicationDefaults>
+</SPConfig>
