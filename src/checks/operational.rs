@@ -521,5 +521,167 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // OPS-016: sameSiteFallback not set on Sessions
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.same_site_fallback.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-016",
+                CAT,
+                Severity::Info,
+                "sameSiteFallback is set on Sessions",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-016",
+                    CAT,
+                    Severity::Info,
+                    "sameSiteFallback not set on Sessions (needed for Safari/older browsers)",
+                    Some("Set sameSiteFallback=\"true\" on <Sessions> for compatibility with older browsers"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-017: relayState not configured on Sessions
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.relay_state.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-017",
+                CAT,
+                Severity::Info,
+                "relayState is configured on Sessions",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-017",
+                    CAT,
+                    Severity::Info,
+                    "relayState not configured on Sessions (no post-login redirect control)",
+                    Some("Set relayState on <Sessions> to control post-login redirect behavior"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-018: postData not configured on Sessions
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.post_data.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-018",
+                CAT,
+                Severity::Info,
+                "postData is configured on Sessions",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-018",
+                    CAT,
+                    Severity::Info,
+                    "postData not configured on Sessions (POST data may be lost during SSO)",
+                    Some("Set postData on <Sessions> to preserve POST data during SSO redirects"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-019: Remote MetadataProvider has no reloadInterval set
+    {
+        let mut has_missing = false;
+        for mp in &sc.metadata_providers {
+            let is_remote = mp.uri.is_some() || mp.url.is_some();
+            if !is_remote || mp.provider_type == "Chaining" {
+                continue;
+            }
+            if mp.reload_interval.is_none() {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-019",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Remote MetadataProvider type='{}' has no reloadInterval set",
+                            mp.provider_type
+                        ),
+                        Some("Set reloadInterval on remote MetadataProvider to control refresh frequency"),
+                    )
+                    .with_doc(DOC_METADATA_PROVIDER),
+                );
+                has_missing = true;
+            }
+        }
+        if !has_missing {
+            let has_remote = sc
+                .metadata_providers
+                .iter()
+                .any(|mp| (mp.uri.is_some() || mp.url.is_some()) && mp.provider_type != "Chaining");
+            if has_remote {
+                results.push(CheckResult::pass(
+                    "OPS-019",
+                    CAT,
+                    Severity::Info,
+                    "All remote MetadataProviders have reloadInterval configured",
+                ));
+            }
+        }
+    }
+
+    // OPS-020: supportContact has mailto: prefix (SP adds it automatically)
+    if let Some(ref errors) = sc.errors {
+        if let Some(ref contact) = errors.support_contact {
+            if contact.starts_with("mailto:") {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-020",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "supportContact has 'mailto:' prefix: {} (SP adds it automatically, causing double-prefix)",
+                            contact
+                        ),
+                        Some("Remove the 'mailto:' prefix from supportContact; the SP adds it automatically"),
+                    )
+                    .with_doc(DOC_ERRORS),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "OPS-020",
+                    CAT,
+                    Severity::Info,
+                    "supportContact does not have redundant mailto: prefix",
+                ));
+            }
+        }
+    }
+
+    // OPS-021: No <AttributeFilter> element configured
+    if sc.attribute_filter_paths.is_empty() {
+        results.push(
+            CheckResult::fail(
+                "OPS-021",
+                CAT,
+                Severity::Info,
+                "No <AttributeFilter> element configured (attribute release policy not applied)",
+                Some("Add an <AttributeFilter> element with a path to an attribute policy file"),
+            )
+            .with_doc(DOC_ATTR_FILTER),
+        );
+    } else {
+        results.push(CheckResult::pass(
+            "OPS-021",
+            CAT,
+            Severity::Info,
+            &format!(
+                "{} AttributeFilter element(s) configured",
+                sc.attribute_filter_paths.len()
+            ),
+        ));
+    }
+
     results
 }

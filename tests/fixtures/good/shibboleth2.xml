@@ -2,19 +2,23 @@
     xmlns:conf="urn:mace:shibboleth:3.0:native:sp:config"
     clockSkew="180">
 
+    <TCPListener address="127.0.0.1" port="1600"/>
+
     <ApplicationDefaults entityID="https://sp.example.org/shibboleth"
         REMOTE_USER="eppn"
         signing="true"
-        encryption="true">
+        encryption="true"
+        homeURL="https://sp.example.org/">
 
         <Sessions lifetime="28800" timeout="3600"
             handlerURL="/Shibboleth.sso"
             handlerSSL="true"
             cookieProps="https"
-            redirectLimit="exact">
+            redirectLimit="exact"
+            sameSiteFallback="true">
 
             <SSO entityID="https://idp.example.org/idp/shibboleth">SAML2</SSO>
-            <Logout>SAML2 Local</Logout>
+            <Logout outgoingBindings="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect">SAML2 Local</Logout>
 
             <Notify Channel="https://app.example.org/notify"/>
         </Sessions>

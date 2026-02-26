@@ -457,5 +457,82 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // MIG-017: MetadataGenerator handler present (disabled by default in SP 3.4+)
+    if sc.sp_version == SpVersion::V3 {
+        let has_metadata_gen = sc
+            .handlers
+            .iter()
+            .any(|h| h.handler_type.contains("MetadataGenerator"));
+        if has_metadata_gen {
+            results.push(
+                CheckResult::fail(
+                    "MIG-017",
+                    CAT,
+                    Severity::Info,
+                    "MetadataGenerator handler present (disabled by default in SP 3.4+)",
+                    Some("MetadataGenerator is disabled by default in SP 3.4+; consider removing if not needed"),
+                )
+                .with_doc(DOC_UPGRADE),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "MIG-017",
+                CAT,
+                Severity::Info,
+                "No MetadataGenerator handler (consistent with SP 3.4+ defaults)",
+            ));
+        }
+    }
+
+    // MIG-018: redirectLimit="whitelist" deprecated value (use "allow" in SP 3.3+)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref limit) = sessions.redirect_limit {
+            if limit == "whitelist" {
+                results.push(
+                    CheckResult::fail(
+                        "MIG-018",
+                        CAT,
+                        Severity::Warning,
+                        "redirectLimit=\"whitelist\" is a deprecated value",
+                        Some("Use redirectLimit=\"allow\" instead (SP 3.3+)"),
+                    )
+                    .with_doc(DOC_UPGRADE),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "MIG-018",
+                    CAT,
+                    Severity::Warning,
+                    &format!("redirectLimit value '{}' is not deprecated", limit),
+                ));
+            }
+        }
+    }
+
+    // MIG-019: SSO discoveryProtocol="WAYF" deprecated (use SAMLDS)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref proto) = sessions.sso_discovery_protocol {
+            if proto.contains("WAYF") {
+                results.push(
+                    CheckResult::fail(
+                        "MIG-019",
+                        CAT,
+                        Severity::Warning,
+                        &format!("SSO discoveryProtocol '{}' is deprecated", proto),
+                        Some("Use discoveryProtocol=\"SAMLDS\" instead of WAYF"),
+                    )
+                    .with_doc(DOC_UPGRADE),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "MIG-019",
+                    CAT,
+                    Severity::Warning,
+                    &format!("SSO discoveryProtocol '{}' is not deprecated", proto),
+                ));
+            }
+        }
+    }
+
     results
 }

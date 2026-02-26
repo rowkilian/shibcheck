@@ -1338,6 +1338,275 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // SEC-043: Signing and encryption CredentialResolvers use the same key file
+    {
+        let signing_keys: Vec<&str> = sc
+            .credential_resolvers
+            .iter()
+            .filter(|cr| {
+                cr.use_attr
+                    .as_deref()
+                    .is_some_and(|u| u.contains("signing"))
+            })
+            .filter_map(|cr| cr.key.as_deref())
+            .collect();
+        let encryption_keys: Vec<&str> = sc
+            .credential_resolvers
+            .iter()
+            .filter(|cr| {
+                cr.use_attr
+                    .as_deref()
+                    .is_some_and(|u| u.contains("encryption"))
+            })
+            .filter_map(|cr| cr.key.as_deref())
+            .collect();
+        let mut shared = false;
+        for sk in &signing_keys {
+            if encryption_keys.contains(sk) {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-043",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "Signing and encryption CredentialResolvers share the same key file: {}",
+                            sk
+                        ),
+                        Some("Use separate key files for signing and encryption for better key management"),
+                    )
+                    .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                );
+                shared = true;
+            }
+        }
+        if !shared && !signing_keys.is_empty() && !encryption_keys.is_empty() {
+            results.push(CheckResult::pass(
+                "SEC-043",
+                CAT,
+                Severity::Warning,
+                "Signing and encryption use different key files",
+            ));
+        }
+    }
+
+    // SEC-044: TCPListener binds to non-localhost address
+    if let Some(ref addr) = sc.tcp_listener_address {
+        let lower = addr.to_lowercase();
+        if lower == "127.0.0.1" || lower == "::1" || lower == "localhost" {
+            results.push(CheckResult::pass(
+                "SEC-044",
+                CAT,
+                Severity::Warning,
+                &format!("TCPListener binds to localhost: {}", addr),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-044",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "TCPListener binds to non-localhost address: {} (exposes internal socket)",
+                        addr
+                    ),
+                    Some("Set address=\"127.0.0.1\" on <TCPListener> to bind only to localhost"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-045: redirectLimit not explicitly set on Sessions
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.redirect_limit.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-045",
+                CAT,
+                Severity::Info,
+                "redirectLimit is explicitly set on Sessions",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-045",
+                    CAT,
+                    Severity::Info,
+                    "redirectLimit not explicitly set on Sessions (defaults vary by SP version)",
+                    Some("Set redirectLimit on <Sessions> to explicitly control redirect behavior"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-046: MetadataGenerator handler has no ACL restriction
+    {
+        for handler in &sc.handlers {
+            if handler.handler_type.contains("MetadataGenerator") {
+                if handler.acl.is_some() {
+                    results.push(CheckResult::pass(
+                        "SEC-046",
+                        CAT,
+                        Severity::Warning,
+                        "MetadataGenerator handler has ACL restriction",
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-046",
+                            CAT,
+                            Severity::Warning,
+                            "MetadataGenerator handler has no ACL restriction",
+                            Some(
+                                "Add acl attribute to MetadataGenerator handler to restrict access",
+                            ),
+                        )
+                        .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // SEC-047: DiscoveryFeed handler has no ACL restriction
+    {
+        for handler in &sc.handlers {
+            if handler.handler_type.contains("DiscoveryFeed") {
+                if handler.acl.is_some() {
+                    results.push(CheckResult::pass(
+                        "SEC-047",
+                        CAT,
+                        Severity::Warning,
+                        "DiscoveryFeed handler has ACL restriction",
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-047",
+                            CAT,
+                            Severity::Warning,
+                            "DiscoveryFeed handler has no ACL restriction",
+                            Some("Add acl attribute to DiscoveryFeed handler to restrict access"),
+                        )
+                        .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // SEC-048: No SecurityPolicyProvider configured
+    if sc.security_policy_provider_path.is_some() {
+        results.push(CheckResult::pass(
+            "SEC-048",
+            CAT,
+            Severity::Warning,
+            "SecurityPolicyProvider is configured",
+        ));
+    } else {
+        results.push(
+            CheckResult::fail(
+                "SEC-048",
+                CAT,
+                Severity::Warning,
+                "No SecurityPolicyProvider configured",
+                Some("Add a <SecurityPolicyProvider> element to define security policies"),
+            )
+            .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+        );
+    }
+
+    // SEC-049: homeURL uses plain HTTP or is a placeholder
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref home_url) = app.home_url {
+            let lower = home_url.to_lowercase();
+            if lower.starts_with("http://") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-049",
+                        CAT,
+                        Severity::Info,
+                        &format!("homeURL uses plain HTTP: {}", home_url),
+                        Some("Use HTTPS for homeURL"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else if lower.contains("example.org")
+                || lower.contains("example.com")
+                || lower.contains("localhost")
+            {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-049",
+                        CAT,
+                        Severity::Info,
+                        &format!("homeURL appears to be a placeholder: {}", home_url),
+                        Some("Set homeURL to your actual application URL"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-049",
+                    CAT,
+                    Severity::Info,
+                    &format!("homeURL is set: {}", home_url),
+                ));
+            }
+        }
+    }
+
+    // SEC-050: exportAssertion="true" without any requireSession in config
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("exportAssertion=\"true\"")
+            && !content.contains("requireSession=\"true\"")
+        {
+            results.push(
+                CheckResult::fail(
+                    "SEC-050",
+                    CAT,
+                    Severity::Warning,
+                    "exportAssertion=\"true\" found without requireSession=\"true\" in config",
+                    Some("Ensure requireSession=\"true\" is set when exporting assertions to prevent unauthenticated access"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        } else if content.contains("exportAssertion=\"true\"") {
+            results.push(CheckResult::pass(
+                "SEC-050",
+                CAT,
+                Severity::Warning,
+                "exportAssertion has requireSession configured",
+            ));
+        }
+    }
+
+    // SEC-051: Chaining CredentialResolver has zero children
+    for cr in &sc.credential_resolvers {
+        if cr.resolver_type == "Chaining" && cr.children_count == 0 {
+            results.push(
+                CheckResult::fail(
+                    "SEC-051",
+                    CAT,
+                    Severity::Error,
+                    "Chaining CredentialResolver has zero children",
+                    Some("Add child CredentialResolver elements or remove the empty Chaining resolver"),
+                )
+                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+            );
+        } else if cr.resolver_type == "Chaining" {
+            results.push(CheckResult::pass(
+                "SEC-051",
+                CAT,
+                Severity::Error,
+                &format!(
+                    "Chaining CredentialResolver has {} children",
+                    cr.children_count
+                ),
+            ));
+        }
+    }
+
     // SEC-016: Private key file not world-readable (Unix only)
     #[cfg(unix)]
     {

@@ -968,6 +968,126 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 );
             }
         }
+
+        // XML-039: SSO discoveryProtocol not a recognized value
+        if let Some(ref sessions) = sc.sessions {
+            if let Some(ref proto) = sessions.sso_discovery_protocol {
+                if proto == "SAMLDS" {
+                    results.push(CheckResult::pass(
+                        "XML-039",
+                        CAT,
+                        Severity::Warning,
+                        &format!("SSO discoveryProtocol is recognized: {}", proto),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "XML-039",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "SSO discoveryProtocol '{}' is not a recognized value",
+                                proto
+                            ),
+                            Some("Expected discoveryProtocol=\"SAMLDS\" on <SSO>"),
+                        )
+                        .with_doc(doc_for(DOC_SSO, v)),
+                    );
+                }
+            }
+        }
+
+        // XML-040: RequestMap applicationId references collected
+        if !sc.request_map_application_ids.is_empty() {
+            results.push(CheckResult::pass(
+                "XML-040",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "RequestMap contains {} applicationId reference(s)",
+                    sc.request_map_application_ids.len()
+                ),
+            ));
+        }
+
+        // XML-041: ApplicationOverride element has no entityID attribute
+        for (id, entity_id) in &sc.application_override_entity_ids {
+            if entity_id.is_none() {
+                results.push(
+                    CheckResult::fail(
+                        "XML-041",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "ApplicationOverride '{}' has no entityID attribute",
+                            id
+                        ),
+                        Some("Set entityID on ApplicationOverride to define the SP identity for this override"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "XML-041",
+                    CAT,
+                    Severity::Warning,
+                    &format!("ApplicationOverride '{}' has entityID set", id),
+                ));
+            }
+        }
+
+        // XML-042: Errors template file paths don't exist on disk
+        if let Some(ref errors) = sc.errors {
+            let template_fields: &[(&str, &Option<String>)] = &[
+                ("session", &errors.session_error),
+                ("access", &errors.access_error),
+                ("ssl", &errors.ssl_error),
+                ("localLogout", &errors.local_logout),
+                ("metadata", &errors.metadata_error),
+                ("globalLogout", &errors.global_logout),
+            ];
+            for (attr_name, value) in template_fields {
+                if let Some(ref path) = value {
+                    if path.starts_with("http://") || path.starts_with("https://") {
+                        continue;
+                    }
+                    let full_path = config.base_dir.join(path);
+                    if full_path.exists() {
+                        results.push(CheckResult::pass(
+                            "XML-042",
+                            CAT,
+                            Severity::Warning,
+                            &format!("Errors {} template exists: {}", attr_name, path),
+                        ));
+                    } else {
+                        results.push(
+                            CheckResult::fail(
+                                "XML-042",
+                                CAT,
+                                Severity::Warning,
+                                &format!("Errors {} template file not found: {}", attr_name, path),
+                                Some(
+                                    "Ensure the error template file exists at the configured path",
+                                ),
+                            )
+                            .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                        );
+                    }
+                }
+            }
+        }
+
+        // XML-043: Logout outgoingBindings attribute configured
+        if let Some(ref sessions) = sc.sessions {
+            if let Some(ref bindings) = sessions.logout_outgoing_bindings {
+                results.push(CheckResult::pass(
+                    "XML-043",
+                    CAT,
+                    Severity::Info,
+                    &format!("Logout outgoingBindings configured: {}", bindings),
+                ));
+            }
+        }
     }
 
     // XML-015: Other XML files well-formed

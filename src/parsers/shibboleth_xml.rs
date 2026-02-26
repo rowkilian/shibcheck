@@ -18,6 +18,7 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
     let mut mp_stack: Vec<MetadataProvider> = Vec::new();
     let mut cr_stack: Vec<CredentialResolver> = Vec::new();
     let mut text_target: Option<String> = None;
+    let mut in_request_map = false;
 
     loop {
         match reader.read_event() {
@@ -37,7 +38,11 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
                     &mut mp_stack,
                     &mut cr_stack,
                     false,
+                    in_request_map,
                 )?;
+                if name == "RequestMap" {
+                    in_request_map = true;
+                }
                 // Track elements whose text content we need
                 if name == "SSO" || name == "Logout" {
                     text_target = Some(name.clone());
@@ -56,6 +61,7 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
                     &mut mp_stack,
                     &mut cr_stack,
                     true,
+                    in_request_map,
                 )?;
                 text_target = None;
             }
@@ -76,8 +82,16 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
             Ok(Event::End(_)) => {
                 text_target = None;
                 if let Some(name) = element_stack.pop() {
-                    if name == "MetadataProvider" {
+                    if name == "RequestMap" {
+                        in_request_map = false;
+                    } else if name == "MetadataProvider" {
                         if let Some(mp) = mp_stack.pop() {
+                            // If there's a parent Chaining MP on the stack, increment its count
+                            if let Some(parent) = mp_stack.last_mut() {
+                                if parent.provider_type == "Chaining" {
+                                    parent.children_count += 1;
+                                }
+                            }
                             config.metadata_providers.push(mp);
                         }
                     } else if name == "CredentialResolver" {
@@ -128,6 +142,7 @@ fn get_attr(e: &quick_xml::events::BytesStart<'_>, name: &str) -> Option<String>
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_element(
     name: &str,
     e: &quick_xml::events::BytesStart<'_>,
@@ -136,6 +151,7 @@ fn process_element(
     mp_stack: &mut Vec<MetadataProvider>,
     cr_stack: &mut Vec<CredentialResolver>,
     is_empty: bool,
+    in_request_map: bool,
 ) -> Result<()> {
     match name {
         "SPConfig" => {
@@ -147,6 +163,11 @@ fn process_element(
             };
             config.clock_skew = get_attr(e, "clockSkew");
         }
+        "TCPListener" | "UnixListener" => {
+            if config.tcp_listener_address.is_none() {
+                config.tcp_listener_address = get_attr(e, "address");
+            }
+        }
         "ApplicationDefaults" => {
             config.has_application_defaults = true;
             config.entity_id = get_attr(e, "entityID");
@@ -155,6 +176,7 @@ fn process_element(
                 signing: get_attr(e, "signing"),
                 encryption: get_attr(e, "encryption"),
                 cipher_suites: get_attr(e, "cipherSuites"),
+                home_url: get_attr(e, "homeURL"),
             });
         }
         "Sessions" => {
@@ -181,6 +203,9 @@ fn process_element(
                     idp_history: get_attr(e, "idpHistory"),
                     idp_history_days: get_attr(e, "idpHistoryDays"),
                     check_address: get_attr(e, "checkAddress"),
+                    same_site_fallback: get_attr(e, "sameSiteFallback"),
+                    post_data: get_attr(e, "postData"),
+                    logout_outgoing_bindings: None,
                 });
             }
         }
@@ -212,6 +237,9 @@ fn process_element(
         "Logout" | "LogoutInitiator" => {
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_logout = true;
+                if sessions.logout_outgoing_bindings.is_none() {
+                    sessions.logout_outgoing_bindings = get_attr(e, "outgoingBindings");
+                }
             }
         }
         "MetadataProvider" => {
@@ -226,8 +254,15 @@ fn process_element(
                 file_attr: get_attr(e, "file"),
                 filters: Vec::new(),
                 max_refresh_delay: get_attr(e, "maxRefreshDelay"),
+                children_count: 0,
             };
             if is_empty {
+                // If there's a parent Chaining MP on the stack, increment its count
+                if let Some(parent) = mp_stack.last_mut() {
+                    if parent.provider_type == "Chaining" {
+                        parent.children_count += 1;
+                    }
+                }
                 config.metadata_providers.push(mp);
             } else {
                 mp_stack.push(mp);
@@ -343,6 +378,13 @@ fn process_element(
                 config.notify_endpoints.push(channel);
             } else if let Some(loc) = get_attr(e, "Location") {
                 config.notify_endpoints.push(loc);
+            }
+        }
+        "Host" | "Path" => {
+            if in_request_map {
+                if let Some(app_id) = get_attr(e, "applicationId") {
+                    config.request_map_application_ids.push(app_id);
+                }
             }
         }
         _ => {}
@@ -758,5 +800,125 @@ mod tests {
             config.security_policy_provider_validate.as_deref(),
             Some("true")
         );
+    }
+
+    #[test]
+    fn test_parse_tcp_listener() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <TCPListener address="127.0.0.1" port="1600"/>
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.tcp_listener_address.as_deref(), Some("127.0.0.1"));
+    }
+
+    #[test]
+    fn test_parse_unix_listener() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <UnixListener address="/var/run/shibboleth/shibd.sock"/>
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(
+            config.tcp_listener_address.as_deref(),
+            Some("/var/run/shibboleth/shibd.sock")
+        );
+    }
+
+    #[test]
+    fn test_parse_request_map_application_ids() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <RequestMap>
+                <Host name="sp.example.org" applicationId="app1"/>
+                <Host name="sp2.example.org">
+                    <Path name="/secure" applicationId="app2"/>
+                </Host>
+            </RequestMap>
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        assert_eq!(config.request_map_application_ids.len(), 2);
+        assert_eq!(config.request_map_application_ids[0], "app1");
+        assert_eq!(config.request_map_application_ids[1], "app2");
+    }
+
+    #[test]
+    fn test_parse_home_url() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth"
+                                 homeURL="https://sp.example.org/"/>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let app = config.application_defaults.as_ref().unwrap();
+        assert_eq!(app.home_url.as_deref(), Some("https://sp.example.org/"));
+    }
+
+    #[test]
+    fn test_parse_same_site_fallback_and_post_data() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso"
+                          sameSiteFallback="true"
+                          postData="ss:mem">
+                    <SSO entityID="https://idp.example.org">SAML2</SSO>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let sessions = config.sessions.as_ref().unwrap();
+        assert_eq!(sessions.same_site_fallback.as_deref(), Some("true"));
+        assert_eq!(sessions.post_data.as_deref(), Some("ss:mem"));
+    }
+
+    #[test]
+    fn test_parse_logout_outgoing_bindings() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <Sessions handlerURL="/Shibboleth.sso">
+                    <SSO entityID="https://idp.example.org">SAML2</SSO>
+                    <Logout outgoingBindings="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect">SAML2 Local</Logout>
+                </Sessions>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let sessions = config.sessions.as_ref().unwrap();
+        assert_eq!(
+            sessions.logout_outgoing_bindings.as_deref(),
+            Some("urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect")
+        );
+    }
+
+    #[test]
+    fn test_parse_metadata_provider_children_count() {
+        let xml = r#"
+        <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+            <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+                <MetadataProvider type="Chaining">
+                    <MetadataProvider type="XML" path="idp1.xml"/>
+                    <MetadataProvider type="XML" path="idp2.xml"/>
+                    <MetadataProvider type="XML" path="idp3.xml"/>
+                </MetadataProvider>
+            </ApplicationDefaults>
+        </SPConfig>
+        "#;
+        let config = parse_str(xml).unwrap();
+        let chaining = config
+            .metadata_providers
+            .iter()
+            .find(|mp| mp.provider_type == "Chaining")
+            .unwrap();
+        assert_eq!(chaining.children_count, 3);
     }
 }

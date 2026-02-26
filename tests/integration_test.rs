@@ -266,3 +266,51 @@ fn check_sec_032_show_attribute_values() {
         "Expected SEC-032 to fail on showAttributeValues=true"
     );
 }
+
+#[test]
+fn check_sec_044_tcp_listener_insecure_binding() {
+    let output = shibcheck()
+        .args(["--check", "SEC-044", "--json", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let results = parsed["results"].as_array().unwrap();
+    let sec_044: Vec<_> = results
+        .iter()
+        .filter(|r| r["code"].as_str().unwrap() == "SEC-044")
+        .collect();
+    assert!(
+        !sec_044.is_empty(),
+        "Expected SEC-044 check for TCPListener binding"
+    );
+    assert!(
+        !sec_044[0]["passed"].as_bool().unwrap(),
+        "Expected SEC-044 to fail on 0.0.0.0 binding"
+    );
+}
+
+#[test]
+fn check_mig_019_wayf_deprecated() {
+    let output = shibcheck()
+        .args(["--check", "MIG-019", "--json", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let results = parsed["results"].as_array().unwrap();
+    let mig_019: Vec<_> = results
+        .iter()
+        .filter(|r| r["code"].as_str().unwrap() == "MIG-019")
+        .collect();
+    assert!(
+        !mig_019.is_empty(),
+        "Expected MIG-019 check for WAYF protocol"
+    );
+    assert!(
+        !mig_019[0]["passed"].as_bool().unwrap(),
+        "Expected MIG-019 to fail on WAYF discoveryProtocol"
+    );
+}

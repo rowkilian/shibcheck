@@ -30,6 +30,8 @@ pub struct ShibbolethConfig {
     pub sso_authn_context_class_ref: Option<String>,
     pub sso_ecp: Option<String>,
     pub security_policy_provider_validate: Option<String>,
+    pub tcp_listener_address: Option<String>,
+    pub request_map_application_ids: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -38,6 +40,7 @@ pub struct ApplicationDefaults {
     pub signing: Option<String>,
     pub encryption: Option<String>,
     pub cipher_suites: Option<String>,
+    pub home_url: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -63,6 +66,9 @@ pub struct SessionsConfig {
     pub idp_history: Option<String>,
     pub idp_history_days: Option<String>,
     pub check_address: Option<String>,
+    pub same_site_fallback: Option<String>,
+    pub post_data: Option<String>,
+    pub logout_outgoing_bindings: Option<String>,
 }
 
 #[derive(Debug)]
@@ -77,6 +83,7 @@ pub struct MetadataProvider {
     pub file_attr: Option<String>,
     pub filters: Vec<MetadataFilter>,
     pub max_refresh_delay: Option<String>,
+    pub children_count: usize,
 }
 
 #[derive(Debug)]

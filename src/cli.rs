@@ -35,12 +35,12 @@ EXIT CODES:
   2  Tool failure (e.g., directory not found)
 
 CHECKS:
-  130+ checks across five categories:
-    XML-001..038   XML validity and required elements
-    REF-001..029   Cross-file reference validation
-    SEC-001..042   Security best practices
-    MIG-001..016   SP2 to SP3 migration
-    OPS-001..015   Operational best practices
+  165+ checks across five categories:
+    XML-001..043   XML validity and required elements
+    REF-001..031   Cross-file reference validation
+    SEC-001..051   Security best practices
+    MIG-001..019   SP2 to SP3 migration
+    OPS-001..021   Operational best practices
 
   See https://github.com/<owner>/shibcheck#checks-reference for details."
 )]

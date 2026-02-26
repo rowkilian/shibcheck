@@ -925,6 +925,73 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         }
     }
 
+    // REF-030: RequestMap applicationId references non-existent ApplicationOverride ID
+    if !sc.request_map_application_ids.is_empty() {
+        let override_ids: HashSet<&str> = sc
+            .application_override_ids
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        let mut has_bad_ref = false;
+        for app_id in &sc.request_map_application_ids {
+            if !override_ids.contains(app_id.as_str()) {
+                results.push(
+                    CheckResult::fail(
+                        "REF-030",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "RequestMap applicationId '{}' references non-existent ApplicationOverride",
+                            app_id
+                        ),
+                        Some("Ensure the applicationId matches an existing ApplicationOverride id"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
+                has_bad_ref = true;
+            }
+        }
+        if !has_bad_ref {
+            results.push(CheckResult::pass(
+                "REF-030",
+                CAT,
+                Severity::Warning,
+                "All RequestMap applicationId references are valid",
+            ));
+        }
+    }
+
+    // REF-031: Chaining MetadataProvider has fewer than 2 children
+    for mp in &sc.metadata_providers {
+        if mp.provider_type == "Chaining" {
+            if mp.children_count >= 2 {
+                results.push(CheckResult::pass(
+                    "REF-031",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Chaining MetadataProvider has {} children",
+                        mp.children_count
+                    ),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "REF-031",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Chaining MetadataProvider has only {} child(ren)",
+                            mp.children_count
+                        ),
+                        Some("A Chaining MetadataProvider should have at least 2 children; otherwise use a single provider"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                );
+            }
+        }
+    }
+
     // REF-013: Error template file paths exist
     if let Some(ref errors) = sc.errors {
         let template_fields: &[(&str, &Option<String>)] = &[
