@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use super::{collect_file_summary, FileEntry};
 use crate::config::DiscoveredConfig;
 use crate::result::{CheckResult, CheckSummary};
 
@@ -21,6 +22,7 @@ struct JsonReport<'a> {
     metadata_sources: Vec<MetadataSource>,
     results: &'a [CheckResult],
     summary: &'a CheckSummary,
+    files: Vec<FileEntry>,
 }
 
 pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &DiscoveredConfig) {
@@ -42,10 +44,13 @@ pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &Discovere
         })
         .unwrap_or_default();
 
+    let files = collect_file_summary(config);
+
     let report = JsonReport {
         metadata_sources,
         results,
         summary,
+        files,
     };
     match serde_json::to_string_pretty(&report) {
         Ok(json) => println!("{}", json),

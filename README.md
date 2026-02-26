@@ -299,6 +299,24 @@ Terminal output is color-coded:
 
 Failed checks include a suggestion line and a link to the relevant Shibboleth SP3 documentation.
 
+### File Summary
+
+A file summary is displayed after the check results, showing which files were read and which were not found:
+
+```
+── Files ──
+  ✓ shibboleth2.xml         (config)
+  ✓ attribute-map.xml       (attribute map)
+  ✗ attribute-policy.xml    (attribute policy)
+  ✓ sp-cert.pem             (certificate)
+  ✓ sp-key.pem              (key)
+  ✓ idp-metadata.xml        (metadata)
+  ✗ idp-metadata-cache.xml  (backing file)
+  ✓ idp-signing.pem         (metadata certificate)
+```
+
+The summary covers primary config files, certificates, keys, metadata files, backing files, attribute extractors/filters, security policy, and error templates. Files are resolved relative to the checked directory.
+
 ### JSON Output
 
 With `--json`, output is a JSON object:
@@ -329,7 +347,11 @@ With `--json`, output is a JSON object:
     "errors": 1,
     "warnings": 2,
     "info": 0
-  }
+  },
+  "files": [
+    { "path": "shibboleth2.xml", "found": true, "kind": "config" },
+    { "path": "attribute-policy.xml", "found": false, "kind": "attribute policy" }
+  ]
 }
 ```
 

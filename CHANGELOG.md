@@ -5,6 +5,7 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- File summary section in all output formats (terminal, JSON, HTML, SARIF) showing which files were found and which were not. Lists primary config files, certificates, keys, metadata, backing files, attribute extractors/filters, security policy, and error templates.
 - `init-test-idp` subcommand: fetches [mocksaml.com](https://mocksaml.com) metadata and prints the XML snippet to add to `shibboleth2.xml` for quick test IdP setup
 - SP version detection from `<SPConfig xmlns="...">` namespace (`SpVersion::V2`, `V3`, or `Unknown`)
 - XML-020: Informational check reporting detected SP version (SP2 flagged as end-of-life)

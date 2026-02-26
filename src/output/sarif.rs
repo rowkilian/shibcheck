@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use super::collect_file_summary;
 use crate::config::DiscoveredConfig;
 use crate::result::{CheckResult, Severity};
 
@@ -15,8 +16,16 @@ struct SarifReport<'a> {
 struct SarifRun<'a> {
     tool: SarifTool<'a>,
     results: Vec<SarifResult>,
+    artifacts: Vec<SarifArtifact>,
     #[serde(rename = "columnKind")]
     column_kind: &'a str,
+}
+
+#[derive(Serialize)]
+struct SarifArtifact {
+    location: SarifArtifactLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<SarifMessage>,
 }
 
 #[derive(Serialize)]
@@ -132,6 +141,16 @@ pub fn print(results: &[CheckResult], config: &DiscoveredConfig) {
         })
         .collect();
 
+    let artifacts: Vec<SarifArtifact> = collect_file_summary(config)
+        .into_iter()
+        .map(|f| SarifArtifact {
+            location: SarifArtifactLocation {
+                uri: f.path.clone(),
+            },
+            description: Some(SarifMessage { text: f.kind }),
+        })
+        .collect();
+
     let report = SarifReport {
         schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
         version: "2.1.0",
@@ -145,6 +164,7 @@ pub fn print(results: &[CheckResult], config: &DiscoveredConfig) {
                 },
             },
             results: sarif_results,
+            artifacts,
             column_kind: "utf16CodeUnits",
         }],
     };

@@ -1,5 +1,6 @@
 use colored::Colorize;
 
+use super::{collect_file_summary, FileEntry};
 use crate::config::DiscoveredConfig;
 use crate::result::{CheckCategory, CheckResult, CheckSummary, Severity};
 
@@ -35,6 +36,8 @@ pub fn print(
         }
     }
 
+    println!();
+    print_file_summary(&collect_file_summary(config));
     println!();
     print_summary(summary);
 }
@@ -99,6 +102,33 @@ fn print_metadata_sources(config: &DiscoveredConfig) {
         if let Some(ref backing) = mp.backing_file_path {
             println!("       {} backing: {}", "↳".dimmed(), backing.dimmed());
         }
+    }
+}
+
+fn print_file_summary(files: &[FileEntry]) {
+    if files.is_empty() {
+        return;
+    }
+
+    println!("{}", "── Files ──".bold());
+
+    // Find the longest path for alignment
+    let max_path_len = files.iter().map(|f| f.path.len()).max().unwrap_or(0);
+
+    for file in files {
+        let icon = if file.found {
+            "✓".green().to_string()
+        } else {
+            "✗".red().to_string()
+        };
+        let kind = format!("({})", file.kind).dimmed();
+        println!(
+            "  {} {:<width$}  {}",
+            icon,
+            file.path,
+            kind,
+            width = max_path_len
+        );
     }
 }
 
