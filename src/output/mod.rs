@@ -32,7 +32,14 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
 
     let base_dir = &config.base_dir;
 
-    let mut add = |path: &str, found: bool, kind: &str| {
+    // Helper: insert if not already seen
+    fn add(
+        seen: &mut BTreeSet<String>,
+        entries: &mut Vec<FileEntry>,
+        path: &str,
+        found: bool,
+        kind: &str,
+    ) {
         if seen.insert(path.to_string()) {
             entries.push(FileEntry {
                 path: path.to_string(),
@@ -40,7 +47,7 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
                 kind: kind.to_string(),
             });
         }
-    };
+    }
 
     // Primary config files
     let shib_path = config
@@ -48,21 +55,39 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
         .strip_prefix(base_dir)
         .unwrap_or(&config.shibboleth_xml_path)
         .to_string_lossy();
-    add(&shib_path, config.shibboleth_xml_exists, "config");
+    add(
+        &mut seen,
+        &mut entries,
+        &shib_path,
+        config.shibboleth_xml_exists,
+        "config",
+    );
 
     let am_path = config
         .attribute_map_path
         .strip_prefix(base_dir)
         .unwrap_or(&config.attribute_map_path)
         .to_string_lossy();
-    add(&am_path, config.attribute_map_exists, "attribute map");
+    add(
+        &mut seen,
+        &mut entries,
+        &am_path,
+        config.attribute_map_exists,
+        "attribute map",
+    );
 
     let ap_path = config
         .attribute_policy_path
         .strip_prefix(base_dir)
         .unwrap_or(&config.attribute_policy_path)
         .to_string_lossy();
-    add(&ap_path, config.attribute_policy_exists, "attribute policy");
+    add(
+        &mut seen,
+        &mut entries,
+        &ap_path,
+        config.attribute_policy_exists,
+        "attribute policy",
+    );
 
     // Referenced files from parsed ShibbolethConfig (added before other_xml_files
     // so that specific kinds like "metadata" win over the generic "xml" kind)
@@ -71,11 +96,11 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
         for cr in &sc.credential_resolvers {
             if let Some(ref cert) = cr.certificate {
                 let full = base_dir.join(cert);
-                add(cert, full.exists(), "certificate");
+                add(&mut seen, &mut entries, cert, full.exists(), "certificate");
             }
             if let Some(ref key) = cr.key {
                 let full = base_dir.join(key);
-                add(key, full.exists(), "key");
+                add(&mut seen, &mut entries, key, full.exists(), "key");
             }
         }
 
@@ -83,16 +108,28 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
         for mp in &sc.metadata_providers {
             if let Some(ref path) = mp.path {
                 let full = base_dir.join(path);
-                add(path, full.exists(), "metadata");
+                add(&mut seen, &mut entries, path, full.exists(), "metadata");
             }
             if let Some(ref backing) = mp.backing_file_path {
                 let full = base_dir.join(backing);
-                add(backing, full.exists(), "backing file");
+                add(
+                    &mut seen,
+                    &mut entries,
+                    backing,
+                    full.exists(),
+                    "backing file",
+                );
             }
             for f in &mp.filters {
                 if let Some(ref cert) = f.certificate {
                     let full = base_dir.join(cert);
-                    add(cert, full.exists(), "metadata certificate");
+                    add(
+                        &mut seen,
+                        &mut entries,
+                        cert,
+                        full.exists(),
+                        "metadata certificate",
+                    );
                 }
             }
         }
@@ -100,19 +137,37 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
         // Attribute extractor paths
         for path in &sc.attribute_extractor_paths {
             let full = base_dir.join(path);
-            add(path, full.exists(), "attribute extractor");
+            add(
+                &mut seen,
+                &mut entries,
+                path,
+                full.exists(),
+                "attribute extractor",
+            );
         }
 
         // Attribute filter paths
         for path in &sc.attribute_filter_paths {
             let full = base_dir.join(path);
-            add(path, full.exists(), "attribute filter");
+            add(
+                &mut seen,
+                &mut entries,
+                path,
+                full.exists(),
+                "attribute filter",
+            );
         }
 
         // Security policy provider path
         if let Some(ref path) = sc.security_policy_provider_path {
             let full = base_dir.join(path);
-            add(path, full.exists(), "security policy");
+            add(
+                &mut seen,
+                &mut entries,
+                path,
+                full.exists(),
+                "security policy",
+            );
         }
 
         // Error templates
@@ -129,7 +184,7 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
             for (opt, kind) in error_fields {
                 if let Some(ref path) = opt {
                     let full = base_dir.join(path);
-                    add(path, full.exists(), kind);
+                    add(&mut seen, &mut entries, path, full.exists(), kind);
                 }
             }
         }
@@ -138,7 +193,34 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
     // Other XML files found in the directory (generic "xml" kind, deduped against above)
     for p in &config.other_xml_files {
         let rel = p.strip_prefix(base_dir).unwrap_or(p).to_string_lossy();
-        add(&rel, true, "xml");
+        add(&mut seen, &mut entries, &rel, true, "xml");
+    }
+
+    // Scan directory for files that are present but not referenced by any config
+    if let Ok(dir) = std::fs::read_dir(base_dir) {
+        let mut unused: Vec<String> = dir
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') {
+                    return None;
+                }
+                if !seen.contains(&name) {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        unused.sort();
+        for name in unused {
+            entries.push(FileEntry {
+                path: name,
+                found: true,
+                kind: "unused".to_string(),
+            });
+        }
     }
 
     entries

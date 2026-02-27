@@ -116,16 +116,18 @@ fn print_file_summary(files: &[FileEntry]) {
     let max_path_len = files.iter().map(|f| f.path.len()).max().unwrap_or(0);
 
     for file in files {
-        let icon = if file.found {
-            "✓".green().to_string()
+        let (icon, path_display) = if file.kind == "unused" {
+            ("?".yellow().to_string(), file.path.dimmed().to_string())
+        } else if file.found {
+            ("✓".green().to_string(), file.path.to_string())
         } else {
-            "✗".red().to_string()
+            ("✗".red().to_string(), file.path.to_string())
         };
         let kind = format!("({})", file.kind).dimmed();
         println!(
             "  {} {:<width$}  {}",
             icon,
-            file.path,
+            path_display,
             kind,
             width = max_path_len
         );
