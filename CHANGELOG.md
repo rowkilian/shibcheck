@@ -5,6 +5,11 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- OPS-032: Info when `ApplicationOverride` defines own `<Sessions>` (replaces parent, not merged)
+- OPS-033: Info when `ApplicationOverride` defines own `<Errors>` (replaces parent)
+- OPS-034: Info when `ApplicationOverride` defines own `<CredentialResolver>` (replaces parent)
+- OPS-035: Info when `ApplicationOverride` defines own `<MetadataProvider>` (replaces parent)
+- SEC-065: Warning when `ApplicationOverride` `<Sessions>` is missing `redirectLimit` (not inherited)
 - File summary section in all output formats (terminal, JSON, HTML, SARIF) showing which files were found and which were not. Lists primary config files, certificates, keys, metadata, backing files, attribute extractors/filters, security policy, and error templates.
 - `init-test-idp` subcommand: fetches [mocksaml.com](https://mocksaml.com) metadata and prints the XML snippet to add to `shibboleth2.xml` for quick test IdP setup
 - SP version detection from `<SPConfig xmlns="...">` namespace (`SpVersion::V2`, `V3`, or `Unknown`)

@@ -18,6 +18,134 @@ const DOC_ATTR_EXTRACTOR: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334421/XMLAttributeExtractor";
 const DOC_SPCONFIG: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695926/SPConfig";
+const DOC_APP_OVERRIDE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334278/ApplicationOverride";
+
+use crate::model::shibboleth_config::ShibbolethConfig;
+
+/// Summarise the parent `<Sessions>` attributes that an override will lose.
+fn describe_parent_sessions(sc: &ShibbolethConfig) -> String {
+    let Some(ref s) = sc.sessions else {
+        return "no explicit attributes".to_string();
+    };
+    let mut parts = Vec::new();
+    if let Some(ref v) = s.handler_ssl {
+        parts.push(format!("handlerSSL=\"{}\"", v));
+    }
+    if let Some(ref v) = s.cookie_props {
+        parts.push(format!("cookieProps=\"{}\"", v));
+    }
+    if let Some(ref v) = s.lifetime {
+        parts.push(format!("lifetime=\"{}\"", v));
+    }
+    if let Some(ref v) = s.timeout {
+        parts.push(format!("timeout=\"{}\"", v));
+    }
+    if let Some(ref v) = s.redirect_limit {
+        parts.push(format!("redirectLimit=\"{}\"", v));
+    }
+    if let Some(ref v) = s.consistent_address {
+        parts.push(format!("consistentAddress=\"{}\"", v));
+    }
+    if let Some(ref v) = s.same_site_fallback {
+        parts.push(format!("sameSiteFallback=\"{}\"", v));
+    }
+    if let Some(ref v) = s.post_data {
+        parts.push(format!("postData=\"{}\"", v));
+    }
+    if parts.is_empty() {
+        "no explicit attributes".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+/// Summarise the parent `<Errors>` attributes that an override will lose.
+fn describe_parent_errors(sc: &ShibbolethConfig) -> String {
+    let Some(ref e) = sc.errors else {
+        return "no explicit attributes".to_string();
+    };
+    let mut parts = Vec::new();
+    if let Some(ref v) = e.support_contact {
+        parts.push(format!("supportContact=\"{}\"", v));
+    }
+    if let Some(ref v) = e.help_location {
+        parts.push(format!("helpLocation=\"{}\"", v));
+    }
+    if let Some(ref v) = e.style_sheet {
+        parts.push(format!("styleSheet=\"{}\"", v));
+    }
+    if e.session_error.is_some()
+        || e.access_error.is_some()
+        || e.ssl_error.is_some()
+        || e.metadata_error.is_some()
+    {
+        parts.push("custom error pages".to_string());
+    }
+    if parts.is_empty() {
+        "no explicit attributes".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+/// Summarise the parent `<CredentialResolver>` that an override will lose.
+fn describe_parent_credentials(sc: &ShibbolethConfig) -> String {
+    if sc.credential_resolvers.is_empty() {
+        return "no CredentialResolver".to_string();
+    }
+    let summaries: Vec<String> = sc
+        .credential_resolvers
+        .iter()
+        .map(|cr| {
+            let mut desc = format!("type=\"{}\"", cr.resolver_type);
+            if let Some(ref u) = cr.use_attr {
+                desc.push_str(&format!(" use=\"{}\"", u));
+            }
+            if let Some(ref c) = cr.certificate {
+                desc.push_str(&format!(" certificate=\"{}\"", c));
+            }
+            if let Some(ref k) = cr.key {
+                desc.push_str(&format!(" key=\"{}\"", k));
+            }
+            desc
+        })
+        .collect();
+    format!(
+        "{} CredentialResolver(s): {}",
+        summaries.len(),
+        summaries.join("; ")
+    )
+}
+
+/// Summarise the parent `<MetadataProvider>` sources that an override will lose.
+fn describe_parent_metadata(sc: &ShibbolethConfig) -> String {
+    let non_chaining: Vec<_> = sc
+        .metadata_providers
+        .iter()
+        .filter(|mp| mp.provider_type != "Chaining")
+        .collect();
+    if non_chaining.is_empty() {
+        return "no MetadataProvider".to_string();
+    }
+    let summaries: Vec<String> = non_chaining
+        .iter()
+        .map(|mp| {
+            let source = mp
+                .uri
+                .as_deref()
+                .or(mp.url.as_deref())
+                .or(mp.path.as_deref())
+                .unwrap_or("(inline)");
+            format!("type=\"{}\" source={}", mp.provider_type, source)
+        })
+        .collect();
+    format!(
+        "{} MetadataProvider(s): {}",
+        summaries.len(),
+        summaries.join("; ")
+    )
+}
 
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     let mut results = Vec::new();
@@ -949,6 +1077,159 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 Severity::Info,
                 "DataSealer does not use static key type",
             ));
+        }
+    }
+
+    // OPS-032 to OPS-035: ApplicationOverride child element replacement checks
+    if let Some(ref content) = config.shibboleth_xml_content {
+        let mut current_override_id: Option<String> = None;
+        let mut has_sessions = false;
+        let mut has_errors = false;
+        let mut has_credential_resolver = false;
+        let mut has_metadata_provider = false;
+        let mut any_override_found = false;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            if let Some(pos) = trimmed.find("<ApplicationOverride") {
+                let rest = &trimmed[pos..];
+                let override_id = rest
+                    .find("id=\"")
+                    .and_then(|start| {
+                        let after = &rest[start + 4..];
+                        after.find('"').map(|end| after[..end].to_string())
+                    })
+                    .or_else(|| {
+                        rest.find("id='").and_then(|start| {
+                            let after = &rest[start + 4..];
+                            after.find('\'').map(|end| after[..end].to_string())
+                        })
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
+                current_override_id = Some(override_id);
+                has_sessions = false;
+                has_errors = false;
+                has_credential_resolver = false;
+                has_metadata_provider = false;
+                any_override_found = true;
+                if trimmed.contains("/>") {
+                    current_override_id = None;
+                }
+                continue;
+            }
+
+            if current_override_id.is_some() {
+                if trimmed.contains("<Sessions") {
+                    has_sessions = true;
+                }
+                if trimmed.contains("<Errors") {
+                    has_errors = true;
+                }
+                if trimmed.contains("<CredentialResolver") {
+                    has_credential_resolver = true;
+                }
+                if trimmed.contains("<MetadataProvider") {
+                    has_metadata_provider = true;
+                }
+
+                if trimmed.contains("</ApplicationOverride") {
+                    let override_id = current_override_id.take().unwrap();
+
+                    if has_sessions {
+                        let parent_summary = describe_parent_sessions(sc);
+                        results.push(
+                            CheckResult::fail(
+                                "OPS-032",
+                                CAT,
+                                Severity::Info,
+                                &format!("ApplicationOverride '{}' defines own <Sessions> — parent Sessions settings are replaced, not merged", override_id),
+                                Some(&format!("Parent <Sessions> has {}. None of these are inherited — set all required attributes in the override", parent_summary)),
+                            )
+                            .with_doc(DOC_APP_OVERRIDE),
+                        );
+                    }
+                    if has_errors {
+                        let parent_summary = describe_parent_errors(sc);
+                        results.push(
+                            CheckResult::fail(
+                                "OPS-033",
+                                CAT,
+                                Severity::Info,
+                                &format!("ApplicationOverride '{}' defines own <Errors> — parent error config is replaced", override_id),
+                                Some(&format!("Parent <Errors> has {}. These are lost in the override — replicate any needed attributes", parent_summary)),
+                            )
+                            .with_doc(DOC_APP_OVERRIDE),
+                        );
+                    }
+                    if has_credential_resolver {
+                        let parent_summary = describe_parent_credentials(sc);
+                        results.push(
+                            CheckResult::fail(
+                                "OPS-034",
+                                CAT,
+                                Severity::Info,
+                                &format!("ApplicationOverride '{}' defines own <CredentialResolver> — parent credentials are replaced", override_id),
+                                Some(&format!("Parent has {}. The override must provide its own signing/encryption credentials", parent_summary)),
+                            )
+                            .with_doc(DOC_APP_OVERRIDE),
+                        );
+                    }
+                    if has_metadata_provider {
+                        let parent_summary = describe_parent_metadata(sc);
+                        results.push(
+                            CheckResult::fail(
+                                "OPS-035",
+                                CAT,
+                                Severity::Info,
+                                &format!("ApplicationOverride '{}' defines own <MetadataProvider> — parent metadata sources are replaced", override_id),
+                                Some(&format!("Parent has {}. The override must include all required Identity Providers", parent_summary)),
+                            )
+                            .with_doc(DOC_APP_OVERRIDE),
+                        );
+                    }
+
+                }
+            }
+        }
+
+        if any_override_found {
+            let ops032_emitted = results.iter().any(|r| r.code == "OPS-032");
+            if !ops032_emitted {
+                results.push(CheckResult::pass(
+                    "OPS-032",
+                    CAT,
+                    Severity::Info,
+                    "No ApplicationOverride redefines <Sessions>",
+                ));
+            }
+            let ops033_emitted = results.iter().any(|r| r.code == "OPS-033");
+            if !ops033_emitted {
+                results.push(CheckResult::pass(
+                    "OPS-033",
+                    CAT,
+                    Severity::Info,
+                    "No ApplicationOverride redefines <Errors>",
+                ));
+            }
+            let ops034_emitted = results.iter().any(|r| r.code == "OPS-034");
+            if !ops034_emitted {
+                results.push(CheckResult::pass(
+                    "OPS-034",
+                    CAT,
+                    Severity::Info,
+                    "No ApplicationOverride redefines <CredentialResolver>",
+                ));
+            }
+            let ops035_emitted = results.iter().any(|r| r.code == "OPS-035");
+            if !ops035_emitted {
+                results.push(CheckResult::pass(
+                    "OPS-035",
+                    CAT,
+                    Severity::Info,
+                    "No ApplicationOverride redefines <MetadataProvider>",
+                ));
+            }
         }
     }
 

@@ -1962,6 +1962,99 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // SEC-065: ApplicationOverride <Sessions> missing redirectLimit (not inherited)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        let mut in_override = false;
+        let mut override_id = String::new();
+        let mut sessions_buf = String::new();
+        let mut collecting_sessions = false;
+        let mut found_issue = false;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(pos) = trimmed.find("<ApplicationOverride") {
+                in_override = true;
+                let rest = &trimmed[pos..];
+                override_id = rest
+                    .find("id=\"")
+                    .and_then(|start| {
+                        let after = &rest[start + 4..];
+                        after.find('"').map(|end| after[..end].to_string())
+                    })
+                    .or_else(|| {
+                        rest.find("id='").and_then(|start| {
+                            let after = &rest[start + 4..];
+                            after.find('\'').map(|end| after[..end].to_string())
+                        })
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
+                if trimmed.contains("/>") {
+                    in_override = false;
+                }
+                continue;
+            }
+            if in_override && trimmed.contains("<Sessions") {
+                collecting_sessions = true;
+                sessions_buf.clear();
+            }
+            if collecting_sessions {
+                sessions_buf.push_str(trimmed);
+                sessions_buf.push(' ');
+                if trimmed.contains("/>") || trimmed.contains(">") {
+                    if !sessions_buf.contains("redirectLimit") {
+                        results.push(
+                            CheckResult::fail(
+                                "SEC-065",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "ApplicationOverride '{}' <Sessions> missing redirectLimit (not inherited — may allow open redirects)",
+                                    override_id
+                                ),
+                                Some("Set redirectLimit on <Sessions> inside <ApplicationOverride> to prevent open redirect attacks"),
+                            )
+                            .with_doc(doc_for(DOC_SESSIONS, v)),
+                        );
+                        found_issue = true;
+                    }
+                    collecting_sessions = false;
+                }
+            }
+            if trimmed.contains("</ApplicationOverride") {
+                in_override = false;
+            }
+        }
+        if !found_issue && !sc.application_override_ids.is_empty() {
+            // Check if any override has its own Sessions
+            let has_override_sessions = {
+                let mut in_ov = false;
+                let mut found = false;
+                for line in content.lines() {
+                    let t = line.trim();
+                    if t.contains("<ApplicationOverride") {
+                        in_ov = true;
+                    }
+                    if in_ov && t.contains("<Sessions") {
+                        found = true;
+                        break;
+                    }
+                    if t.contains("</ApplicationOverride") {
+                        in_ov = false;
+                    }
+                }
+                found
+            };
+            if has_override_sessions {
+                results.push(CheckResult::pass(
+                    "SEC-065",
+                    CAT,
+                    Severity::Warning,
+                    "ApplicationOverride Sessions elements have redirectLimit set",
+                ));
+            }
+        }
+    }
+
     // SEC-016: Private key file not world-readable (Unix only)
     #[cfg(unix)]
     {

@@ -152,7 +152,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-032 | `MetadataProvider` `ignoreTransport="true"` has compensating Signature filter | Warning |
 | REF-033 | `RequestMap` root `applicationId` is `"default"` | Warning |
 
-### Security (SEC-001 to SEC-064)
+### Security (SEC-001 to SEC-065)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -219,8 +219,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-062 | `ExternalAuth` handler has ACL | Warning |
 | SEC-063 | `AttributeResolver` handler has ACL | Warning |
 | SEC-064 | Handler ACL does not contain broad CIDR (`0.0.0.0/0`, `::/0`) | Info |
+| SEC-065 | `ApplicationOverride` `<Sessions>` has `redirectLimit` set | Warning |
 
-### Operational (OPS-001 to OPS-031)
+### Operational (OPS-001 to OPS-035)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -255,6 +256,10 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-029 | `SignatureMetadataFilter` `verifyBackup` not disabled | Info |
 | OPS-030 | `cipherSuites` disables TLSv1 and TLSv1.1 | Info |
 | OPS-031 | `DataSealer` does not use `type="Static"` | Info |
+| OPS-032 | `ApplicationOverride` own `<Sessions>` replaces parent | Info |
+| OPS-033 | `ApplicationOverride` own `<Errors>` replaces parent | Info |
+| OPS-034 | `ApplicationOverride` own `<CredentialResolver>` replaces parent | Info |
+| OPS-035 | `ApplicationOverride` own `<MetadataProvider>` replaces parent | Info |
 
 ### Migration (MIG-001 to MIG-024)
 
