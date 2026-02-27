@@ -5,6 +5,8 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- REF-034: Warning when local metadata `validUntil` has expired
+- REF-035: Info when local metadata `validUntil` expires within 30 days
 - OPS-032: Info when `ApplicationOverride` defines own `<Sessions>` (replaces parent, not merged)
 - OPS-033: Info when `ApplicationOverride` defines own `<Errors>` (replaces parent)
 - OPS-034: Info when `ApplicationOverride` defines own `<CredentialResolver>` (replaces parent)

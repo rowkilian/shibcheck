@@ -1188,7 +1188,6 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             .with_doc(DOC_APP_OVERRIDE),
                         );
                     }
-
                 }
             }
         }

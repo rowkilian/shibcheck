@@ -115,7 +115,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-046 | `requireSession="true"` without `authType` | Warning |
 | XML-047 | `RequestMapper` `type="XML"` (web server directives ignored) | Info |
 
-### Cross-file References (REF-001 to REF-033)
+### Cross-file References (REF-001 to REF-035)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -151,6 +151,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-031 | Chaining `MetadataProvider` has >= 2 children | Info |
 | REF-032 | `MetadataProvider` `ignoreTransport="true"` has compensating Signature filter | Warning |
 | REF-033 | `RequestMap` root `applicationId` is `"default"` | Warning |
+| REF-034 | Local metadata `validUntil` not expired | Warning |
+| REF-035 | Local metadata `validUntil` expiring within 30 days | Info |
 
 ### Security (SEC-001 to SEC-065)
 

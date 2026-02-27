@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use chrono::Utc;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
@@ -334,6 +335,30 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 if full_path.exists() {
                     check_local_metadata_saml(&full_path, path, &mut results, v);
                 }
+            }
+        }
+    }
+
+    // REF-034 / REF-035: Local metadata validUntil not expired / expiring soon
+    for mp in &sc.metadata_providers {
+        // Check local path metadata
+        if let Some(ref path) = mp.path {
+            if !path.starts_with("http://") && !path.starts_with("https://") {
+                let full_path = config.base_dir.join(path);
+                if full_path.exists() {
+                    check_metadata_valid_until(&full_path, path, &mut results, v);
+                }
+            }
+        }
+        // Check backingFilePath (cached copy of remote metadata)
+        if let Some(ref backing) = mp.backing_file_path {
+            let full_path = if Path::new(backing).is_absolute() {
+                PathBuf::from(backing)
+            } else {
+                config.base_dir.join(backing)
+            };
+            if full_path.exists() {
+                check_metadata_valid_until(&full_path, backing, &mut results, v);
             }
         }
     }
@@ -1334,6 +1359,111 @@ fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>, v: SpVersion
                 )
                 .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
             );
+        }
+    }
+}
+
+fn check_metadata_valid_until(
+    full_path: &Path,
+    display_path: &str,
+    results: &mut Vec<CheckResult>,
+    v: SpVersion,
+) {
+    let content = match std::fs::read_to_string(full_path) {
+        Ok(c) => c,
+        Err(_) => return, // REF-010 already reports unreadable files
+    };
+
+    let mut reader = Reader::from_str(&content);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Eof) => return,
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let local = full_name.rsplit(':').next().unwrap_or(&full_name);
+                if local != "EntityDescriptor" && local != "EntitiesDescriptor" {
+                    return; // Not a SAML metadata root element
+                }
+
+                // Look for validUntil attribute
+                let valid_until_value = e.attributes().filter_map(|a| a.ok()).find_map(|a| {
+                    let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
+                    let local_key = key.rsplit(':').next().unwrap_or(&key);
+                    if local_key == "validUntil" {
+                        Some(String::from_utf8_lossy(&a.value).to_string())
+                    } else {
+                        None
+                    }
+                });
+
+                let valid_until_str = match valid_until_value {
+                    Some(v) => v,
+                    None => return, // No validUntil attribute — no check to emit
+                };
+
+                // Parse the datetime (SAML xs:dateTime is RFC 3339 compatible)
+                let parsed = chrono::DateTime::parse_from_rfc3339(&valid_until_str).or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(&valid_until_str, "%Y-%m-%dT%H:%M:%S%.fZ")
+                        .map(|ndt| ndt.and_utc().fixed_offset())
+                });
+
+                let valid_until = match parsed {
+                    Ok(dt) => dt,
+                    Err(_) => return, // Unparseable date — don't emit a check
+                };
+
+                let now = Utc::now();
+                let date_display = valid_until.format("%Y-%m-%d").to_string();
+
+                if valid_until < now {
+                    // REF-034: expired
+                    results.push(
+                        CheckResult::fail(
+                            "REF-034",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "Local metadata validUntil has expired: {} (expired {})",
+                                display_path, date_display
+                            ),
+                            Some("Update or re-fetch the metadata file — the SP will reject expired metadata if RequireValidUntil is configured"),
+                        )
+                        .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                    );
+                } else {
+                    let days_until = (valid_until.signed_duration_since(now)).num_days();
+                    if days_until <= 30 {
+                        // REF-035: expiring soon
+                        results.push(
+                            CheckResult::fail(
+                                "REF-035",
+                                CAT,
+                                Severity::Info,
+                                &format!(
+                                    "Local metadata validUntil expires in {} days: {} (valid until {})",
+                                    days_until, display_path, date_display
+                                ),
+                                Some("Plan to refresh this metadata before it expires"),
+                            )
+                            .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                        );
+                    } else {
+                        // REF-034: pass (valid and not expiring soon)
+                        results.push(CheckResult::pass(
+                            "REF-034",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "Local metadata validUntil is current: {} (valid until {})",
+                                display_path, date_display
+                            ),
+                        ));
+                    }
+                }
+                return; // Only check the root element
+            }
+            Err(_) => return, // REF-010 already handles parse errors
+            _ => {}
         }
     }
 }
