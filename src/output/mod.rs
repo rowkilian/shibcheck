@@ -196,34 +196,58 @@ pub fn collect_file_summary(config: &DiscoveredConfig) -> Vec<FileEntry> {
         add(&mut seen, &mut entries, &rel, true, "xml");
     }
 
-    // Scan directory for files that are present but not referenced by any config
+    // Scan directory for files not explicitly referenced by the config.
+    // Well-known Shibboleth SP files get their proper kind; everything else is "unused".
     if let Ok(dir) = std::fs::read_dir(base_dir) {
-        let mut unused: Vec<String> = dir
+        let mut extra: Vec<(String, &str)> = dir
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') {
+                if name.starts_with('.') || seen.contains(&name) {
                     return None;
                 }
-                if !seen.contains(&name) {
-                    Some(name)
-                } else {
-                    None
-                }
+                let kind = well_known_shibboleth_file(&name);
+                Some((name, kind))
             })
             .collect();
-        unused.sort();
-        for name in unused {
+        extra.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, kind) in extra {
             entries.push(FileEntry {
                 path: name,
                 found: true,
-                kind: "unused".to_string(),
+                kind: kind.to_string(),
             });
         }
     }
 
     entries
+}
+
+/// Map well-known Shibboleth SP filenames to their role.
+/// Returns "unused" for files not recognized as standard SP files.
+fn well_known_shibboleth_file(name: &str) -> &'static str {
+    match name {
+        // Default error templates
+        "accessError.html" | "sessionError.html" | "sslError.html" | "metadataError.html" => {
+            "error template"
+        }
+        "localLogout.html" | "globalLogout.html" | "partialLogout.html" => "logout template",
+
+        // Handler templates
+        "postTemplate.html" => "post template",
+        "bindingTemplate.html" => "binding template",
+        "discoveryTemplate.html" => "discovery template",
+        "attrChecker.html" => "attribute checker",
+
+        // Logger configurations
+        "shibd.logger" | "native.logger" | "console.logger" | "syslog.logger" => "logger config",
+
+        // Upgrade utility
+        "upgrade.xsl" => "upgrade stylesheet",
+
+        _ => "unused",
+    }
 }
 
 pub fn print_results(
