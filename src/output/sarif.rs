@@ -83,6 +83,14 @@ struct SarifLocation {
 struct SarifPhysicalLocation {
     #[serde(rename = "artifactLocation")]
     artifact_location: SarifArtifactLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    region: Option<SarifRegion>,
+}
+
+#[derive(Serialize)]
+struct SarifRegion {
+    #[serde(rename = "startLine")]
+    start_line: usize,
 }
 
 #[derive(Serialize)]
@@ -123,7 +131,15 @@ pub fn print(results: &[CheckResult], config: &DiscoveredConfig) {
         .iter()
         .filter(|r| !r.passed)
         .map(|r| {
-            let uri = config.shibboleth_xml_path.to_string_lossy().into_owned();
+            let uri = r
+                .location
+                .as_ref()
+                .map(|loc| loc.file.clone())
+                .unwrap_or_else(|| config.shibboleth_xml_path.to_string_lossy().into_owned());
+            let region = r
+                .location
+                .as_ref()
+                .and_then(|loc| loc.line.map(|l| SarifRegion { start_line: l }));
             let message = match &r.suggestion {
                 Some(s) => format!("{} — {}", r.message, s),
                 None => r.message.clone(),
@@ -135,6 +151,7 @@ pub fn print(results: &[CheckResult], config: &DiscoveredConfig) {
                 locations: vec![SarifLocation {
                     physical_location: SarifPhysicalLocation {
                         artifact_location: SarifArtifactLocation { uri },
+                        region,
                     },
                 }],
             }

@@ -32,6 +32,12 @@ pub struct DiscoveredConfig {
 
     /// Raw content of shibboleth2.xml for string-scanning checks
     pub shibboleth_xml_content: Option<String>,
+
+    /// Raw content of attribute-map.xml for line-lookup
+    pub attribute_map_content: Option<String>,
+
+    /// Raw content of attribute-policy.xml for line-lookup
+    pub attribute_policy_content: Option<String>,
 }
 
 pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
@@ -46,6 +52,18 @@ pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
     // Read and parse shibboleth2.xml
     let shibboleth_xml_content = if shibboleth_xml_exists {
         std::fs::read_to_string(&shibboleth_xml_path).ok()
+    } else {
+        None
+    };
+
+    let attribute_map_content = if attribute_map_exists {
+        std::fs::read_to_string(&attribute_map_path).ok()
+    } else {
+        None
+    };
+
+    let attribute_policy_content = if attribute_policy_exists {
+        std::fs::read_to_string(&attribute_policy_path).ok()
     } else {
         None
     };
@@ -118,5 +136,7 @@ pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
         other_xml_files,
         other_xml_malformed,
         shibboleth_xml_content,
+        attribute_map_content,
+        attribute_policy_content,
     })
 }

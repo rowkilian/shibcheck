@@ -23,7 +23,7 @@ pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &Discovere
         let total = cat_results.len();
 
         category_sections.push_str(&format!(
-            r#"<details open><summary class="category-header">{} <span class="count">{}/{} passed</span></summary><table><thead><tr><th>Status</th><th>Code</th><th>Message</th><th>Suggestion</th></tr></thead><tbody>"#,
+            r#"<details open><summary class="category-header">{} <span class="count">{}/{} passed</span></summary><table><thead><tr><th>Status</th><th>Code</th><th>Location</th><th>Message</th><th>Suggestion</th></tr></thead><tbody>"#,
             html_escape(&category.to_string()),
             passed,
             total,
@@ -59,12 +59,19 @@ pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &Discovere
                 String::new()
             };
 
+            let location_cell = result
+                .location
+                .as_ref()
+                .map(|loc| html_escape(&loc.to_string()))
+                .unwrap_or_default();
+
             category_sections.push_str(&format!(
-                r#"<tr class="{}"><td><span class="badge {}">{}</span></td><td class="code">{}</td><td>{}</td><td>{}</td></tr>"#,
+                r#"<tr class="{}"><td><span class="badge {}">{}</span></td><td class="code">{}</td><td class="code">{}</td><td>{}</td><td>{}</td></tr>"#,
                 if result.passed { "row-pass" } else { "row-fail" },
                 badge_class,
                 badge_text,
                 html_escape(&result.code),
+                location_cell,
                 html_escape(&result.message),
                 suggestion_cell,
             ));

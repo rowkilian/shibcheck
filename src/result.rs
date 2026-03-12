@@ -41,6 +41,22 @@ impl std::fmt::Display for CheckCategory {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct SourceLocation {
+    pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+}
+
+impl std::fmt::Display for SourceLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.line {
+            Some(l) => write!(f, "{}:{}", self.file, l),
+            None => write!(f, "{}", self.file),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct CheckResult {
     pub code: String,
     pub category: CheckCategory,
@@ -51,6 +67,8 @@ pub struct CheckResult {
     pub suggestion: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<SourceLocation>,
 }
 
 impl CheckResult {
@@ -63,6 +81,7 @@ impl CheckResult {
             message: message.to_string(),
             suggestion: None,
             doc_url: None,
+            location: None,
         }
     }
 
@@ -81,12 +100,23 @@ impl CheckResult {
             message: message.to_string(),
             suggestion: suggestion.map(|s| s.to_string()),
             doc_url: None,
+            location: None,
         }
     }
 
     /// Attach a documentation URL to this check result.
     pub fn with_doc(mut self, url: &str) -> Self {
         self.doc_url = Some(url.to_string());
+        self
+    }
+
+    /// Attach a source location (file and optional line number) to this check result.
+    #[allow(dead_code)]
+    pub fn with_location(mut self, file: &str, line: Option<usize>) -> Self {
+        self.location = Some(SourceLocation {
+            file: file.to_string(),
+            line,
+        });
         self
     }
 }

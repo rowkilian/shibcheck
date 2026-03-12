@@ -57,6 +57,9 @@ fn print_result(result: &CheckResult) {
     println!("  {} {} {}", status, code, result.message);
 
     if !result.passed {
+        if let Some(ref loc) = result.location {
+            println!("       {} {}", "-->".dimmed(), loc.to_string().cyan());
+        }
         if let Some(ref suggestion) = result.suggestion {
             println!("       {} {}", "→".dimmed(), suggestion.dimmed());
         }

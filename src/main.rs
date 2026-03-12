@@ -5,6 +5,7 @@ mod diff;
 mod filter;
 mod fix;
 mod init_test_idp;
+pub mod location;
 mod model;
 mod output;
 mod parsers;
