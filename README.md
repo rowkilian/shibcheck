@@ -61,7 +61,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 ## Checks Reference
 
-200+ checks across five categories.
+307+ checks across five categories.
 
 ### XML Validity (XML-001 to XML-047)
 
@@ -154,7 +154,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-034 | Local metadata `validUntil` not expired | Warning |
 | REF-035 | Local metadata `validUntil` expiring within 30 days | Info |
 
-### Security (SEC-001 to SEC-065)
+### Security (SEC-001 to SEC-125)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -222,8 +222,68 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-063 | `AttributeResolver` handler has ACL | Warning |
 | SEC-064 | Handler ACL does not contain broad CIDR (`0.0.0.0/0`, `::/0`) | Info |
 | SEC-065 | `ApplicationOverride` `<Sessions>` has `redirectLimit` set | Warning |
+| SEC-066 | `idpHistory` not enabled (avoids leaking IdP usage via cookie) | Info |
+| SEC-067 | `maxTimeSinceAuthn` is set on `Sessions` | Info |
+| SEC-068 | `cookieLifetime` does not exceed session `lifetime` | Info |
+| SEC-069 | `RequireValidUntil` MetadataFilter not explicitly disabled | Warning |
+| SEC-070 | `SignatureMetadataFilter` has certificate or TrustEngine | Error |
+| SEC-071 | `checkAddress` not explicitly set to `false` | Info |
+| SEC-072 | No inline private key material in `shibboleth2.xml` | Error |
+| SEC-073 | Remote `MetadataProvider` `maxRefreshDelay` ≤ 24 hours | Info |
+| SEC-074 | Encryption `CredentialResolver` is configured | Info |
+| SEC-075 | `NameIDFormat` does not use `emailAddress` (PII in NameID) | Info |
+| SEC-076 | `SessionInitiator` does not use SAML1 protocol | Warning |
+| SEC-077 | Signing and encryption use different certificates | Info |
+| SEC-078 | `idpHistoryDays` not excessively high (≤ 365) | Info |
+| SEC-079 | `sameSiteFallback` not enabled (no extra cookie surface) | Info |
+| SEC-080 | `Errors` `supportContact` does not expose direct email | Info |
+| SEC-081 | `TCPListener` has explicit address or `UnixListener` used | Info |
+| SEC-082 | SSO protocols do not include SAML1 | Warning |
+| SEC-083 | Logout outgoing bindings do not use GET/Redirect | Info |
+| SEC-084 | `relayState` does not use plain HTTP | Warning |
+| SEC-085 | Attribute policy does not use wildcard scope matching | Warning |
+| SEC-086 | Metadata backing file is not world-writable | Warning |
+| SEC-087 | Certificate file is not world-writable | Warning |
+| SEC-088 | `signing` not explicitly set to `false` on `ApplicationDefaults` | Warning |
+| SEC-089 | `encryption` not explicitly set to `false` on `ApplicationDefaults` | Warning |
+| SEC-090 | ECP (Enhanced Client/Proxy) not enabled | Info |
+| SEC-091 | `CredentialResolver` has both key and certificate | Warning |
+| SEC-092 | Deprecated `redirectWhitelist` attribute not used | Info |
+| SEC-093 | `authType="shibboleth"` paths have `requireSession="true"` | Warning |
+| SEC-094 | Handler `Location` is not at root path `/` | Warning |
+| SEC-095 | Signing `CredentialResolver` is configured | Info |
+| SEC-096 | Asynchronous `LogoutInitiator` has signing enabled | Info |
+| SEC-097 | `cipherSuites` does not contain weak algorithms | Warning |
+| SEC-098 | `SignatureMetadataFilter` `verifyBackup` not disabled | Info |
+| SEC-099 | `PostData` cache awareness (sensitive form data on disk) | Info |
+| SEC-100 | `forceAuthn` not explicitly set to `false` on content settings | Info |
+| SEC-101 | `isPassive` not combined with `requireSession` | Info |
+| SEC-102 | `RequestMapper` type is not `Native` (SP controls access) | Info |
+| SEC-103 | `LogoutInitiator` does not skip notifications | Info |
+| SEC-104 | `Errors` `helpLocation` does not use plain HTTP | Info |
+| SEC-105 | Notify endpoint count is not excessive (≤ 5) | Info |
+| SEC-106 | `attributePrefix` is set (avoids header name collisions) | Info |
+| SEC-107 | XML comments do not contain sensitive keywords | Warning |
+| SEC-108 | Attribute map does not map to security-sensitive header names | Warning |
+| SEC-109 | `clockSkew` is not zero (tolerates minor time drift) | Info |
+| SEC-110 | `security-policy.xml` does not reference weak algorithms outside blacklists | Warning |
+| SEC-111 | Error template paths are not absolute URLs (no external redirect) | Info |
+| SEC-112 | Scoped attributes have scope validation in attribute policy | Warning |
+| SEC-113 | `DiagnosticService` handler has ACL | Warning |
+| SEC-114 | `DataSealer` has explicit `keyStorePath` configured | Warning |
+| SEC-115 | Informational handlers at default paths have ACL | Info |
+| SEC-116 | `ApplicationOverride` `entityID` uses HTTPS | Warning |
+| SEC-117 | SSO `discoveryProtocol` is not WAYF (outdated) | Info |
+| SEC-118 | Only one `SessionInitiator` marked as default | Warning |
+| SEC-119 | All handler `Location` paths are unique | Warning |
+| SEC-120 | `SessionInitiator` does not use `Shib1` type (legacy) | Warning |
+| SEC-121 | `OutOfProcess` does not have `catchAll="true"` | Info |
+| SEC-122 | Remote `MetadataProvider` has at least one `MetadataFilter` | Warning |
+| SEC-123 | `SignatureMetadataFilter` certificate not fetched over HTTP | Warning |
+| SEC-124 | `Notify` endpoint does not loop back to SP handler | Warning |
+| SEC-125 | `ApplicationOverride` `entityID` differs from parent | Info |
 
-### Operational (OPS-001 to OPS-035)
+### Operational (OPS-001 to OPS-076)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -262,6 +322,47 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-033 | `ApplicationOverride` own `<Errors>` replaces parent | Info |
 | OPS-034 | `ApplicationOverride` own `<CredentialResolver>` replaces parent | Info |
 | OPS-035 | `ApplicationOverride` own `<MetadataProvider>` replaces parent | Info |
+| OPS-036 | `homeURL` set on `ApplicationDefaults` | Info |
+| OPS-037 | `homeURL` is not a placeholder | Warning |
+| OPS-038 | Custom error pages configured in `<Errors>` | Info |
+| OPS-039 | `helpLocation` set on `<Errors>` | Info |
+| OPS-040 | Session `lifetime` explicitly set | Info |
+| OPS-041 | Session `timeout` explicitly set | Info |
+| OPS-042 | Remote `MetadataProvider` has `MetadataFilter` children | Warning |
+| OPS-043 | `Errors` `styleSheet` is set for branded error pages | Info |
+| OPS-044 | At least one `Host`/`Path` has `requireSession="true"` | Info |
+| OPS-045 | `redirectToSSL` set on `Host`/`Path` for HTTP→HTTPS redirect | Info |
+| OPS-046 | `discoveryProtocol` explicitly set when `discoveryURL` is used | Info |
+| OPS-047 | `MetadataProvider` `validate` attribute set to `"true"` | Info |
+| OPS-048 | `signingAlg` and `digestAlg` explicitly set on `ApplicationDefaults` | Info |
+| OPS-049 | `RequireValidUntil` filter has `maxValidityInterval` set | Info |
+| OPS-050 | `AttributeExtractor` path configured | Info |
+| OPS-051 | `CredentialResolver` `use` attribute set in multi-resolver setup | Warning |
+| OPS-052 | `ApplicationOverride` count not excessive (>3 flagged) | Info |
+| OPS-053 | Local `MetadataProvider` has `reloadInterval` | Info |
+| OPS-054 | `StorageService` configured for session persistence | Info |
+| OPS-055 | `OutOfProcess` or `InProcess` extensions configured | Info |
+| OPS-056 | `ReplayCache` configured for assertion replay protection | Info |
+| OPS-057 | SSO protocols explicitly specified | Info |
+| OPS-058 | Logout protocols explicitly specified | Info |
+| OPS-059 | Logging configuration detected | Info |
+| OPS-060 | `consistentAddress` explicitly set on `Sessions` | Info |
+| OPS-061 | `handlerURL` path standard or non-standard awareness | Info |
+| OPS-062 | `ArtifactMap` configured for artifact resolution state | Info |
+| OPS-063 | `attribute-map.xml` has sufficient attribute mappings (>= 3) | Info |
+| OPS-064 | Attribute policy `PermitValueRule type="ANY"` awareness | Info |
+| OPS-065 | Multiple `Host` elements in `RequestMap` (multi-vhost awareness) | Info |
+| OPS-066 | `SessionInitiator` elements have `id` for deep-linking | Info |
+| OPS-067 | `AccessControl` elements configured for SP-level authorization | Info |
+| OPS-068 | Logout error pages configured when logout is enabled | Info |
+| OPS-069 | `authnContextClassRef` set on `SSO` for authentication strength | Info |
+| OPS-070 | `ApplicationOverride` `entityID` awareness (inherits vs explicit) | Info |
+| OPS-071 | `cipherSuites` explicitly configured on `ApplicationDefaults` | Info |
+| OPS-072 | `homeURL` has valid path or URL format | Warning |
+| OPS-073 | Multiple `AttributeExtractor`/`AttributeFilter` paths awareness | Info |
+| OPS-074 | `AttributeChecker` handler configured for attribute validation | Info |
+| OPS-075 | No `TODO`/`FIXME`/`XXX` comments in configuration | Warning |
+| OPS-076 | `DiscoveryFeed` handler enabled (exposes IdP list) | Info |
 
 ### Migration (MIG-001 to MIG-024)
 

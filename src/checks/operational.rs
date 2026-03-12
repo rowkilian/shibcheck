@@ -1080,6 +1080,1254 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // OPS-036: homeURL not set on ApplicationDefaults (no fallback landing page)
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref home_url) = app.home_url {
+            if !home_url.is_empty() {
+                results.push(CheckResult::pass(
+                    "OPS-036",
+                    CAT,
+                    Severity::Info,
+                    &format!("homeURL is set: {}", home_url),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-036",
+                        CAT,
+                        Severity::Info,
+                        "homeURL is set but empty on ApplicationDefaults",
+                        Some("Set homeURL to a valid URL so the SP has a fallback landing page for error recovery"),
+                    )
+                    .with_doc(DOC_APP_DEFAULTS),
+                );
+            }
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-036",
+                    CAT,
+                    Severity::Info,
+                    "homeURL not set on ApplicationDefaults (no fallback landing page for error recovery)",
+                    Some("Set homeURL on <ApplicationDefaults> to provide a landing page when the SP has no better redirect target"),
+                )
+                .with_doc(DOC_APP_DEFAULTS),
+            );
+        }
+    }
+
+    // OPS-037: homeURL is a placeholder (example.org, localhost)
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref home_url) = app.home_url {
+            let lower = home_url.to_lowercase();
+            if lower.contains("example.org")
+                || lower.contains("example.com")
+                || lower.contains("localhost")
+            {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-037",
+                        CAT,
+                        Severity::Warning,
+                        &format!("homeURL appears to be a placeholder: {}", home_url),
+                        Some("Set homeURL to a real URL for your application"),
+                    )
+                    .with_doc(DOC_APP_DEFAULTS),
+                );
+            } else if !home_url.is_empty() {
+                results.push(CheckResult::pass(
+                    "OPS-037",
+                    CAT,
+                    Severity::Warning,
+                    "homeURL is not a placeholder",
+                ));
+            }
+        }
+    }
+
+    // OPS-038: No custom error pages configured in <Errors>
+    if let Some(ref errors) = sc.errors {
+        let has_custom_pages = errors.session_error.is_some()
+            || errors.access_error.is_some()
+            || errors.ssl_error.is_some()
+            || errors.metadata_error.is_some()
+            || errors.local_logout.is_some()
+            || errors.global_logout.is_some();
+        if has_custom_pages {
+            results.push(CheckResult::pass(
+                "OPS-038",
+                CAT,
+                Severity::Info,
+                "Custom error page(s) configured in <Errors>",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-038",
+                    CAT,
+                    Severity::Info,
+                    "No custom error pages configured in <Errors> (users see default SP error pages)",
+                    Some("Add session, access, ssl, metadata, localLogout, or globalLogout attributes to <Errors> for user-friendly error pages"),
+                )
+                .with_doc(DOC_ERRORS),
+            );
+        }
+    }
+
+    // OPS-039: helpLocation not set on <Errors>
+    if let Some(ref errors) = sc.errors {
+        if let Some(ref help) = errors.help_location {
+            if !help.is_empty() {
+                results.push(CheckResult::pass(
+                    "OPS-039",
+                    CAT,
+                    Severity::Info,
+                    &format!("helpLocation is set on Errors: {}", help),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-039",
+                        CAT,
+                        Severity::Info,
+                        "helpLocation is set but empty on <Errors>",
+                        Some("Set helpLocation to a URL where users can find help or documentation"),
+                    )
+                    .with_doc(DOC_ERRORS),
+                );
+            }
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-039",
+                    CAT,
+                    Severity::Info,
+                    "helpLocation not set on <Errors> (error pages have no link to help documentation)",
+                    Some("Set helpLocation on <Errors> to provide a support/documentation URL on error pages"),
+                )
+                .with_doc(DOC_ERRORS),
+            );
+        }
+    }
+
+    // OPS-040: Session lifetime not explicitly set (no absolute session cap)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.lifetime.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-040",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "Session lifetime is explicitly set: {}s",
+                    sessions.lifetime.as_deref().unwrap_or("?")
+                ),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-040",
+                    CAT,
+                    Severity::Info,
+                    "Session lifetime not explicitly set (defaults to 28800s / 8 hours)",
+                    Some("Set lifetime on <Sessions> to explicitly control maximum session duration"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-041: Session timeout not explicitly set (no idle timeout)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.timeout.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-041",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "Session timeout is explicitly set: {}s",
+                    sessions.timeout.as_deref().unwrap_or("?")
+                ),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-041",
+                    CAT,
+                    Severity::Info,
+                    "Session timeout not explicitly set (defaults to 3600s / 1 hour)",
+                    Some("Set timeout on <Sessions> to explicitly control idle session expiration"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-042: Remote MetadataProvider has no MetadataFilter children (metadata not validated)
+    {
+        let mut any_unfiltered = false;
+        for mp in &sc.metadata_providers {
+            let is_remote = mp.uri.is_some() || mp.url.is_some();
+            if !is_remote || mp.provider_type == "Chaining" {
+                continue;
+            }
+            if mp.filters.is_empty() {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-042",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "Remote MetadataProvider type='{}' has no MetadataFilter children (metadata accepted without validation)",
+                            mp.provider_type
+                        ),
+                        Some("Add MetadataFilter elements (e.g., Signature, RequireValidUntil) to validate remote metadata"),
+                    )
+                    .with_doc(DOC_METADATA_PROVIDER),
+                );
+                any_unfiltered = true;
+            }
+        }
+        if !any_unfiltered {
+            let has_remote = sc
+                .metadata_providers
+                .iter()
+                .any(|mp| (mp.uri.is_some() || mp.url.is_some()) && mp.provider_type != "Chaining");
+            if has_remote {
+                results.push(CheckResult::pass(
+                    "OPS-042",
+                    CAT,
+                    Severity::Warning,
+                    "All remote MetadataProviders have MetadataFilter children",
+                ));
+            }
+        }
+    }
+
+    // OPS-043: Errors styleSheet not set (unstyled error pages)
+    if let Some(ref errors) = sc.errors {
+        if let Some(ref ss) = errors.style_sheet {
+            if !ss.is_empty() {
+                results.push(CheckResult::pass(
+                    "OPS-043",
+                    CAT,
+                    Severity::Info,
+                    &format!("Errors styleSheet is set: {}", ss),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-043",
+                        CAT,
+                        Severity::Info,
+                        "Errors styleSheet is set but empty",
+                        Some("Set styleSheet on <Errors> to a CSS file path for branded error pages"),
+                    )
+                    .with_doc(DOC_ERRORS),
+                );
+            }
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-043",
+                    CAT,
+                    Severity::Info,
+                    "Errors styleSheet not set (error pages will use default unstyled appearance)",
+                    Some("Set styleSheet on <Errors> to a CSS file path for branded, user-friendly error pages"),
+                )
+                .with_doc(DOC_ERRORS),
+            );
+        }
+    }
+
+    // OPS-044: No requireSession on any Host or Path in RequestMap
+    if !sc.request_map_content_settings.is_empty() {
+        let has_require_session = sc
+            .request_map_content_settings
+            .iter()
+            .any(|cs| cs.require_session.as_deref() == Some("true"));
+        if has_require_session {
+            results.push(CheckResult::pass(
+                "OPS-044",
+                CAT,
+                Severity::Info,
+                "At least one Host/Path has requireSession=\"true\"",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-044",
+                    CAT,
+                    Severity::Info,
+                    "No Host or Path in RequestMap has requireSession=\"true\" (SP not enforcing sessions on any path)",
+                    Some("Set requireSession=\"true\" on <Host> or <Path> elements to require authentication"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-045: redirectToSSL not set on any content settings
+    if !sc.request_map_content_settings.is_empty() {
+        let has_redirect_ssl = sc
+            .request_map_content_settings
+            .iter()
+            .any(|cs| cs.redirect_to_ssl.is_some());
+        if has_redirect_ssl {
+            results.push(CheckResult::pass(
+                "OPS-045",
+                CAT,
+                Severity::Info,
+                "redirectToSSL is set on at least one Host/Path",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-045",
+                    CAT,
+                    Severity::Info,
+                    "redirectToSSL not set on any Host or Path (HTTP requests won't be auto-redirected to HTTPS by the SP)",
+                    Some("Set redirectToSSL=\"443\" on <Host> or <Path> elements to auto-redirect HTTP to HTTPS"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-046: discoveryURL set without explicit discoveryProtocol
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.sso_discovery_url.is_some() {
+            if sessions.sso_discovery_protocol.is_some() {
+                results.push(CheckResult::pass(
+                    "OPS-046",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "discoveryProtocol is explicitly set: {}",
+                        sessions.sso_discovery_protocol.as_deref().unwrap_or("?")
+                    ),
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-046",
+                        CAT,
+                        Severity::Info,
+                        "discoveryURL is set but discoveryProtocol is not explicitly specified (defaults to SAMLDS)",
+                        Some("Set discoveryProtocol on <SSO> to make the discovery protocol explicit (e.g., \"SAMLDS\")"),
+                    )
+                    .with_doc(DOC_SESSIONS),
+                );
+            }
+        }
+    }
+
+    // OPS-047: MetadataProvider validate attribute not set to true
+    {
+        let mut any_not_validated = false;
+        for mp in &sc.metadata_providers {
+            if mp.provider_type == "Chaining" {
+                continue;
+            }
+            match mp.validate_attr.as_deref() {
+                Some("true") | Some("1") => {}
+                _ => {
+                    let source = mp
+                        .uri
+                        .as_deref()
+                        .or(mp.url.as_deref())
+                        .or(mp.path.as_deref())
+                        .unwrap_or("(unknown)");
+                    results.push(
+                        CheckResult::fail(
+                            "OPS-047",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "MetadataProvider source={} does not set validate=\"true\" (schema validation disabled)",
+                                source
+                            ),
+                            Some("Set validate=\"true\" on MetadataProvider to validate metadata XML against the SAML schema"),
+                        )
+                        .with_doc(DOC_METADATA_PROVIDER),
+                    );
+                    any_not_validated = true;
+                }
+            }
+        }
+        if !any_not_validated && !sc.metadata_providers.is_empty() {
+            let has_non_chaining = sc
+                .metadata_providers
+                .iter()
+                .any(|mp| mp.provider_type != "Chaining");
+            if has_non_chaining {
+                results.push(CheckResult::pass(
+                    "OPS-047",
+                    CAT,
+                    Severity::Info,
+                    "All MetadataProviders have validate=\"true\"",
+                ));
+            }
+        }
+    }
+
+    // OPS-048: No signing or digest algorithm explicitly set on ApplicationDefaults
+    if let Some(ref app) = sc.application_defaults {
+        let has_signing_alg = app.signing_alg.is_some();
+        let has_digest_alg = app.digest_alg.is_some();
+        if has_signing_alg && has_digest_alg {
+            results.push(CheckResult::pass(
+                "OPS-048",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "Signing and digest algorithms are explicitly set (signingAlg={}, digestAlg={})",
+                    app.signing_alg.as_deref().unwrap_or("?"),
+                    app.digest_alg.as_deref().unwrap_or("?")
+                ),
+            ));
+        } else {
+            let mut missing = Vec::new();
+            if !has_signing_alg {
+                missing.push("signingAlg");
+            }
+            if !has_digest_alg {
+                missing.push("digestAlg");
+            }
+            results.push(
+                CheckResult::fail(
+                    "OPS-048",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "{} not explicitly set on ApplicationDefaults (SP uses built-in defaults)",
+                        missing.join(" and ")
+                    ),
+                    Some("Set signingAlg and digestAlg on <ApplicationDefaults> to explicitly control signature algorithms (e.g., signingAlg=\"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256\")"),
+                )
+                .with_doc(DOC_APP_DEFAULTS),
+            );
+        }
+    }
+
+    // OPS-049: RequireValidUntil MetadataFilter without maxValidityInterval
+    for mp in &sc.metadata_providers {
+        if mp.provider_type == "Chaining" {
+            continue;
+        }
+        for filter in &mp.filters {
+            if filter.filter_type.contains("RequireValidUntil") {
+                if filter.max_validity_interval.is_some() {
+                    results.push(CheckResult::pass(
+                        "OPS-049",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "RequireValidUntil filter has maxValidityInterval={}",
+                            filter.max_validity_interval.as_deref().unwrap_or("?")
+                        ),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "OPS-049",
+                            CAT,
+                            Severity::Info,
+                            "RequireValidUntil MetadataFilter has no maxValidityInterval (no upper cap on how far in the future validUntil can be)",
+                            Some("Set maxValidityInterval on RequireValidUntil filter to cap acceptable validity periods (e.g., maxValidityInterval=\"2592000\" for 30 days)"),
+                        )
+                        .with_doc(DOC_METADATA_PROVIDER),
+                    );
+                }
+            }
+        }
+    }
+
+    // OPS-050: No AttributeExtractor path configured
+    if sc.attribute_extractor_paths.is_empty() {
+        results.push(
+            CheckResult::fail(
+                "OPS-050",
+                CAT,
+                Severity::Info,
+                "No <AttributeExtractor> path configured (no attributes will be extracted from assertions unless using defaults)",
+                Some("Add an <AttributeExtractor> element with a path to an attribute-map.xml file"),
+            )
+            .with_doc(DOC_ATTR_EXTRACTOR),
+        );
+    } else {
+        results.push(CheckResult::pass(
+            "OPS-050",
+            CAT,
+            Severity::Info,
+            &format!(
+                "{} AttributeExtractor path(s) configured",
+                sc.attribute_extractor_paths.len()
+            ),
+        ));
+    }
+
+    // OPS-051: CredentialResolver use attribute not set in multi-resolver setup
+    {
+        let non_chaining: Vec<_> = sc
+            .credential_resolvers
+            .iter()
+            .filter(|cr| cr.resolver_type != "Chaining")
+            .collect();
+        if non_chaining.len() >= 2 {
+            let missing_use = non_chaining.iter().any(|cr| cr.use_attr.is_none());
+            if missing_use {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-051",
+                        CAT,
+                        Severity::Warning,
+                        "Multiple CredentialResolvers without explicit 'use' attribute (unclear which is for signing vs encryption)",
+                        Some("Add use=\"signing\" or use=\"encryption\" to each CredentialResolver to clarify their purpose"),
+                    )
+                    .with_doc(DOC_APP_DEFAULTS),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "OPS-051",
+                    CAT,
+                    Severity::Warning,
+                    "All CredentialResolvers have explicit 'use' attributes",
+                ));
+            }
+        }
+    }
+
+    // OPS-052: Multiple ApplicationOverrides defined (configuration complexity)
+    if sc.application_override_ids.len() > 3 {
+        results.push(
+            CheckResult::fail(
+                "OPS-052",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "{} ApplicationOverride elements defined (complex multi-application setup)",
+                    sc.application_override_ids.len()
+                ),
+                Some("Large numbers of ApplicationOverrides increase maintenance burden; document the purpose of each override"),
+            )
+            .with_doc(DOC_APP_OVERRIDE),
+        );
+    } else if !sc.application_override_ids.is_empty() {
+        results.push(CheckResult::pass(
+            "OPS-052",
+            CAT,
+            Severity::Info,
+            &format!(
+                "{} ApplicationOverride(s) defined",
+                sc.application_override_ids.len()
+            ),
+        ));
+    }
+
+    // OPS-053: Local MetadataProvider has no reloadInterval
+    {
+        let mut any_local_no_reload = false;
+        for mp in &sc.metadata_providers {
+            if mp.provider_type == "Chaining" {
+                continue;
+            }
+            let is_local = mp.path.is_some() || mp.file_attr.is_some() || mp.source_directory.is_some();
+            let is_remote = mp.uri.is_some() || mp.url.is_some();
+            if is_local && !is_remote && mp.reload_interval.is_none() {
+                let source = mp
+                    .path
+                    .as_deref()
+                    .or(mp.file_attr.as_deref())
+                    .or(mp.source_directory.as_deref())
+                    .unwrap_or("(unknown)");
+                results.push(
+                    CheckResult::fail(
+                        "OPS-053",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Local MetadataProvider source={} has no reloadInterval (file changes won't be detected automatically)",
+                            source
+                        ),
+                        Some("Set reloadInterval on local MetadataProvider to auto-detect file updates (e.g., reloadInterval=\"3600\")"),
+                    )
+                    .with_doc(DOC_METADATA_PROVIDER),
+                );
+                any_local_no_reload = true;
+            }
+        }
+        if !any_local_no_reload {
+            let has_local = sc.metadata_providers.iter().any(|mp| {
+                mp.provider_type != "Chaining"
+                    && (mp.path.is_some() || mp.file_attr.is_some() || mp.source_directory.is_some())
+                    && mp.uri.is_none()
+                    && mp.url.is_none()
+            });
+            if has_local {
+                results.push(CheckResult::pass(
+                    "OPS-053",
+                    CAT,
+                    Severity::Info,
+                    "All local MetadataProviders have reloadInterval configured",
+                ));
+            }
+        }
+    }
+
+    // OPS-054: No StorageService configured (in-memory session storage, lost on restart)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("StorageService") {
+            results.push(CheckResult::pass(
+                "OPS-054",
+                CAT,
+                Severity::Info,
+                "StorageService is configured for session persistence",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-054",
+                    CAT,
+                    Severity::Info,
+                    "No <StorageService> configured (sessions stored in-memory, lost on SP restart)",
+                    Some("Add a <StorageService> element for persistent session storage across SP restarts"),
+                )
+                .with_doc(DOC_SPCONFIG),
+            );
+        }
+    }
+
+    // OPS-055: OutOfProcess/InProcess extensions not configured
+    if let Some(ref content) = config.shibboleth_xml_content {
+        let has_oop = content.contains("<OutOfProcess") || content.contains("< OutOfProcess");
+        let has_ip = content.contains("<InProcess") || content.contains("< InProcess");
+        if has_oop || has_ip {
+            let mut parts = Vec::new();
+            if has_oop {
+                parts.push("OutOfProcess");
+            }
+            if has_ip {
+                parts.push("InProcess");
+            }
+            results.push(CheckResult::pass(
+                "OPS-055",
+                CAT,
+                Severity::Info,
+                &format!("{} extension(s) configured", parts.join(" and ")),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-055",
+                    CAT,
+                    Severity::Info,
+                    "No <OutOfProcess> or <InProcess> extensions configured (using default process model settings)",
+                    Some("Add <OutOfProcess> or <InProcess> elements to configure extensions like logging or additional storage services"),
+                )
+                .with_doc(DOC_SPCONFIG),
+            );
+        }
+    }
+
+    // OPS-056: No ReplayCache configured (assertion replay protection)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("ReplayCache") {
+            results.push(CheckResult::pass(
+                "OPS-056",
+                CAT,
+                Severity::Info,
+                "ReplayCache is configured for assertion replay protection",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-056",
+                    CAT,
+                    Severity::Info,
+                    "No <ReplayCache> configured (using default in-memory replay protection; not shared across instances)",
+                    Some("Add a <ReplayCache> element backed by a StorageService for persistent replay protection in clustered environments"),
+                )
+                .with_doc(DOC_SPCONFIG),
+            );
+        }
+    }
+
+    // OPS-057: SSO protocols not explicitly specified
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.has_sso {
+            if let Some(ref protocols) = sessions.sso_protocols {
+                if !protocols.trim().is_empty() {
+                    results.push(CheckResult::pass(
+                        "OPS-057",
+                        CAT,
+                        Severity::Info,
+                        &format!("SSO protocols explicitly specified: {}", protocols.trim()),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "OPS-057",
+                            CAT,
+                            Severity::Info,
+                            "SSO element has no protocol content (all supported protocols will be enabled)",
+                            Some("Specify protocols in <SSO> element text (e.g., \"SAML2\") to limit which protocols are offered"),
+                        )
+                        .with_doc(DOC_SESSIONS),
+                    );
+                }
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-057",
+                        CAT,
+                        Severity::Info,
+                        "SSO element has no protocol content (all supported protocols will be enabled)",
+                        Some("Specify protocols in <SSO> element text (e.g., \"SAML2\") to limit which protocols are offered"),
+                    )
+                    .with_doc(DOC_SESSIONS),
+                );
+            }
+        }
+    }
+
+    // OPS-058: Logout protocols not explicitly specified
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.has_logout {
+            if let Some(ref protocols) = sessions.logout_protocols {
+                if !protocols.trim().is_empty() {
+                    results.push(CheckResult::pass(
+                        "OPS-058",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Logout protocols explicitly specified: {}",
+                            protocols.trim()
+                        ),
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "OPS-058",
+                            CAT,
+                            Severity::Info,
+                            "Logout element has no protocol content (all supported logout protocols will be enabled)",
+                            Some("Specify protocols in <Logout> element text (e.g., \"SAML2 Local\") to control logout behavior"),
+                        )
+                        .with_doc(DOC_SESSIONS),
+                    );
+                }
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-058",
+                        CAT,
+                        Severity::Info,
+                        "Logout element has no protocol content (all supported logout protocols will be enabled)",
+                        Some("Specify protocols in <Logout> element text (e.g., \"SAML2 Local\") to control logout behavior"),
+                    )
+                    .with_doc(DOC_SESSIONS),
+                );
+            }
+        }
+    }
+
+    // OPS-059: Logging configuration not present
+    if let Some(ref content) = config.shibboleth_xml_content {
+        let has_logging = content.contains("log4j")
+            || content.contains("log4shib")
+            || content.contains("Logging")
+            || content.contains("logging");
+        if has_logging {
+            results.push(CheckResult::pass(
+                "OPS-059",
+                CAT,
+                Severity::Info,
+                "Logging configuration is referenced in the SP config",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-059",
+                    CAT,
+                    Severity::Info,
+                    "No logging configuration detected (SP uses built-in default logging)",
+                    Some("Configure logging (e.g., log4shib) for audit trail and troubleshooting"),
+                )
+                .with_doc(DOC_SPCONFIG),
+            );
+        }
+    }
+
+    // OPS-060: consistentAddress not explicitly set on Sessions
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.consistent_address.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-060",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "consistentAddress is explicitly set: {}",
+                    sessions.consistent_address.as_deref().unwrap_or("?")
+                ),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-060",
+                    CAT,
+                    Severity::Info,
+                    "consistentAddress not explicitly set on Sessions (defaults to false; sessions valid from any IP)",
+                    Some("Set consistentAddress on <Sessions> to control IP address binding behavior for sessions"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-061: handlerURL uses default /Shibboleth.sso path
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref handler_url) = sessions.handler_url {
+            if handler_url == "/Shibboleth.sso" {
+                results.push(CheckResult::pass(
+                    "OPS-061",
+                    CAT,
+                    Severity::Info,
+                    "handlerURL uses standard /Shibboleth.sso path",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-061",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "handlerURL uses non-standard path: {} (ensure web server/proxy is configured to route this path)",
+                            handler_url
+                        ),
+                        Some("Non-standard handlerURL paths require matching web server configuration to route requests to the SP"),
+                    )
+                    .with_doc(DOC_SESSIONS),
+                );
+            }
+        }
+    }
+
+    // OPS-062: ArtifactMap not configured (artifact resolution state not persistent)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("ArtifactMap") {
+            results.push(CheckResult::pass(
+                "OPS-062",
+                CAT,
+                Severity::Info,
+                "ArtifactMap is configured for artifact resolution state",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-062",
+                    CAT,
+                    Severity::Info,
+                    "No <ArtifactMap> configured (artifact resolution state stored in-memory only)",
+                    Some("Add an <ArtifactMap> element backed by a StorageService if using artifact binding in a clustered environment"),
+                )
+                .with_doc(DOC_SPCONFIG),
+            );
+        }
+    }
+
+    // OPS-063: Small attribute map (< 3 attributes) may indicate incomplete setup
+    if let Some(ref map) = config.attribute_map {
+        let count = map.attributes.len();
+        if count >= 3 {
+            results.push(CheckResult::pass(
+                "OPS-063",
+                CAT,
+                Severity::Info,
+                &format!("attribute-map.xml defines {} attributes", count),
+            ));
+        } else if count > 0 {
+            results.push(
+                CheckResult::fail(
+                    "OPS-063",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "attribute-map.xml defines only {} attribute(s) — may be incomplete",
+                        count
+                    ),
+                    Some("Review whether additional attributes (e.g., eppn, mail, displayName, affiliation) should be mapped"),
+                )
+                .with_doc(DOC_ATTR_EXTRACTOR),
+            );
+        }
+    }
+
+    // OPS-064: Attribute policy uses PermitValueRule type="ANY" (accepts all values without filtering)
+    if let Some(ref policy) = config.attribute_policy {
+        let any_rules: Vec<&str> = policy
+            .rules
+            .iter()
+            .filter(|r| r.permit_value_rule_type.as_deref() == Some("ANY") && !r.has_scope_match)
+            .map(|r| r.attribute_id.as_str())
+            .collect();
+        if any_rules.is_empty() {
+            if !policy.rules.is_empty() {
+                results.push(CheckResult::pass(
+                    "OPS-064",
+                    CAT,
+                    Severity::Info,
+                    "No attribute policy rules use unrestricted PermitValueRule type=\"ANY\"",
+                ));
+            }
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-064",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "{} attribute(s) use PermitValueRule type=\"ANY\" without additional filtering: {}",
+                        any_rules.len(),
+                        any_rules.join(", ")
+                    ),
+                    Some("PermitValueRule type=\"ANY\" accepts all values; consider adding value constraints for sensitive attributes"),
+                )
+                .with_doc(DOC_ATTR_FILTER),
+            );
+        }
+    }
+
+    // OPS-065: Multiple Host elements in RequestMap (multi-vhost setup)
+    {
+        let host_count = sc
+            .request_map_content_settings
+            .iter()
+            .filter(|cs| cs.element == "Host")
+            .count();
+        if host_count > 1 {
+            results.push(
+                CheckResult::fail(
+                    "OPS-065",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "{} Host elements in RequestMap (multi-vhost setup — ensure each host has appropriate session and access settings)",
+                        host_count
+                    ),
+                    Some("Review that each <Host> element has the correct requireSession, authType, and applicationId settings"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        } else if host_count == 1 {
+            results.push(CheckResult::pass(
+                "OPS-065",
+                CAT,
+                Severity::Info,
+                "Single Host in RequestMap",
+            ));
+        }
+    }
+
+    // OPS-066: SessionInitiator without id attribute (can't be deep-linked)
+    {
+        let initiators_without_id: Vec<_> = sc
+            .session_initiators
+            .iter()
+            .filter(|si| si.id.is_none())
+            .collect();
+        if !initiators_without_id.is_empty() && sc.session_initiators.len() > 1 {
+            results.push(
+                CheckResult::fail(
+                    "OPS-066",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "{} of {} SessionInitiator(s) have no id attribute (cannot be deep-linked via ?target=)",
+                        initiators_without_id.len(),
+                        sc.session_initiators.len()
+                    ),
+                    Some("Add id attributes to SessionInitiators so they can be referenced individually in login links"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        } else if sc.session_initiators.len() > 1 {
+            results.push(CheckResult::pass(
+                "OPS-066",
+                CAT,
+                Severity::Info,
+                "All SessionInitiators have id attributes",
+            ));
+        }
+    }
+
+    // OPS-067: No AccessControl elements configured
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("AccessControl") || content.contains("htaccess") {
+            results.push(CheckResult::pass(
+                "OPS-067",
+                CAT,
+                Severity::Info,
+                "AccessControl or htaccess authorization is configured",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-067",
+                    CAT,
+                    Severity::Info,
+                    "No <AccessControl> elements configured (authorization relies on web server or application layer)",
+                    Some("Add <AccessControl> elements in <RequestMap> for SP-level attribute-based authorization, or ensure authorization is handled at the application layer"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-068: Logout is enabled but no logout error pages configured
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.has_logout {
+            if let Some(ref errors) = sc.errors {
+                let has_logout_pages =
+                    errors.local_logout.is_some() || errors.global_logout.is_some();
+                if has_logout_pages {
+                    results.push(CheckResult::pass(
+                        "OPS-068",
+                        CAT,
+                        Severity::Info,
+                        "Logout error page(s) configured for logout-enabled SP",
+                    ));
+                } else {
+                    results.push(
+                        CheckResult::fail(
+                            "OPS-068",
+                            CAT,
+                            Severity::Info,
+                            "Logout is enabled but no localLogout or globalLogout error pages configured in <Errors>",
+                            Some("Set localLogout and/or globalLogout on <Errors> to show a user-friendly page after logout"),
+                        )
+                        .with_doc(DOC_ERRORS),
+                    );
+                }
+            }
+        }
+    }
+
+    // OPS-069: authnContextClassRef not set (no explicit authentication strength requirement)
+    if sc.sso_authn_context_class_ref.is_some() {
+        results.push(CheckResult::pass(
+            "OPS-069",
+            CAT,
+            Severity::Info,
+            &format!(
+                "authnContextClassRef is set on SSO: {}",
+                sc.sso_authn_context_class_ref.as_deref().unwrap_or("?")
+            ),
+        ));
+    } else if sc.sessions.as_ref().is_some_and(|s| s.has_sso) {
+        results.push(
+            CheckResult::fail(
+                "OPS-069",
+                CAT,
+                Severity::Info,
+                "authnContextClassRef not set on SSO (no explicit authentication strength requirement)",
+                Some("Set authnContextClassRef on <SSO> to request a specific authentication method (e.g., urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport)"),
+            )
+            .with_doc(DOC_SESSIONS),
+        );
+    }
+
+    // OPS-070: ApplicationOverride without entityID (inherits parent)
+    for (id, entity_id) in &sc.application_override_entity_ids {
+        if entity_id.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-070",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "ApplicationOverride '{}' has explicit entityID: {}",
+                    id,
+                    entity_id.as_deref().unwrap_or("?")
+                ),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-070",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "ApplicationOverride '{}' has no entityID (inherits parent entityID)",
+                        id
+                    ),
+                    Some("Set entityID on ApplicationOverride if this application should have a distinct SP identity"),
+                )
+                .with_doc(DOC_APP_OVERRIDE),
+            );
+        }
+    }
+
+    // OPS-071: No cipherSuites set on ApplicationDefaults (TLS defaults depend on system OpenSSL)
+    if let Some(ref app) = sc.application_defaults {
+        if app.cipher_suites.is_some() {
+            results.push(CheckResult::pass(
+                "OPS-071",
+                CAT,
+                Severity::Info,
+                "cipherSuites is explicitly configured on ApplicationDefaults",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-071",
+                    CAT,
+                    Severity::Info,
+                    "cipherSuites not set on ApplicationDefaults (outbound TLS uses system defaults)",
+                    Some("Set cipherSuites on <ApplicationDefaults> to control TLS ciphers for outbound connections to IdPs and metadata sources"),
+                )
+                .with_doc(DOC_APP_DEFAULTS),
+            );
+        }
+    }
+
+    // OPS-072: homeURL does not start with / or https:// (may not resolve correctly)
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref home_url) = app.home_url {
+            if !home_url.is_empty()
+                && !home_url.starts_with('/')
+                && !home_url.starts_with("https://")
+                && !home_url.starts_with("http://")
+            {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-072",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "homeURL does not start with '/' or 'https://': {}",
+                            home_url
+                        ),
+                        Some("homeURL should be an absolute path (e.g., '/') or full URL (e.g., 'https://sp.example.org/')"),
+                    )
+                    .with_doc(DOC_APP_DEFAULTS),
+                );
+            } else if !home_url.is_empty() {
+                results.push(CheckResult::pass(
+                    "OPS-072",
+                    CAT,
+                    Severity::Warning,
+                    "homeURL has a valid path or URL format",
+                ));
+            }
+        }
+    }
+
+    // OPS-073: Multiple AttributeExtractor or AttributeFilter paths (complex multi-source setup)
+    {
+        let ext_count = sc.attribute_extractor_paths.len();
+        let filt_count = sc.attribute_filter_paths.len();
+        if ext_count > 1 || filt_count > 1 {
+            let mut parts = Vec::new();
+            if ext_count > 1 {
+                parts.push(format!("{} AttributeExtractor paths", ext_count));
+            }
+            if filt_count > 1 {
+                parts.push(format!("{} AttributeFilter paths", filt_count));
+            }
+            results.push(
+                CheckResult::fail(
+                    "OPS-073",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Multiple attribute configuration sources: {} (ensure all files are consistent)",
+                        parts.join(", ")
+                    ),
+                    Some("Multiple attribute sources increase maintenance complexity; ensure all files are kept in sync"),
+                )
+                .with_doc(DOC_ATTR_EXTRACTOR),
+            );
+        }
+    }
+
+    // OPS-074: AttributeChecker handler not configured (no pre-access attribute validation)
+    {
+        let has_attr_checker = sc
+            .handlers
+            .iter()
+            .any(|h| h.handler_type.contains("AttributeChecker"));
+        if has_attr_checker {
+            results.push(CheckResult::pass(
+                "OPS-074",
+                CAT,
+                Severity::Info,
+                "AttributeChecker handler is configured for pre-access attribute validation",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-074",
+                    CAT,
+                    Severity::Info,
+                    "No AttributeChecker handler configured (no pre-access validation that required attributes are present)",
+                    Some("Add a Handler type=\"AttributeChecker\" to verify required attributes exist before granting access"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-075: Configuration contains TODO/FIXME comments (incomplete setup)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        let upper = content.to_uppercase();
+        let has_todo = upper.contains("TODO") || upper.contains("FIXME") || upper.contains("XXX");
+        if has_todo {
+            results.push(
+                CheckResult::fail(
+                    "OPS-075",
+                    CAT,
+                    Severity::Warning,
+                    "Configuration contains TODO/FIXME/XXX comments (may indicate incomplete setup)",
+                    Some("Review and resolve all TODO/FIXME comments in the configuration before production deployment"),
+                )
+                .with_doc(DOC_SPCONFIG),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "OPS-075",
+                CAT,
+                Severity::Warning,
+                "No TODO/FIXME/XXX comments found in configuration",
+            ));
+        }
+    }
+
+    // OPS-076: DiscoveryFeed handler enabled (exposes IdP list)
+    {
+        let has_discovery_feed = sc
+            .handlers
+            .iter()
+            .any(|h| h.handler_type.contains("DiscoveryFeed"));
+        if has_discovery_feed {
+            results.push(
+                CheckResult::fail(
+                    "OPS-076",
+                    CAT,
+                    Severity::Info,
+                    "DiscoveryFeed handler is enabled (exposes list of trusted IdPs as JSON)",
+                    Some("DiscoveryFeed publishes trusted IdP metadata; ensure this is intentional and ACL-restricted if needed"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "OPS-076",
+                CAT,
+                Severity::Info,
+                "No DiscoveryFeed handler found",
+            ));
+        }
+    }
+
     // OPS-032 to OPS-035: ApplicationOverride child element replacement checks
     if let Some(ref content) = config.shibboleth_xml_content {
         let mut current_override_id: Option<String> = None;

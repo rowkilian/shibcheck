@@ -2,7 +2,7 @@
 
 All notable changes to shibcheck are documented in this file.
 
-## [Unreleased]
+## [0.6.0]
 
 ### Added
 - REF-034: Warning when local metadata `validUntil` has expired
@@ -12,6 +12,107 @@ All notable changes to shibcheck are documented in this file.
 - OPS-034: Info when `ApplicationOverride` defines own `<CredentialResolver>` (replaces parent)
 - OPS-035: Info when `ApplicationOverride` defines own `<MetadataProvider>` (replaces parent)
 - SEC-065: Warning when `ApplicationOverride` `<Sessions>` is missing `redirectLimit` (not inherited)
+- SEC-066: Info when `idpHistory` is enabled (leaks IdP usage pattern to client via cookie)
+- SEC-067: Info when `maxTimeSinceAuthn` not set on Sessions (stale authentications accepted)
+- SEC-068: Info when `cookieLifetime` exceeds session `lifetime` (cookie persists beyond session)
+- SEC-069: Warning when `RequireValidUntil` MetadataFilter is explicitly disabled
+- SEC-070: Error when `SignatureMetadataFilter` has no certificate and no TrustEngine
+- SEC-071: Info when `checkAddress` explicitly set to `false` (IP consistency checking disabled)
+- SEC-072: Error when inline private key material detected in `shibboleth2.xml`
+- SEC-073: Info when remote `MetadataProvider` `maxRefreshDelay` exceeds 24 hours
+- SEC-074: Info when no encryption `CredentialResolver` configured
+- SEC-075: Info when `NameIDFormat` uses `emailAddress` (PII in NameID)
+- SEC-076: Warning when `SessionInitiator` uses SAML1 protocol
+- SEC-077: Info when signing and encryption share the same certificate
+- SEC-078: Info when `idpHistoryDays` exceeds 365 (long tracking window)
+- SEC-079: Info when `sameSiteFallback` enabled (extra cookie surface area)
+- SEC-080: Info when `Errors` `supportContact` exposes a direct email address
+- SEC-081: Info when `TCPListener` used without explicit address
+- SEC-082: Warning when SSO protocols include SAML1
+- SEC-083: Info when logout outgoing binding uses GET/Redirect (tokens in URL)
+- SEC-084: Warning when `relayState` uses plain HTTP
+- SEC-085: Warning when attribute policy uses wildcard scope matching
+- SEC-086: Warning when metadata backing file is world-writable
+- SEC-087: Warning when certificate file is world-writable
+- SEC-088: Warning when `signing` explicitly set to `false` on ApplicationDefaults
+- SEC-089: Warning when `encryption` explicitly set to `false` on ApplicationDefaults
+- SEC-090: Info when ECP (Enhanced Client/Proxy) is enabled
+- SEC-091: Warning when CredentialResolver has key but no certificate
+- SEC-092: Info when deprecated `redirectWhitelist` attribute is used
+- SEC-093: Warning when content setting has `authType="shibboleth"` but `requireSession="false"`
+- SEC-094: Warning when Handler Location is at root path `/`
+- SEC-095: Info when no signing CredentialResolver configured
+- SEC-096: Info when asynchronous LogoutInitiator has signing disabled
+- SEC-097: Warning when `cipherSuites` contains weak algorithms (RC4, DES, 3DES, MD5, NULL, EXPORT, ANON)
+- SEC-098: Info when SignatureMetadataFilter has `verifyBackup="false"`
+- SEC-099: Info when PostData cache is enabled (sensitive form data on disk)
+- SEC-100: Info when `forceAuthn` explicitly set to `false` on content settings
+- SEC-101: Info when `isPassive="true"` combined with `requireSession="true"` (silent auth failure)
+- SEC-102: Info when RequestMapper type is `Native` (access control via web server config)
+- SEC-103: Info when LogoutInitiator has `notifyWithout` set (skips some notifications)
+- SEC-104: Info when Errors `helpLocation` uses plain HTTP
+- SEC-105: Info when more than 5 Notify endpoints configured (broad notification surface)
+- SEC-106: Info when no `attributePrefix` set (header name collision risk)
+- SEC-107: Warning when XML comments contain sensitive keywords (password, secret, token)
+- SEC-108: Warning when attribute map maps to security-sensitive header names (REMOTE_USER, HTTP_AUTHORIZATION)
+- SEC-109: Info when `clockSkew` is set to 0 (may reject valid assertions)
+- SEC-110: Warning when `security-policy.xml` references weak algorithms outside blacklists
+- SEC-111: Info when error template paths are absolute URLs (external redirect on error)
+- SEC-112: Warning when scoped attributes have `PermitValueRule type="ANY"` without scope validation
+- SEC-113: Warning when `DiagnosticService` handler has no ACL
+- SEC-114: Warning when `DataSealer` configured without explicit `keyStorePath`
+- SEC-115: Info when informational handlers at default `Shibboleth.sso` paths lack ACL
+- SEC-116: Warning when `ApplicationOverride` `entityID` uses HTTP instead of HTTPS
+- SEC-117: Info when SSO `discoveryProtocol` is WAYF (outdated)
+- SEC-118: Warning when multiple `SessionInitiator` elements marked as default
+- SEC-119: Warning when duplicate handler `Location` paths detected
+- SEC-120: Warning when `SessionInitiator` uses `Shib1` type (legacy SAML1)
+- SEC-121: Info when `OutOfProcess` has `catchAll="true"` (masks errors)
+- SEC-122: Warning when remote `MetadataProvider` has no `MetadataFilter` elements at all
+- SEC-123: Warning when `SignatureMetadataFilter` certificate fetched over plain HTTP
+- SEC-124: Warning when `Notify` endpoint loops back to SP handler
+- SEC-125: Info when `ApplicationOverride` `entityID` is same as parent (redundant)
+- OPS-036: Info when `homeURL` not set on `ApplicationDefaults` (no fallback landing page)
+- OPS-037: Warning when `homeURL` appears to be a placeholder (example.org, localhost)
+- OPS-038: Info when no custom error pages configured in `<Errors>`
+- OPS-039: Info when `helpLocation` not set on `<Errors>`
+- OPS-040: Info when session `lifetime` not explicitly set
+- OPS-041: Info when session `timeout` not explicitly set
+- OPS-042: Warning when remote `MetadataProvider` has no `MetadataFilter` children (metadata not validated)
+- OPS-043: Info when `Errors` `styleSheet` not set (unstyled error pages)
+- OPS-044: Info when no `Host` or `Path` has `requireSession="true"` (SP not enforcing sessions)
+- OPS-045: Info when `redirectToSSL` not set on any content settings (no HTTP→HTTPS redirect)
+- OPS-046: Info when `discoveryURL` is set without explicit `discoveryProtocol`
+- OPS-047: Info when `MetadataProvider` does not set `validate="true"` (schema validation disabled)
+- OPS-048: Info when `signingAlg` or `digestAlg` not explicitly set on `ApplicationDefaults`
+- OPS-049: Info when `RequireValidUntil` MetadataFilter lacks `maxValidityInterval`
+- OPS-050: Info when no `AttributeExtractor` path configured
+- OPS-051: Warning when multiple `CredentialResolver` elements lack `use` attribute
+- OPS-052: Info when more than 3 `ApplicationOverride` elements defined (complexity warning)
+- OPS-053: Info when local `MetadataProvider` has no `reloadInterval`
+- OPS-054: Info when no `StorageService` configured (sessions lost on restart)
+- OPS-055: Info when no `OutOfProcess` or `InProcess` extensions configured
+- OPS-056: Info when no `ReplayCache` configured (assertion replay protection)
+- OPS-057: Info when SSO protocols not explicitly specified in `<SSO>` element
+- OPS-058: Info when Logout protocols not explicitly specified in `<Logout>` element
+- OPS-059: Info when no logging configuration detected
+- OPS-060: Info when `consistentAddress` not explicitly set on `Sessions`
+- OPS-061: Info when `handlerURL` uses non-standard path (requires matching web server config)
+- OPS-062: Info when no `ArtifactMap` configured (artifact resolution state in-memory only)
+- OPS-063: Info when `attribute-map.xml` has fewer than 3 attributes (may be incomplete)
+- OPS-064: Info when attribute policy uses `PermitValueRule type="ANY"` without additional filtering
+- OPS-065: Info when multiple `Host` elements in `RequestMap` (multi-vhost awareness)
+- OPS-066: Info when `SessionInitiator` elements lack `id` attribute (cannot be deep-linked)
+- OPS-067: Info when no `AccessControl` elements configured
+- OPS-068: Info when logout is enabled but no localLogout/globalLogout error pages configured
+- OPS-069: Info when `authnContextClassRef` not set on `SSO` (no authentication strength requirement)
+- OPS-070: Info when `ApplicationOverride` has no explicit `entityID` (inherits parent)
+- OPS-071: Info when `cipherSuites` not set on `ApplicationDefaults` (TLS uses system defaults)
+- OPS-072: Warning when `homeURL` does not start with `/` or `https://`
+- OPS-073: Info when multiple `AttributeExtractor` or `AttributeFilter` paths configured (complexity)
+- OPS-074: Info when no `AttributeChecker` handler configured (no pre-access attribute validation)
+- OPS-075: Warning when configuration contains `TODO`/`FIXME`/`XXX` comments (incomplete setup)
+- OPS-076: Info when `DiscoveryFeed` handler is enabled (exposes trusted IdP list)
 - File summary section in all output formats (terminal, JSON, HTML, SARIF) showing which files were found and which were not. Lists primary config files, certificates, keys, metadata, backing files, attribute extractors/filters, security policy, and error templates.
 - `init-test-idp` subcommand: fetches [mocksaml.com](https://mocksaml.com) metadata and prints the XML snippet to add to `shibboleth2.xml` for quick test IdP setup
 - SP version detection from `<SPConfig xmlns="...">` namespace (`SpVersion::V2`, `V3`, or `Unknown`)

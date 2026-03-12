@@ -2055,6 +2055,1587 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // SEC-066: idpHistory enabled (leaks IdP usage pattern to client via cookie)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.idp_history.as_deref() == Some("true") {
+            let days_info = sessions
+                .idp_history_days
+                .as_deref()
+                .map(|d| format!(" (retained for {} days)", d))
+                .unwrap_or_default();
+            results.push(
+                CheckResult::fail(
+                    "SEC-066",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "idpHistory is enabled{} — client cookie reveals which IdPs the user has visited",
+                        days_info
+                    ),
+                    Some("Disable idpHistory or set idpHistoryDays to a low value to reduce tracking exposure"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        } else if sessions.idp_history.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-066",
+                CAT,
+                Severity::Info,
+                "idpHistory is not enabled",
+            ));
+        }
+    }
+
+    // SEC-067: maxTimeSinceAuthn not set (stale authentications accepted)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.max_time_since_authn.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-067",
+                CAT,
+                Severity::Info,
+                "maxTimeSinceAuthn is set on Sessions",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-067",
+                    CAT,
+                    Severity::Info,
+                    "maxTimeSinceAuthn not set on Sessions (IdP may reuse old authentications)",
+                    Some("Set maxTimeSinceAuthn on <Sessions> to limit how old an IdP authentication can be"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-068: cookieLifetime exceeds session lifetime (cookie persists beyond session)
+    if let Some(ref sessions) = sc.sessions {
+        if let (Some(ref cookie_lt), Some(ref session_lt)) =
+            (&sessions.cookie_lifetime, &sessions.lifetime)
+        {
+            if let (Ok(cookie_secs), Ok(session_secs)) = (
+                cookie_lt.parse::<u64>(),
+                session_lt.parse::<u64>(),
+            ) {
+                if cookie_secs > session_secs && session_secs > 0 {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-068",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "cookieLifetime ({}) exceeds session lifetime ({}) — cookie persists after session expires",
+                                cookie_secs, session_secs
+                            ),
+                            Some("Set cookieLifetime <= session lifetime to avoid stale session cookies"),
+                        )
+                        .with_doc(doc_for(DOC_SESSIONS, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-068",
+                        CAT,
+                        Severity::Info,
+                        "cookieLifetime does not exceed session lifetime",
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-069: RequireValidUntil MetadataFilter explicitly disabled
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if filter.filter_type == "RequireValidUntil"
+                && filter.require_valid_until.as_deref() == Some("false")
+            {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-069",
+                        CAT,
+                        Severity::Warning,
+                        "RequireValidUntil MetadataFilter is explicitly disabled (accepts expired metadata)",
+                        Some("Remove require=\"false\" or set to \"true\" to enforce metadata expiration"),
+                    )
+                    .with_doc(doc_for(DOC_VALID_UNTIL_FILTER, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-070: Signature MetadataFilter has no certificate and no TrustEngine
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if filter.filter_type == "Signature" {
+                if filter.certificate.is_none() && !filter.has_trust_engine {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-070",
+                            CAT,
+                            Severity::Error,
+                            "SignatureMetadataFilter has no certificate and no TrustEngine (cannot verify signatures)",
+                            Some("Add a certificate attribute or nested TrustEngine to the Signature filter"),
+                        )
+                        .with_doc(doc_for(DOC_SIGNATURE_FILTER, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-070",
+                        CAT,
+                        Severity::Error,
+                        "SignatureMetadataFilter has certificate or TrustEngine configured",
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-071: checkAddress explicitly set to "false" (source IP checking disabled)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.check_address.as_deref() == Some("false") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-071",
+                    CAT,
+                    Severity::Info,
+                    "checkAddress is explicitly set to \"false\" (source IP consistency checking disabled)",
+                    Some("Consider enabling checkAddress to detect session hijacking via IP change"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        } else if sessions.check_address.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-071",
+                CAT,
+                Severity::Info,
+                "checkAddress is not disabled",
+            ));
+        }
+    }
+
+    // SEC-072: Inline private key material detected in configuration XML
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("-----BEGIN RSA PRIVATE KEY-----")
+            || content.contains("-----BEGIN PRIVATE KEY-----")
+            || content.contains("-----BEGIN EC PRIVATE KEY-----")
+        {
+            results.push(
+                CheckResult::fail(
+                    "SEC-072",
+                    CAT,
+                    Severity::Error,
+                    "Inline private key material detected in shibboleth2.xml",
+                    Some("Move private keys to separate files with restricted permissions instead of embedding in XML"),
+                )
+                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "SEC-072",
+                CAT,
+                Severity::Error,
+                "No inline private key material in shibboleth2.xml",
+            ));
+        }
+    }
+
+    // SEC-073: maxRefreshDelay on remote MetadataProvider exceeds 24 hours
+    for mp in &sc.metadata_providers {
+        if mp.uri.is_some() || mp.url.is_some() {
+            if let Some(ref delay) = mp.max_refresh_delay {
+                if let Ok(secs) = delay.parse::<u64>() {
+                    if secs > 86400 {
+                        results.push(
+                            CheckResult::fail(
+                                "SEC-073",
+                                CAT,
+                                Severity::Info,
+                                &format!(
+                                    "Remote MetadataProvider maxRefreshDelay is {} seconds (> 24h) — stale metadata risk",
+                                    secs
+                                ),
+                                Some("Set maxRefreshDelay to 86400 or less to ensure timely metadata updates"),
+                            )
+                            .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                        );
+                    } else {
+                        results.push(CheckResult::pass(
+                            "SEC-073",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "Remote MetadataProvider maxRefreshDelay is {} seconds",
+                                secs
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // SEC-074: No encryption CredentialResolver configured (cannot decrypt assertions)
+    {
+        let has_encryption_cr = sc.credential_resolvers.iter().any(|cr| {
+            cr.use_attr
+                .as_deref()
+                .is_some_and(|u| u.contains("encryption"))
+        });
+        let has_unspecified_cr = sc
+            .credential_resolvers
+            .iter()
+            .any(|cr| cr.use_attr.is_none());
+        if has_encryption_cr || has_unspecified_cr {
+            results.push(CheckResult::pass(
+                "SEC-074",
+                CAT,
+                Severity::Info,
+                "Encryption credential is available (explicit or unspecified use)",
+            ));
+        } else if !sc.credential_resolvers.is_empty() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-074",
+                    CAT,
+                    Severity::Info,
+                    "No encryption CredentialResolver configured (cannot decrypt encrypted assertions)",
+                    Some("Add a CredentialResolver with use=\"encryption\" or omit the use attribute to enable decryption"),
+                )
+                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+            );
+        }
+    }
+
+    // SEC-075: NameIDFormat contains emailAddress (PII in NameID)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-075",
+                    CAT,
+                    Severity::Info,
+                    "NameIDFormat uses emailAddress (PII exposed in SAML NameID)",
+                    Some("Consider using transient or persistent NameIDFormat to avoid exposing email addresses in SAML assertions"),
+                )
+                .with_doc(doc_for(DOC_SSO, v)),
+            );
+        }
+    }
+
+    // SEC-076: SessionInitiator uses SAML1 protocol
+    for si in &sc.session_initiators {
+        if let Some(ref itype) = si.initiator_type {
+            if itype == "SAML1" {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-076",
+                        CAT,
+                        Severity::Warning,
+                        "SessionInitiator uses SAML1 protocol (obsolete and less secure)",
+                        Some("Migrate to SAML2 SessionInitiator for better security features"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-077: Signing and encryption use the same certificate
+    {
+        let signing_certs: Vec<&str> = sc
+            .credential_resolvers
+            .iter()
+            .filter(|cr| {
+                cr.use_attr
+                    .as_deref()
+                    .is_some_and(|u| u.contains("signing"))
+            })
+            .filter_map(|cr| cr.certificate.as_deref())
+            .collect();
+        let encryption_certs: Vec<&str> = sc
+            .credential_resolvers
+            .iter()
+            .filter(|cr| {
+                cr.use_attr
+                    .as_deref()
+                    .is_some_and(|u| u.contains("encryption"))
+            })
+            .filter_map(|cr| cr.certificate.as_deref())
+            .collect();
+        let mut shared = false;
+        for sc_cert in &signing_certs {
+            if encryption_certs.contains(sc_cert) {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-077",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Signing and encryption CredentialResolvers share the same certificate: {}",
+                            sc_cert
+                        ),
+                        Some("Use separate certificates for signing and encryption for better key management"),
+                    )
+                    .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                );
+                shared = true;
+            }
+        }
+        if !shared && !signing_certs.is_empty() && !encryption_certs.is_empty() {
+            results.push(CheckResult::pass(
+                "SEC-077",
+                CAT,
+                Severity::Info,
+                "Signing and encryption use different certificates",
+            ));
+        }
+    }
+
+    // SEC-078: idpHistoryDays is very high (> 365 days, long tracking window)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref days) = sessions.idp_history_days {
+            if let Ok(d) = days.parse::<u64>() {
+                if d > 365 {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-078",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "idpHistoryDays is {} (> 365 days) — long IdP tracking window",
+                                d
+                            ),
+                            Some("Reduce idpHistoryDays to limit how long IdP visit history is retained in cookies"),
+                        )
+                        .with_doc(doc_for(DOC_SESSIONS, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-078",
+                        CAT,
+                        Severity::Info,
+                        &format!("idpHistoryDays is {} (reasonable retention)", d),
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-079: sameSiteFallback enabled (unnecessary on modern browsers, expands cookie surface)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.same_site_fallback.as_deref() == Some("true") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-079",
+                    CAT,
+                    Severity::Info,
+                    "sameSiteFallback is enabled (sends additional fallback cookies for legacy browsers)",
+                    Some("Disable sameSiteFallback if all users are on modern browsers to reduce cookie surface area"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        } else if sessions.same_site_fallback.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-079",
+                CAT,
+                Severity::Info,
+                "sameSiteFallback is not enabled",
+            ));
+        }
+    }
+
+    // SEC-080: supportContact in Errors uses mailto: or contains @ (email exposed to users)
+    if let Some(ref errors) = sc.errors {
+        if let Some(ref contact) = errors.support_contact {
+            if contact.contains('@') || contact.starts_with("mailto:") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-080",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Errors supportContact exposes an email address: {}",
+                            contact
+                        ),
+                        Some("Consider using a support page URL instead of a direct email to reduce spam/phishing risk"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-080",
+                    CAT,
+                    Severity::Info,
+                    "Errors supportContact does not expose a direct email address",
+                ));
+            }
+        }
+    }
+
+    // SEC-081: UnixListener element without proper acl attribute
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("<UnixListener") {
+            if !content.contains("stackSize=") {
+                // UnixListener is present; check for address attribute for socket path
+                results.push(CheckResult::pass(
+                    "SEC-081",
+                    CAT,
+                    Severity::Info,
+                    "UnixListener is configured (uses Unix domain socket)",
+                ));
+            }
+        } else if content.contains("<TCPListener") && sc.tcp_listener_address.is_none() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-081",
+                    CAT,
+                    Severity::Info,
+                    "TCPListener used without explicit address (may bind to all interfaces)",
+                    Some("Set address=\"127.0.0.1\" on <TCPListener> or switch to <UnixListener> for local-only communication"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-082: SAML1 protocol in SSO protocols list
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref protocols) = sessions.sso_protocols {
+            let lower = protocols.to_lowercase();
+            if lower.contains("saml1") || lower.contains("urn:oasis:names:tc:saml:1") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-082",
+                        CAT,
+                        Severity::Warning,
+                        &format!("SSO protocols include SAML1: {}", protocols),
+                        Some("Remove SAML1 from SSO protocols — SAML 1.x is obsolete and lacks modern security features"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-082",
+                    CAT,
+                    Severity::Warning,
+                    "SSO protocols do not include SAML1",
+                ));
+            }
+        }
+    }
+
+    // SEC-083: logout outgoing binding uses HTTP-GET (tokens visible in URL/logs)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref bindings) = sessions.logout_outgoing_bindings {
+            if bindings.contains("HTTP-GET") || bindings.contains("REDIRECT") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-083",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Logout outgoing binding includes GET/Redirect: {} (tokens visible in URL/server logs)",
+                            bindings
+                        ),
+                        Some("Prefer SOAP or HTTP-POST bindings for logout to keep tokens out of URLs"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-083",
+                    CAT,
+                    Severity::Info,
+                    "Logout outgoing bindings do not use GET/Redirect",
+                ));
+            }
+        }
+    }
+
+    // SEC-084: relayState set to a non-HTTPS URL
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref rs) = sessions.relay_state {
+            if rs.starts_with("http://") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-084",
+                        CAT,
+                        Severity::Warning,
+                        &format!("relayState uses plain HTTP: {}", rs),
+                        Some("Use HTTPS for relayState URLs to protect the post-login redirect"),
+                    )
+                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-084",
+                    CAT,
+                    Severity::Warning,
+                    "relayState does not use plain HTTP",
+                ));
+            }
+        }
+    }
+
+    // SEC-085: Attribute policy file uses wildcard scope matching
+    {
+        let policy_path = config.base_dir.join("attribute-policy.xml");
+        if policy_path.exists() {
+            if let Ok(policy_content) = std::fs::read_to_string(&policy_path) {
+                if policy_content.contains("type=\"ANY\"")
+                    && (policy_content.contains("scope=\"any\"")
+                        || policy_content.contains("Scope=\"any\""))
+                {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-085",
+                            CAT,
+                            Severity::Warning,
+                            "Attribute policy uses PermitValueRule type=\"ANY\" with scope=\"any\" (accepts attributes from any scope)",
+                            Some("Restrict attribute scopes to known domains instead of accepting any scope"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // SEC-086: Metadata backing file is world-writable (could be tampered)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for mp in &sc.metadata_providers {
+            if let Some(ref bf) = mp.backing_file_path {
+                let full_path = config.base_dir.join(bf);
+                if full_path.exists() {
+                    if let Ok(metadata) = std::fs::metadata(&full_path) {
+                        let mode = metadata.permissions().mode();
+                        if mode & 0o002 != 0 {
+                            results.push(
+                                CheckResult::fail(
+                                    "SEC-086",
+                                    CAT,
+                                    Severity::Warning,
+                                    &format!(
+                                        "Metadata backing file {} is world-writable (mode {:04o}) — could be tampered with",
+                                        bf,
+                                        mode & 0o7777
+                                    ),
+                                    Some("Set metadata backing file permissions to 0644 or more restrictive"),
+                                )
+                                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                            );
+                        } else {
+                            results.push(CheckResult::pass(
+                                "SEC-086",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "Metadata backing file {} is not world-writable (mode {:04o})",
+                                    bf,
+                                    mode & 0o7777
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SEC-087: Certificate file has overly permissive permissions (world-writable)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for cr in &sc.credential_resolvers {
+            if let Some(ref cert_path) = cr.certificate {
+                let full_path = config.base_dir.join(cert_path);
+                if full_path.exists() {
+                    if let Ok(metadata) = std::fs::metadata(&full_path) {
+                        let mode = metadata.permissions().mode();
+                        if mode & 0o002 != 0 {
+                            results.push(
+                                CheckResult::fail(
+                                    "SEC-087",
+                                    CAT,
+                                    Severity::Warning,
+                                    &format!(
+                                        "Certificate file {} is world-writable (mode {:04o}) — could be tampered with",
+                                        cert_path,
+                                        mode & 0o7777
+                                    ),
+                                    Some("Set certificate file permissions to 0644 or more restrictive"),
+                                )
+                                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                            );
+                        } else {
+                            results.push(CheckResult::pass(
+                                "SEC-087",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "Certificate file {} is not world-writable (mode {:04o})",
+                                    cert_path,
+                                    mode & 0o7777
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SEC-088: signing="false" explicitly disables signing on ApplicationDefaults
+    if let Some(ref app) = sc.application_defaults {
+        if app.signing.as_deref() == Some("false") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-088",
+                    CAT,
+                    Severity::Warning,
+                    "signing is explicitly set to \"false\" on ApplicationDefaults (SAML messages will not be signed)",
+                    Some("Set signing=\"true\" to sign SAML requests for integrity and authenticity"),
+                )
+                .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
+            );
+        } else if app.signing.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-088",
+                CAT,
+                Severity::Warning,
+                "signing is not explicitly disabled on ApplicationDefaults",
+            ));
+        }
+    }
+
+    // SEC-089: encryption="false" explicitly disables encryption on ApplicationDefaults
+    if let Some(ref app) = sc.application_defaults {
+        if app.encryption.as_deref() == Some("false") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-089",
+                    CAT,
+                    Severity::Warning,
+                    "encryption is explicitly set to \"false\" on ApplicationDefaults (assertions will not be encrypted)",
+                    Some("Set encryption=\"true\" to request encrypted assertions from IdPs"),
+                )
+                .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
+            );
+        } else if app.encryption.is_some() {
+            results.push(CheckResult::pass(
+                "SEC-089",
+                CAT,
+                Severity::Warning,
+                "encryption is not explicitly disabled on ApplicationDefaults",
+            ));
+        }
+    }
+
+    // SEC-090: ECP (Enhanced Client/Proxy) enabled — requires additional authentication controls
+    if sc.sso_ecp.as_deref() == Some("true") {
+        results.push(
+            CheckResult::fail(
+                "SEC-090",
+                CAT,
+                Severity::Info,
+                "ECP (Enhanced Client/Proxy) is enabled — allows non-browser authentication",
+                Some("Ensure ECP clients are properly authenticated and consider disabling if not needed"),
+            )
+            .with_doc(doc_for(DOC_SSO, v)),
+        );
+    } else if sc.sso_ecp.is_some() {
+        results.push(CheckResult::pass(
+            "SEC-090",
+            CAT,
+            Severity::Info,
+            "ECP is not enabled",
+        ));
+    }
+
+    // SEC-091: CredentialResolver has key but no certificate (incomplete credential)
+    for cr in &sc.credential_resolvers {
+        if cr.resolver_type == "File" && cr.key.is_some() && cr.certificate.is_none() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-091",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "CredentialResolver (use={}) has key but no certificate",
+                        cr.use_attr.as_deref().unwrap_or("unspecified")
+                    ),
+                    Some("Add a certificate attribute to the CredentialResolver for a complete credential pair"),
+                )
+                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+            );
+        }
+    }
+
+    // SEC-092: redirectWhitelist deprecated attribute used (should use redirectAllow)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.redirect_whitelist.is_some() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-092",
+                    CAT,
+                    Severity::Info,
+                    "Sessions uses deprecated 'redirectWhitelist' attribute",
+                    Some("Migrate to 'redirectAllow' attribute (redirectWhitelist is deprecated in SP3)"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-093: ContentSetting authType="shibboleth" with requireSession="false"
+    for cs in &sc.request_map_content_settings {
+        if cs.auth_type.as_deref() == Some("shibboleth")
+            && cs.require_session.as_deref() == Some("false")
+        {
+            results.push(
+                CheckResult::fail(
+                    "SEC-093",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "Content setting for {} '{}' has authType=\"shibboleth\" but requireSession=\"false\" (authentication not enforced)",
+                        cs.element,
+                        cs.name.as_deref().unwrap_or("(unnamed)")
+                    ),
+                    Some("Set requireSession=\"true\" when authType=\"shibboleth\" to enforce authentication"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-094: Handler Location path is at root "/" (broad handler exposure)
+    for handler in &sc.handlers {
+        if handler.location.as_deref() == Some("/") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-094",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "Handler type='{}' is at Location=\"/\" (root path — intercepts all requests)",
+                        handler.handler_type
+                    ),
+                    Some("Use a specific subpath for handler Locations (e.g., /Shibboleth.sso/Status)"),
+                )
+                .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+            );
+        }
+    }
+
+    // SEC-095: No signing CredentialResolver configured (cannot sign requests)
+    {
+        let has_signing_cr = sc.credential_resolvers.iter().any(|cr| {
+            cr.use_attr
+                .as_deref()
+                .is_some_and(|u| u.contains("signing"))
+        });
+        let has_unspecified_cr = sc
+            .credential_resolvers
+            .iter()
+            .any(|cr| cr.use_attr.is_none());
+        if has_signing_cr || has_unspecified_cr {
+            results.push(CheckResult::pass(
+                "SEC-095",
+                CAT,
+                Severity::Info,
+                "Signing credential is available (explicit or unspecified use)",
+            ));
+        } else if !sc.credential_resolvers.is_empty() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-095",
+                    CAT,
+                    Severity::Info,
+                    "No signing CredentialResolver configured (cannot sign SAML requests)",
+                    Some("Add a CredentialResolver with use=\"signing\" or omit the use attribute"),
+                )
+                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+            );
+        }
+    }
+
+    // SEC-096: LogoutInitiator asynchronous with signing disabled (logout may not complete reliably)
+    for li in &sc.logout_initiators {
+        if li.asynchronous.as_deref() == Some("true") && li.signing.as_deref() == Some("false") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-096",
+                    CAT,
+                    Severity::Info,
+                    "LogoutInitiator is asynchronous with signing disabled (logout notifications may be rejected)",
+                    Some("Enable signing on asynchronous LogoutInitiators to ensure logout notifications are accepted"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-097: cipher_suites contains known weak algorithms
+    if let Some(ref app) = sc.application_defaults {
+        if let Some(ref suites) = app.cipher_suites {
+            let lower = suites.to_lowercase();
+            let weak_patterns = [
+                "rc4", "des", "md5", "null", "export", "anon", "3des",
+            ];
+            let mut found_weak: Vec<&str> = Vec::new();
+            for pattern in &weak_patterns {
+                if lower.contains(pattern) {
+                    found_weak.push(pattern);
+                }
+            }
+            if !found_weak.is_empty() {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-097",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "cipherSuites contains weak algorithms: {}",
+                            found_weak.join(", ")
+                        ),
+                        Some("Remove weak cipher suites (RC4, DES, 3DES, MD5, NULL, EXPORT, ANON) from cipherSuites"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-097",
+                    CAT,
+                    Severity::Warning,
+                    "cipherSuites does not contain known weak algorithms",
+                ));
+            }
+        }
+    }
+
+    // SEC-098: Metadata Signature filter verifyBackup="false"
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if filter.filter_type == "Signature"
+                && filter.verify_backup.as_deref() == Some("false")
+            {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-098",
+                        CAT,
+                        Severity::Info,
+                        "SignatureMetadataFilter has verifyBackup=\"false\" (backup signature verification disabled)",
+                        Some("Remove verifyBackup=\"false\" to enable backup signature verification"),
+                    )
+                    .with_doc(doc_for(DOC_SIGNATURE_FILTER, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-099: postData cache enabled (may store sensitive form data on disk)
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.post_data.is_some() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-099",
+                    CAT,
+                    Severity::Info,
+                    "PostData cache is enabled (form data may be stored on disk during SSO redirect)",
+                    Some("Ensure PostData cache directory has restrictive permissions to protect sensitive form data"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-100: ContentSetting forceAuthn="false" explicitly disables re-authentication
+    for cs in &sc.request_map_content_settings {
+        if cs.force_authn.as_deref() == Some("false") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-100",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Content setting for {} '{}' has forceAuthn=\"false\" (re-authentication explicitly disabled)",
+                        cs.element,
+                        cs.name.as_deref().unwrap_or("(unnamed)")
+                    ),
+                    Some("Consider requiring forceAuthn for sensitive resources"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-101: isPassive="true" on content settings (may silently fail authentication)
+    for cs in &sc.request_map_content_settings {
+        if cs.is_passive.as_deref() == Some("true")
+            && cs.require_session.as_deref() == Some("true")
+        {
+            results.push(
+                CheckResult::fail(
+                    "SEC-101",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Content setting for {} '{}' has isPassive=\"true\" with requireSession — authentication may silently fail if user has no IdP session",
+                        cs.element,
+                        cs.name.as_deref().unwrap_or("(unnamed)")
+                    ),
+                    Some("Remove isPassive or set to \"false\" on paths that require authentication"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-102: RequestMapper type is "Native" (relies on web server config for access control)
+    if let Some(ref rmt) = sc.request_map_type {
+        if rmt == "Native" {
+            results.push(
+                CheckResult::fail(
+                    "SEC-102",
+                    CAT,
+                    Severity::Info,
+                    "RequestMapper type=\"Native\" — access control relies on web server configuration, not SP XML",
+                    Some("Ensure web server configuration properly enforces Shibboleth protection on intended paths"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-103: LogoutInitiator notifyWithout set (skips notification to some services)
+    for li in &sc.logout_initiators {
+        if let Some(ref nw) = li.notify_without {
+            results.push(
+                CheckResult::fail(
+                    "SEC-103",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "LogoutInitiator has notifyWithout=\"{}\" (logout skips notification to some services)",
+                        nw
+                    ),
+                    Some("Ensure all services are notified on logout to prevent dangling sessions"),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        }
+    }
+
+    // SEC-104: Errors helpLocation uses plain HTTP
+    if let Some(ref errors) = sc.errors {
+        if let Some(ref help) = errors.help_location {
+            if help.starts_with("http://") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-104",
+                        CAT,
+                        Severity::Info,
+                        &format!("Errors helpLocation uses plain HTTP: {}", help),
+                        Some("Use HTTPS for helpLocation to avoid mixed content and protect user navigation"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-104",
+                    CAT,
+                    Severity::Info,
+                    "Errors helpLocation does not use plain HTTP",
+                ));
+            }
+        }
+    }
+
+    // SEC-105: Notify endpoint count is high (broad logout notification surface)
+    if sc.notify_endpoints.len() > 5 {
+        results.push(
+            CheckResult::fail(
+                "SEC-105",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "{} Notify endpoints configured (broad logout notification surface)",
+                    sc.notify_endpoints.len()
+                ),
+                Some("Review Notify endpoints to ensure only necessary services receive logout notifications"),
+            )
+            .with_doc(doc_for(DOC_SESSIONS, v)),
+        );
+    }
+
+    // SEC-106: No attributePrefix set (header name collision risk with environment variables)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("attributePrefix=") {
+            results.push(CheckResult::pass(
+                "SEC-106",
+                CAT,
+                Severity::Info,
+                "attributePrefix is set (reduces header name collision risk)",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-106",
+                    CAT,
+                    Severity::Info,
+                    "No attributePrefix set — attribute headers may collide with other environment variables",
+                    Some("Set attributePrefix on <ApplicationDefaults> to namespace attribute headers (e.g., \"AJP_\")"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-107: XML configuration contains password/secret in comments
+    if let Some(ref content) = config.shibboleth_xml_content {
+        let lower = content.to_lowercase();
+        if lower.contains("<!-- ") || lower.contains("<!--\n") {
+            let sensitive_patterns = ["password", "secret", "apikey", "api_key", "token"];
+            let mut found_in_comment = false;
+            let mut in_comment = false;
+            for line in lower.lines() {
+                let trimmed = line.trim();
+                if trimmed.contains("<!--") {
+                    in_comment = true;
+                }
+                if in_comment {
+                    for pat in &sensitive_patterns {
+                        if trimmed.contains(pat) {
+                            found_in_comment = true;
+                            break;
+                        }
+                    }
+                }
+                if trimmed.contains("-->") {
+                    in_comment = false;
+                }
+                if found_in_comment {
+                    break;
+                }
+            }
+            if found_in_comment {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-107",
+                        CAT,
+                        Severity::Warning,
+                        "XML comments contain sensitive keywords (password, secret, token, apikey)",
+                        Some("Remove comments containing credentials or secrets from configuration files"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-107",
+                    CAT,
+                    Severity::Warning,
+                    "XML comments do not contain obvious sensitive keywords",
+                ));
+            }
+        }
+    }
+
+    // SEC-108: Attribute map maps to security-sensitive header names
+    if let Some(ref attr_map) = config.attribute_map {
+        let sensitive_ids = [
+            "REMOTE_USER",
+            "HTTP_HOST",
+            "HTTP_AUTHORIZATION",
+            "HTTP_COOKIE",
+            "CONTENT_TYPE",
+            "CONTENT_LENGTH",
+            "SERVER_NAME",
+            "SCRIPT_NAME",
+            "PATH_INFO",
+        ];
+        for attr in &attr_map.attributes {
+            let upper_id = attr.id.to_uppercase();
+            if sensitive_ids.contains(&upper_id.as_str()) {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-108",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "Attribute '{}' maps to security-sensitive header name '{}'",
+                            attr.name, attr.id
+                        ),
+                        Some("Use a unique attribute ID that won't collide with standard HTTP/CGI headers"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-109: clockSkew set to 0 (may reject valid assertions with minor time drift)
+    if let Some(ref skew) = sc.clock_skew {
+        if let Ok(s) = skew.parse::<u64>() {
+            if s == 0 {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-109",
+                        CAT,
+                        Severity::Info,
+                        "clockSkew is 0 (zero tolerance for clock drift — may reject valid assertions)",
+                        Some("Set clockSkew to a small value like 180 to tolerate minor time differences"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-109",
+                    CAT,
+                    Severity::Info,
+                    &format!("clockSkew is {} (non-zero)", s),
+                ));
+            }
+        }
+    }
+
+    // SEC-110: security-policy.xml contains weak algorithm URIs (SHA-1 signing, 3DES encryption)
+    {
+        let security_policy_path = config.base_dir.join("security-policy.xml");
+        if security_policy_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&security_policy_path) {
+                let weak_algos = [
+                    ("http://www.w3.org/2000/09/xmldsig#rsa-sha1", "RSA-SHA1 signing"),
+                    ("http://www.w3.org/2000/09/xmldsig#dsa-sha1", "DSA-SHA1 signing"),
+                    ("http://www.w3.org/2000/09/xmldsig#sha1", "SHA-1 digest"),
+                    ("http://www.w3.org/2001/04/xmlenc#tripledes-cbc", "3DES encryption"),
+                ];
+                let mut found: Vec<&str> = Vec::new();
+                for (uri, label) in &weak_algos {
+                    // Only flag if algorithm appears in Allow/Permit context, not in Blacklist
+                    if content.contains(uri) && !content.contains("Blacklist") && !content.contains("blacklist") {
+                        found.push(label);
+                    }
+                }
+                if !found.is_empty() {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-110",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "security-policy.xml references weak algorithms: {}",
+                                found.join(", ")
+                            ),
+                            Some("Remove weak algorithms from the security policy or move them to the blacklist"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                } else {
+                    results.push(CheckResult::pass(
+                        "SEC-110",
+                        CAT,
+                        Severity::Warning,
+                        "security-policy.xml does not reference known weak algorithms outside blacklists",
+                    ));
+                }
+            }
+        }
+    }
+
+    // SEC-111: Errors session/access/ssl template paths are absolute URLs (potential redirect)
+    if let Some(ref errors) = sc.errors {
+        let templates = [
+            ("sessionError", &errors.session_error),
+            ("accessError", &errors.access_error),
+            ("sslError", &errors.ssl_error),
+            ("localLogout", &errors.local_logout),
+            ("globalLogout", &errors.global_logout),
+            ("metadataError", &errors.metadata_error),
+        ];
+        for (name, path_opt) in &templates {
+            if let Some(ref path) = path_opt {
+                if path.starts_with("http://") || path.starts_with("https://") {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-111",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "Errors {} is an absolute URL: {} (redirects user to external page on error)",
+                                name, path
+                            ),
+                            Some("Use local file paths for error templates to avoid redirecting users to external sites"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // SEC-112: Attribute policy rule permits all values without scope checking
+    if let Some(ref policy) = config.attribute_policy {
+        for rule in &policy.rules {
+            if rule.permit_value_rule_type.as_deref() == Some("ANY") && !rule.has_scope_match {
+                // Check if this is a scoped attribute that should have scope checking
+                let is_likely_scoped = rule.attribute_id.contains("scoped")
+                    || rule.attribute_id == "eppn"
+                    || rule.attribute_id == "epsa"
+                    || rule.attribute_id == "eduPersonScopedAffiliation"
+                    || rule.attribute_id == "eduPersonPrincipalName";
+                if is_likely_scoped {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-112",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "Attribute policy for '{}' permits ANY value without scope validation (scoped attribute may accept spoofed values)",
+                                rule.attribute_id
+                            ),
+                            Some("Add ScopeMatchesShibMDScope condition to validate scoped attributes against IdP metadata"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // SEC-113: DiagnosticService handler has no ACL
+    for handler in &sc.handlers {
+        if handler.handler_type.contains("Diagnostic") {
+            if handler.acl.is_some() {
+                results.push(CheckResult::pass(
+                    "SEC-113",
+                    CAT,
+                    Severity::Warning,
+                    "DiagnosticService handler has ACL restriction",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-113",
+                        CAT,
+                        Severity::Warning,
+                        "DiagnosticService handler has no ACL (exposes internal diagnostics)",
+                        Some("Add acl=\"127.0.0.1 ::1\" to the DiagnosticService handler to restrict access"),
+                    )
+                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-114: DataSealer configuration uses default or weak key
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("<DataSealer") {
+            if !content.contains("keyStorePath=") && !content.contains("keyStorePassword=") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-114",
+                        CAT,
+                        Severity::Warning,
+                        "DataSealer configured without explicit keyStorePath (may use default/weak key)",
+                        Some("Set keyStorePath and keyStorePassword on <DataSealer> with a strong randomly-generated key"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-114",
+                    CAT,
+                    Severity::Warning,
+                    "DataSealer has explicit keyStorePath configured",
+                ));
+            }
+        }
+    }
+
+    // SEC-115: Handler at default Shibboleth.sso path without ACL (information disclosure handlers)
+    {
+        let info_handlers = ["Session", "Status", "MetadataGenerator", "DiscoveryFeed", "Diagnostic"];
+        for handler in &sc.handlers {
+            if info_handlers.contains(&handler.handler_type.as_str()) {
+                if let Some(ref loc) = handler.location {
+                    if loc.contains("Shibboleth.sso") && handler.acl.is_none() {
+                        results.push(
+                            CheckResult::fail(
+                                "SEC-115",
+                                CAT,
+                                Severity::Info,
+                                &format!(
+                                    "Handler type='{}' at default path '{}' has no ACL restriction",
+                                    handler.handler_type, loc
+                                ),
+                                Some("Add an ACL to restrict access to informational handlers at well-known paths"),
+                            )
+                            .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // SEC-116: ApplicationOverride entityID uses HTTP instead of HTTPS
+    for (override_id, entity_id_opt) in &sc.application_override_entity_ids {
+        if let Some(ref eid) = entity_id_opt {
+            if eid.starts_with("http://") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-116",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "ApplicationOverride '{}' entityID uses HTTP: {}",
+                            override_id, eid
+                        ),
+                        Some("Use HTTPS for entityID in ApplicationOverride elements"),
+                    )
+                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-116",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "ApplicationOverride '{}' entityID uses HTTPS",
+                        override_id
+                    ),
+                ));
+            }
+        }
+    }
+
+    // SEC-117: WAYF discovery protocol (outdated, less secure than SAMLDS)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref proto) = sessions.sso_discovery_protocol {
+            if proto == "WAYF" {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-117",
+                        CAT,
+                        Severity::Info,
+                        "SSO discoveryProtocol is WAYF (outdated protocol)",
+                        Some("Migrate to SAMLDS discovery protocol for better security and standards compliance"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
+                );
+            } else {
+                results.push(CheckResult::pass(
+                    "SEC-117",
+                    CAT,
+                    Severity::Info,
+                    &format!("SSO discoveryProtocol is {} (not WAYF)", proto),
+                ));
+            }
+        }
+    }
+
+    // SEC-118: Multiple default SessionInitiators (ambiguous default)
+    {
+        let default_count = sc
+            .session_initiators
+            .iter()
+            .filter(|si| si.is_default.as_deref() == Some("true"))
+            .count();
+        if default_count > 1 {
+            results.push(
+                CheckResult::fail(
+                    "SEC-118",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} SessionInitiators marked as isDefault=\"true\" (ambiguous default — behavior is undefined)",
+                        default_count
+                    ),
+                    Some("Only one SessionInitiator should have isDefault=\"true\""),
+                )
+                .with_doc(doc_for(DOC_SSO, v)),
+            );
+        } else if default_count == 1 {
+            results.push(CheckResult::pass(
+                "SEC-118",
+                CAT,
+                Severity::Warning,
+                "Only one SessionInitiator is the default",
+            ));
+        }
+    }
+
+    // SEC-119: Duplicate handler Locations (may cause routing conflicts)
+    {
+        let mut locations: Vec<&str> = Vec::new();
+        let mut duplicates: Vec<String> = Vec::new();
+        for handler in &sc.handlers {
+            if let Some(ref loc) = handler.location {
+                if locations.contains(&loc.as_str()) {
+                    if !duplicates.contains(loc) {
+                        duplicates.push(loc.clone());
+                    }
+                } else {
+                    locations.push(loc);
+                }
+            }
+        }
+        if !duplicates.is_empty() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-119",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "Duplicate handler Locations: {} (may cause routing conflicts or handler shadowing)",
+                        duplicates.join(", ")
+                    ),
+                    Some("Ensure each handler has a unique Location to avoid unpredictable behavior"),
+                )
+                .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+            );
+        } else if !locations.is_empty() {
+            results.push(CheckResult::pass(
+                "SEC-119",
+                CAT,
+                Severity::Warning,
+                "All handler Locations are unique",
+            ));
+        }
+    }
+
+    // SEC-120: Shib1 SessionInitiator type (legacy SAML1 browser profile)
+    for si in &sc.session_initiators {
+        if let Some(ref itype) = si.initiator_type {
+            if itype == "Shib1" {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-120",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "SessionInitiator id='{}' uses Shib1 type (legacy SAML1 browser profile)",
+                            si.id.as_deref().unwrap_or("(unnamed)")
+                        ),
+                        Some("Migrate to SAML2 SessionInitiator type for modern security features"),
+                    )
+                    .with_doc(doc_for(DOC_SSO, v)),
+                );
+            }
+        }
+    }
+
+    // SEC-121: catchAll="true" in OutOfProcess (masks errors, may hide security issues)
+    if let Some(ref content) = config.shibboleth_xml_content {
+        if content.contains("catchAll=\"true\"") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-121",
+                    CAT,
+                    Severity::Info,
+                    "OutOfProcess has catchAll=\"true\" (exception errors silently caught — may mask security issues)",
+                    Some("Remove catchAll=\"true\" in production to surface errors for monitoring"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        }
+    }
+
+    // SEC-122: Remote MetadataProvider with no filters at all (no validation whatsoever)
+    for mp in &sc.metadata_providers {
+        if (mp.uri.is_some() || mp.url.is_some()) && mp.filters.is_empty() {
+            // SEC-011 already checks for Signature filter; this is stricter — no filters at all
+            results.push(
+                CheckResult::fail(
+                    "SEC-122",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "Remote MetadataProvider type='{}' has no MetadataFilter elements (metadata accepted without any validation)",
+                        mp.provider_type
+                    ),
+                    Some("Add at least a RequireValidUntil and Signature MetadataFilter to validate remote metadata"),
+                )
+                .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+            );
+        }
+    }
+
+    // SEC-123: Metadata Signature filter certificate path uses HTTP URL
+    for mp in &sc.metadata_providers {
+        for filter in &mp.filters {
+            if filter.filter_type == "Signature" {
+                if let Some(ref cert) = filter.certificate {
+                    if cert.starts_with("http://") {
+                        results.push(
+                            CheckResult::fail(
+                                "SEC-123",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "SignatureMetadataFilter certificate is fetched over plain HTTP: {}",
+                                    cert
+                                ),
+                                Some("Use a local certificate file or HTTPS URL for the metadata signing certificate"),
+                            )
+                            .with_doc(doc_for(DOC_SIGNATURE_FILTER, v)),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // SEC-124: Notify endpoint is same as handlerURL (loop risk)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref handler_url) = sessions.handler_url {
+            for endpoint in &sc.notify_endpoints {
+                if endpoint.contains(handler_url) {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-124",
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "Notify endpoint '{}' appears to point back to the SP handler (loop risk)",
+                                endpoint
+                            ),
+                            Some("Notify endpoints should point to application endpoints, not the SP handler itself"),
+                        )
+                        .with_doc(doc_for(DOC_SESSIONS, v)),
+                    );
+                }
+            }
+        }
+    }
+
+    // SEC-125: ApplicationOverride entityID is same as parent entityID (shadowing)
+    if let Some(ref parent_eid) = sc.entity_id {
+        for (override_id, entity_id_opt) in &sc.application_override_entity_ids {
+            if let Some(ref eid) = entity_id_opt {
+                if eid == parent_eid {
+                    results.push(
+                        CheckResult::fail(
+                            "SEC-125",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "ApplicationOverride '{}' has same entityID as parent: {} (redundant — may cause confusion)",
+                                override_id, eid
+                            ),
+                            Some("Use a distinct entityID for ApplicationOverride or omit to inherit the parent's"),
+                        )
+                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+                    );
+                }
+            }
+        }
+    }
+
     // SEC-016: Private key file not world-readable (Unix only)
     #[cfg(unix)]
     {
