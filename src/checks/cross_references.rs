@@ -195,7 +195,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-004",
                         CAT,
                         Severity::Warning,
-                        &format!("MetadataFilter certificate exists: {}", cert_path),
+                        &format!("MetadataFilter{} certificate exists: {}", mp.label(), cert_path),
                     ));
                 } else {
                     results.push(
@@ -203,7 +203,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                             "REF-004",
                             CAT,
                             Severity::Warning,
-                            &format!("MetadataFilter certificate not found: {}", cert_path),
+                            &format!("MetadataFilter{} certificate not found: {}", mp.label(), cert_path),
                             Some("Ensure the metadata signature verification certificate exists"),
                         )
                         .with_doc(doc_for(DOC_METADATA_FILTER, v)),
@@ -411,7 +411,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                             "REF-012",
                             CAT,
                             Severity::Warning,
-                            &format!("Duplicate MetadataProvider source: {}", src),
+                            &format!("Duplicate MetadataProvider{} source: {}", mp.label(), src),
                             Some("Remove the duplicate MetadataProvider or use different sources"),
                         )
                         .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
@@ -553,7 +553,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                 if mp.backing_file_path.is_none() {
                     results.push(CheckResult::fail(
                         "REF-017", CAT, Severity::Warning,
-                        &format!("Remote MetadataProvider has no backingFilePath: {}", url),
+                        &format!("Remote MetadataProvider{} has no backingFilePath: {}", mp.label(), url),
                         Some("Add backingFilePath to cache metadata locally; without it the SP cannot start if the remote source is unavailable"),
                     ).with_doc(doc_for(DOC_METADATA_PROVIDER, v)));
                     has_missing_backing = true;
@@ -643,8 +643,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                 CAT,
                                 Severity::Warning,
                                 &format!(
-                                    "MetadataFilter Signature certificate is valid PEM: {}",
-                                    cert_path
+                                    "MetadataFilter{} Signature certificate is valid PEM: {}",
+                                    mp.label(), cert_path
                                 ),
                             ));
                         }
@@ -655,8 +655,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                     CAT,
                                     Severity::Warning,
                                     &format!(
-                                        "MetadataFilter Signature certificate is not valid PEM: {}",
-                                        cert_path
+                                        "MetadataFilter{} Signature certificate is not valid PEM: {}",
+                                        mp.label(), cert_path
                                     ),
                                     Some("Ensure the certificate file contains a valid PEM-encoded certificate"),
                                 )
@@ -688,7 +688,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                         CAT,
                                         Severity::Warning,
                                         &format!(
-                                            "MetadataFilter Signature certificate has expired: {} ({})",
+                                            "MetadataFilter{} Signature certificate has expired: {} ({})",
+                                            mp.label(),
                                             cert_path,
                                             cert_info.not_after.format("%Y-%m-%d")
                                         ),
@@ -702,8 +703,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                     CAT,
                                     Severity::Warning,
                                     &format!(
-                                        "MetadataFilter Signature certificate is not expired: {}",
-                                        cert_path
+                                        "MetadataFilter{} Signature certificate is not expired: {}",
+                                        mp.label(), cert_path
                                     ),
                                 ));
                             }
@@ -833,7 +834,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-026",
                         CAT,
                         Severity::Warning,
-                        "Signature MetadataFilter has certificate or TrustEngine configured",
+                        &format!("Signature MetadataFilter{} has certificate or TrustEngine configured", mp.label()),
                     ));
                 } else {
                     results.push(
@@ -841,7 +842,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                             "REF-026",
                             CAT,
                             Severity::Warning,
-                            "Signature MetadataFilter has no certificate or TrustEngine",
+                            &format!("Signature MetadataFilter{} has no certificate or TrustEngine", mp.label()),
                             Some("Add a certificate attribute or <TrustEngine> child to the Signature MetadataFilter"),
                         )
                         .with_doc(doc_for(DOC_METADATA_FILTER, v)),
@@ -995,8 +996,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     CAT,
                     Severity::Info,
                     &format!(
-                        "Chaining MetadataProvider has {} children",
-                        mp.children_count
+                        "Chaining MetadataProvider{} has {} children",
+                        mp.label(), mp.children_count
                     ),
                 ));
             } else {
@@ -1006,8 +1007,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "Chaining MetadataProvider has only {} child(ren)",
-                            mp.children_count
+                            "Chaining MetadataProvider{} has only {} child(ren)",
+                            mp.label(), mp.children_count
                         ),
                         Some("A Chaining MetadataProvider should have at least 2 children; otherwise use a single provider"),
                     )
@@ -1031,8 +1032,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         CAT,
                         Severity::Warning,
                         &format!(
-                            "MetadataProvider type='{}' has ignoreTransport=\"true\" but no Signature filter to compensate",
-                            mp.provider_type
+                            "MetadataProvider type='{}'{} has ignoreTransport=\"true\" but no Signature filter to compensate",
+                            mp.provider_type, mp.label()
                         ),
                         Some("Add a SignatureMetadataFilter to verify metadata integrity when transport security is disabled"),
                     )
@@ -1044,8 +1045,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     CAT,
                     Severity::Warning,
                     &format!(
-                        "MetadataProvider type='{}' has ignoreTransport with Signature filter",
-                        mp.provider_type
+                        "MetadataProvider type='{}'{} has ignoreTransport with Signature filter",
+                        mp.provider_type, mp.label()
                     ),
                 ));
             }

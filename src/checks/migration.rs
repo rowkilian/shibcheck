@@ -100,7 +100,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "MIG-006",
                         CAT,
                         Severity::Warning,
-                        "MetadataProvider uses deprecated 'file' attribute",
+                        &format!("MetadataProvider{} uses deprecated 'file' attribute", mp.label()),
                         Some("Replace 'file' with 'path' attribute in SP3"),
                     )
                     .with_doc(DOC_UPGRADE),
@@ -244,7 +244,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "MIG-011",
                             CAT,
                             Severity::Warning,
-                            "MetadataFilter type 'EntityRoleWhiteList' is deprecated",
+                            &format!("MetadataFilter type 'EntityRoleWhiteList' is deprecated in MetadataProvider{}", mp.label()),
                             Some("Rename to type=\"EntityRole\" (SP 3.1+)"),
                         )
                         .with_doc(DOC_UPGRADE),
@@ -285,7 +285,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "MIG-012",
                             CAT,
                             Severity::Warning,
-                            &format!("MetadataFilter type '{}' is deprecated", filter.filter_type),
+                            &format!("MetadataFilter type '{}' is deprecated in MetadataProvider{}", filter.filter_type, mp.label()),
                             Some(&format!("Rename to type=\"{}\" (SP 3.1+)", replacement)),
                         )
                         .with_doc(DOC_UPGRADE),
@@ -321,8 +321,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "MetadataProvider type='{}' uses deprecated 'uri' attribute",
-                            mp.provider_type
+                            "MetadataProvider type='{}'{} uses deprecated 'uri' attribute",
+                            mp.provider_type, mp.label()
                         ),
                         Some("Rename 'uri' to 'url' for SP3 compatibility"),
                     )

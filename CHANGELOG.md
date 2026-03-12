@@ -2,6 +2,16 @@
 
 All notable changes to shibcheck are documented in this file.
 
+## [0.6.1]
+
+### Fixed
+- XML-029: False positives on MetadataProviders using the `file` attribute (SP2-era local metadata). The `file` attribute is now recognized as a valid data source alongside `path`, `url`, `uri`, and `sourceDirectory`.
+
+### Improved
+- Per-provider identification in check messages: all MetadataProvider-related checks now include the provider's URI, file, path, or ID in the message so each finding is distinguishable when multiple providers are configured.
+- Location resolution for MetadataProviders: the `-->` file:line annotation now points to the correct provider instead of always showing the first one.
+- Smart location resolution for repeated elements (MetadataProvider, CredentialResolver, Handler) uses message content to find the specific element in the XML.
+
 ## [0.6.0]
 
 ### Added

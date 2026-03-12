@@ -503,7 +503,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-014",
                         CAT,
                         Severity::Warning,
-                        &format!("MetadataProvider uses plaintext HTTP URL: {}", url),
+                        &format!("MetadataProvider{} uses plaintext HTTP URL: {}", mp.label(), url),
                         Some("Use HTTPS for metadata URLs to prevent tampering"),
                     )
                     .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
@@ -1671,7 +1671,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "SEC-054",
                             CAT,
                             Severity::Warning,
-                            "SignatureMetadataFilter has verifyName=\"false\" (signature name verification disabled)",
+                            &format!("SignatureMetadataFilter{} has verifyName=\"false\" (signature name verification disabled)", mp.label()),
                             Some("Remove verifyName=\"false\" or set to \"true\" to verify the signer's name matches"),
                         )
                         .with_doc(doc_for(DOC_SIGNATURE_FILTER, v)),
@@ -1681,7 +1681,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-054",
                         CAT,
                         Severity::Warning,
-                        "SignatureMetadataFilter verifyName is not disabled",
+                        &format!("SignatureMetadataFilter{} verifyName is not disabled", mp.label()),
                     ));
                 }
             }
@@ -1699,8 +1699,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Warning,
                         &format!(
-                            "MetadataProvider type='{}' has ignoreTransport=\"true\" without a Signature filter",
-                            mp.provider_type
+                            "MetadataProvider type='{}'{} has ignoreTransport=\"true\" without a Signature filter",
+                            mp.provider_type, mp.label()
                         ),
                         Some("Add a SignatureMetadataFilter or remove ignoreTransport=\"true\" to validate transport security"),
                     )
@@ -1712,8 +1712,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     CAT,
                     Severity::Warning,
                     &format!(
-                        "MetadataProvider type='{}' has ignoreTransport=\"true\" with compensating Signature filter",
-                        mp.provider_type
+                        "MetadataProvider type='{}'{} has ignoreTransport=\"true\" with compensating Signature filter",
+                        mp.provider_type, mp.label()
                     ),
                 ));
             }
@@ -2155,7 +2155,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-069",
                         CAT,
                         Severity::Warning,
-                        "RequireValidUntil MetadataFilter is explicitly disabled (accepts expired metadata)",
+                        &format!("RequireValidUntil MetadataFilter{} is explicitly disabled (accepts expired metadata)", mp.label()),
                         Some("Remove require=\"false\" or set to \"true\" to enforce metadata expiration"),
                     )
                     .with_doc(doc_for(DOC_VALID_UNTIL_FILTER, v)),
@@ -2174,7 +2174,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "SEC-070",
                             CAT,
                             Severity::Error,
-                            "SignatureMetadataFilter has no certificate and no TrustEngine (cannot verify signatures)",
+                            &format!("SignatureMetadataFilter{} has no certificate and no TrustEngine (cannot verify signatures)", mp.label()),
                             Some("Add a certificate attribute or nested TrustEngine to the Signature filter"),
                         )
                         .with_doc(doc_for(DOC_SIGNATURE_FILTER, v)),
@@ -2184,7 +2184,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-070",
                         CAT,
                         Severity::Error,
-                        "SignatureMetadataFilter has certificate or TrustEngine configured",
+                        &format!("SignatureMetadataFilter{} has certificate or TrustEngine configured", mp.label()),
                     ));
                 }
             }
@@ -2252,8 +2252,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                                 CAT,
                                 Severity::Info,
                                 &format!(
-                                    "Remote MetadataProvider maxRefreshDelay is {} seconds (> 24h) — stale metadata risk",
-                                    secs
+                                    "Remote MetadataProvider{} maxRefreshDelay is {} seconds (> 24h) — stale metadata risk",
+                                    mp.label(), secs
                                 ),
                                 Some("Set maxRefreshDelay to 86400 or less to ensure timely metadata updates"),
                             )
@@ -2265,8 +2265,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             CAT,
                             Severity::Info,
                             &format!(
-                                "Remote MetadataProvider maxRefreshDelay is {} seconds",
-                                secs
+                                "Remote MetadataProvider{} maxRefreshDelay is {} seconds",
+                                mp.label(), secs
                             ),
                         ));
                     }
@@ -2928,7 +2928,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-098",
                         CAT,
                         Severity::Info,
-                        "SignatureMetadataFilter has verifyBackup=\"false\" (backup signature verification disabled)",
+                        &format!("SignatureMetadataFilter{} has verifyBackup=\"false\" (backup signature verification disabled)", mp.label()),
                         Some("Remove verifyBackup=\"false\" to enable backup signature verification"),
                     )
                     .with_doc(doc_for(DOC_SIGNATURE_FILTER, v)),
@@ -3555,8 +3555,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     CAT,
                     Severity::Warning,
                     &format!(
-                        "Remote MetadataProvider type='{}' has no MetadataFilter elements (metadata accepted without any validation)",
-                        mp.provider_type
+                        "Remote MetadataProvider type='{}'{} has no MetadataFilter elements (metadata accepted without any validation)",
+                        mp.provider_type, mp.label()
                     ),
                     Some("Add at least a RequireValidUntil and Signature MetadataFilter to validate remote metadata"),
                 )
@@ -3577,8 +3577,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                                 CAT,
                                 Severity::Warning,
                                 &format!(
-                                    "SignatureMetadataFilter certificate is fetched over plain HTTP: {}",
-                                    cert
+                                    "SignatureMetadataFilter{} certificate is fetched over plain HTTP: {}",
+                                    mp.label(), cert
                                 ),
                                 Some("Use a local certificate file or HTTPS URL for the metadata signing certificate"),
                             )

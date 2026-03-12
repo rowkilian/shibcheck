@@ -202,7 +202,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             CAT,
                             Severity::Info,
                             &format!(
-                                "MetadataProvider reloadInterval is {}s (< 5 minutes)",
+                                "MetadataProvider{} reloadInterval is {}s (< 5 minutes)",
+                                mp.label(),
                                 interval
                             ),
                             Some(
@@ -218,7 +219,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             CAT,
                             Severity::Info,
                             &format!(
-                                "MetadataProvider reloadInterval is {}s (> 24 hours)",
+                                "MetadataProvider{} reloadInterval is {}s (> 24 hours)",
+                                mp.label(),
                                 interval
                             ),
                             Some("Infrequent reloads may delay metadata updates; consider 1800–86400 seconds"),
@@ -231,7 +233,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "MetadataProvider reloadInterval is {}s (within recommended range)",
+                            "MetadataProvider{} reloadInterval is {}s (within recommended range)",
+                            mp.label(),
                             interval
                         ),
                     ));
@@ -382,8 +385,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "Remote MetadataProvider type='{}' has no explicit maxRefreshDelay",
-                            mp.provider_type
+                            "Remote MetadataProvider type='{}'{} has no explicit maxRefreshDelay",
+                            mp.provider_type,
+                            mp.label()
                         ),
                         Some("Set maxRefreshDelay to control how often metadata is refreshed (e.g., maxRefreshDelay=\"3600\")"),
                     )
@@ -733,8 +737,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "Remote MetadataProvider type='{}' has no reloadInterval set",
-                            mp.provider_type
+                            "Remote MetadataProvider type='{}'{} has no reloadInterval set",
+                            mp.provider_type,
+                            mp.label()
                         ),
                         Some("Set reloadInterval on remote MetadataProvider to control refresh frequency"),
                     )
@@ -1002,7 +1007,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "OPS-029",
                             CAT,
                             Severity::Info,
-                            "SignatureMetadataFilter has verifyBackup=\"false\" (backed-up metadata will not be signature-verified on load)",
+                            &format!("SignatureMetadataFilter{} has verifyBackup=\"false\" (backed-up metadata will not be signature-verified on load)", mp.label()),
                             Some("Set verifyBackup=\"true\" or remove the attribute to verify backed-up metadata"),
                         )
                         .with_doc(DOC_METADATA_PROVIDER),
@@ -1012,7 +1017,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "OPS-029",
                         CAT,
                         Severity::Info,
-                        "SignatureMetadataFilter verifyBackup is not disabled",
+                        &format!("SignatureMetadataFilter{} verifyBackup is not disabled", mp.label()),
                     ));
                 }
             }
@@ -1277,8 +1282,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Warning,
                         &format!(
-                            "Remote MetadataProvider type='{}' has no MetadataFilter children (metadata accepted without validation)",
-                            mp.provider_type
+                            "Remote MetadataProvider type='{}'{} has no MetadataFilter children (metadata accepted without validation)",
+                            mp.provider_type,
+                            mp.label()
                         ),
                         Some("Add MetadataFilter elements (e.g., Signature, RequireValidUntil) to validate remote metadata"),
                     )
@@ -1443,7 +1449,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             CAT,
                             Severity::Info,
                             &format!(
-                                "MetadataProvider source={} does not set validate=\"true\" (schema validation disabled)",
+                                "MetadataProvider{} source={} does not set validate=\"true\" (schema validation disabled)",
+                                mp.label(),
                                 source
                             ),
                             Some("Set validate=\"true\" on MetadataProvider to validate metadata XML against the SAML schema"),
@@ -1522,7 +1529,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "RequireValidUntil filter has maxValidityInterval={}",
+                            "RequireValidUntil filter{} has maxValidityInterval={}",
+                            mp.label(),
                             filter.max_validity_interval.as_deref().unwrap_or("?")
                         ),
                     ));
@@ -1532,7 +1540,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "OPS-049",
                             CAT,
                             Severity::Info,
-                            "RequireValidUntil MetadataFilter has no maxValidityInterval (no upper cap on how far in the future validUntil can be)",
+                            &format!("RequireValidUntil MetadataFilter{} has no maxValidityInterval (no upper cap on how far in the future validUntil can be)", mp.label()),
                             Some("Set maxValidityInterval on RequireValidUntil filter to cap acceptable validity periods (e.g., maxValidityInterval=\"2592000\" for 30 days)"),
                         )
                         .with_doc(DOC_METADATA_PROVIDER),
@@ -1646,7 +1654,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "Local MetadataProvider source={} has no reloadInterval (file changes won't be detected automatically)",
+                            "Local MetadataProvider{} source={} has no reloadInterval (file changes won't be detected automatically)",
+                            mp.label(),
                             source
                         ),
                         Some("Set reloadInterval on local MetadataProvider to auto-detect file updates (e.g., reloadInterval=\"3600\")"),

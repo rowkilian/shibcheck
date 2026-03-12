@@ -95,28 +95,40 @@ fn locate_check<'a>(
         // Errors-related checks
         "SEC-080" | "SEC-104" | "OPS-038" | "OPS-039" | "OPS-043" | "OPS-068" => Some("Errors"),
 
-        // MetadataProvider-related checks
+        // MetadataProvider-related checks — try to locate the specific provider
         "SEC-011" | "SEC-012" | "SEC-014" | "SEC-026" | "SEC-055" | "SEC-069"
         | "SEC-070" | "SEC-073" | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047"
-        | "OPS-049" | "OPS-053" => Some("MetadataProvider"),
+        | "OPS-049" | "OPS-053" | "SEC-054" | "SEC-086" | "SEC-098" | "OPS-029"
+        | "REF-003" | "REF-004" | "REF-009" | "REF-017" | "REF-012" | "REF-020"
+        | "REF-021" | "REF-026" | "REF-032" | "XML-029" | "XML-033" | "XML-035"
+        | "XML-044" => {
+            let line = locate_metadata_provider(xml, message);
+            return (Some(shib_file), line);
+        }
 
-        // CredentialResolver-related checks
+        // CredentialResolver-related checks — try to locate the specific resolver
         "SEC-004" | "SEC-005" | "SEC-043" | "SEC-051" | "SEC-074" | "SEC-077"
-        | "SEC-091" | "SEC-095" | "OPS-051" => Some("CredentialResolver"),
+        | "SEC-091" | "SEC-095" | "OPS-051" => {
+            let line = locate_credential_resolver(xml, message);
+            return (Some(shib_file), line);
+        }
 
-        // Handler-related checks
+        // Handler-related checks — try to locate the specific handler
         "SEC-015" | "SEC-032" | "SEC-033" | "SEC-046" | "SEC-047" | "SEC-062"
-        | "SEC-063" | "SEC-064" | "SEC-094" | "SEC-113" | "SEC-115" => Some("Handler"),
+        | "SEC-063" | "SEC-064" | "SEC-094" | "SEC-113" | "SEC-115" => {
+            let line = locate_handler(xml, message);
+            return (Some(shib_file), line);
+        }
 
         // SPConfig-level checks
         "SEC-024" | "XML-020" => Some("SPConfig"),
         "SEC-044" | "SEC-081" => Some("TCPListener"),
         "SEC-048" | "SEC-039" => Some("SecurityPolicyProvider"),
 
-        // Certificate/key file checks — use message to extract file name
+        // Certificate/key file checks — locate the CredentialResolver referencing the file
         "SEC-008" | "SEC-009" | "SEC-010" | "SEC-013" | "SEC-016" | "SEC-021"
         | "SEC-087" | "REF-001" | "REF-002" => {
-            return locate_from_message_file(message, shib_file);
+            return locate_from_message_file(message, xml, shib_file);
         }
 
         // Attribute map/policy checks
@@ -203,20 +215,20 @@ fn locate_check<'a>(
     }
 }
 
-/// For "direct return" raw XML pattern checks
-fn locate_from_message_file<'a>(message: &str, shib_file: &'a str) -> (Option<&'a str>, Option<usize>) {
-    // Certificate/key messages often contain the file name — just point to the shibboleth2.xml
-    // CredentialResolver that references it
-    // Try to extract a filename from the message
-    let file_hint = message
-        .split_whitespace()
-        .find(|w| w.ends_with(".pem") || w.ends_with(".crt") || w.ends_with(".key") || w.ends_with(".p12"));
-    if let Some(hint) = file_hint {
-        return (Some(shib_file), None.or_else(|| {
-            // We can't easily access raw XML here, so just return the file
-            let _ = hint;
-            None
-        }));
+/// For certificate/key file checks — locate the CredentialResolver that references the file.
+fn locate_from_message_file<'a>(message: &str, xml: &str, shib_file: &'a str) -> (Option<&'a str>, Option<usize>) {
+    if let Some(path) = extract_file_path_from_message(message) {
+        // Search for CredentialResolver referencing this file
+        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("certificate"), Some(&path)) {
+            return (Some(shib_file), Some(line));
+        }
+        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("key"), Some(&path)) {
+            return (Some(shib_file), Some(line));
+        }
+        // May be a MetadataFilter certificate
+        if let Some(line) = find_line(xml, &format!("certificate=\"{}\"", path)) {
+            return (Some(shib_file), Some(line));
+        }
     }
     (Some(shib_file), None)
 }
@@ -233,4 +245,150 @@ fn extract_quoted_value(message: &str) -> Option<String> {
 fn extract_attr_from_message(message: &str) -> Option<String> {
     // Try to find a quoted value that might be an attribute ID or name
     extract_quoted_value(message)
+}
+
+/// Locate a MetadataProvider in the XML by extracting identifying info from the check message.
+///
+/// Messages typically contain URIs, paths, types, or filter types that can be used
+/// to pinpoint which provider the check is about.
+fn locate_metadata_provider(xml: &str, message: &str) -> Option<usize> {
+    // Try to find a URI (http:// or https://) in the message
+    if let Some(uri) = extract_url_from_message(message) {
+        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("uri"), Some(&uri)) {
+            return Some(line);
+        }
+    }
+
+    // Try to find a file path (*.xml, *.pem) in the message
+    if let Some(path) = extract_file_path_from_message(message) {
+        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("path"), Some(&path)) {
+            return Some(line);
+        }
+        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("file"), Some(&path)) {
+            return Some(line);
+        }
+        // May be a backing file or filter certificate
+        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("backingFilePath"), Some(&path)) {
+            return Some(line);
+        }
+        // May be a MetadataFilter certificate
+        if let Some(line) = find_line(xml, &format!("certificate=\"{}\"", path)) {
+            return Some(line);
+        }
+    }
+
+    // Try type='...' from the message (e.g., "MetadataProvider type='XML'")
+    if let Some(ptype) = extract_type_from_message(message) {
+        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("type"), Some(&ptype)) {
+            return Some(line);
+        }
+    }
+
+    // Try MetadataFilter type from the message
+    if message.contains("MetadataFilter") || message.contains("Signature") || message.contains("RequireValidUntil") {
+        if message.contains("Signature") {
+            if let Some(line) = find_element_line(xml, "MetadataFilter", Some("type"), Some("Signature")) {
+                return Some(line);
+            }
+        }
+        if message.contains("RequireValidUntil") {
+            if let Some(line) = find_element_line(xml, "MetadataFilter", Some("type"), Some("RequireValidUntil")) {
+                return Some(line);
+            }
+        }
+    }
+
+    // Fallback: first MetadataProvider
+    find_element_line(xml, "MetadataProvider", None, None)
+}
+
+/// Locate a CredentialResolver in the XML by extracting identifying info from the check message.
+fn locate_credential_resolver(xml: &str, message: &str) -> Option<usize> {
+    // Try to find use="signing" or use="encryption" from message context
+    if message.contains("signing") && !message.contains("encryption") {
+        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("use"), Some("signing")) {
+            return Some(line);
+        }
+    }
+    if message.contains("encryption") && !message.contains("signing") {
+        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("use"), Some("encryption")) {
+            return Some(line);
+        }
+    }
+
+    // Try key or certificate file path
+    if let Some(path) = extract_file_path_from_message(message) {
+        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("key"), Some(&path)) {
+            return Some(line);
+        }
+        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("certificate"), Some(&path)) {
+            return Some(line);
+        }
+    }
+
+    // Try Chaining type
+    if message.contains("Chaining") {
+        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("type"), Some("Chaining")) {
+            return Some(line);
+        }
+    }
+
+    // Fallback
+    find_element_line(xml, "CredentialResolver", None, None)
+}
+
+/// Locate a Handler in the XML by extracting its type from the check message.
+fn locate_handler(xml: &str, message: &str) -> Option<usize> {
+    // Handler checks typically mention the type: "Status", "Session", "MetadataGenerator", etc.
+    let handler_types = [
+        "Status", "Session", "MetadataGenerator", "DiscoveryFeed",
+        "ExternalAuth", "AttributeResolver", "Diagnostic",
+        "AttributeChecker", "ArtifactResolutionService",
+    ];
+    for htype in &handler_types {
+        if message.contains(htype) {
+            if let Some(line) = find_element_line(xml, "Handler", Some("type"), Some(htype)) {
+                return Some(line);
+            }
+        }
+    }
+
+    // Fallback
+    find_element_line(xml, "Handler", None, None)
+}
+
+/// Extract a URL (http:// or https://) from a message string.
+fn extract_url_from_message(message: &str) -> Option<String> {
+    for word in message.split_whitespace() {
+        let clean = word.trim_end_matches([')', ',', ';']);
+        if clean.starts_with("http://") || clean.starts_with("https://") {
+            return Some(clean.to_string());
+        }
+    }
+    None
+}
+
+/// Extract a file path (ending in .xml, .pem, .crt, .key, .p12) from a message string.
+fn extract_file_path_from_message(message: &str) -> Option<String> {
+    for word in message.split_whitespace() {
+        let clean = word.trim_end_matches([')', ',', ';', ':']);
+        if clean.ends_with(".xml") || clean.ends_with(".pem") || clean.ends_with(".crt")
+            || clean.ends_with(".key") || clean.ends_with(".p12")
+        {
+            return Some(clean.to_string());
+        }
+    }
+    None
+}
+
+/// Extract type='...' value from a message like "MetadataProvider type='XML'"
+fn extract_type_from_message(message: &str) -> Option<String> {
+    // Match type='...' pattern
+    if let Some(pos) = message.find("type='") {
+        let rest = &message[pos + 6..];
+        if let Some(end) = rest.find('\'') {
+            return Some(rest[..end].to_string());
+        }
+    }
+    None
 }

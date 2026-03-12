@@ -103,6 +103,32 @@ pub struct MetadataProvider {
     pub ignore_transport: Option<String>,
 }
 
+impl MetadataProvider {
+    /// Short identifier to distinguish providers in messages.
+    /// Returns e.g. " (uri: https://idp.example.org/metadata)" or " (file: metadata.xml)".
+    pub fn label(&self) -> String {
+        if let Some(ref uri) = self.uri {
+            return format!(" (uri: {})", uri);
+        }
+        if let Some(ref url) = self.url {
+            return format!(" (url: {})", url);
+        }
+        if let Some(ref path) = self.path {
+            return format!(" (path: {})", path);
+        }
+        if let Some(ref file) = self.file_attr {
+            return format!(" (file: {})", file);
+        }
+        if let Some(ref sd) = self.source_directory {
+            return format!(" (sourceDirectory: {})", sd);
+        }
+        if let Some(ref id) = self.id_attr {
+            return format!(" (id: {})", id);
+        }
+        String::new()
+    }
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct MetadataFilter {

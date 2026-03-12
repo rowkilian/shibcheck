@@ -647,15 +647,16 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             let has_source = mp.path.is_some()
                 || mp.uri.is_some()
                 || mp.url.is_some()
-                || mp.source_directory.is_some();
+                || mp.source_directory.is_some()
+                || mp.file_attr.is_some();
             if has_source {
                 results.push(CheckResult::pass(
                     "XML-029",
                     CAT,
                     Severity::Error,
                     &format!(
-                        "MetadataProvider type={} has a data source configured",
-                        mp.provider_type
+                        "MetadataProvider type={}{}  has a data source configured",
+                        mp.provider_type, mp.label()
                     ),
                 ));
             } else {
@@ -665,10 +666,10 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Error,
                         &format!(
-                            "MetadataProvider type={} has no data source (path/url/uri/sourceDirectory)",
-                            mp.provider_type
+                            "MetadataProvider type={}{} has no data source (path/url/uri/file/sourceDirectory)",
+                            mp.provider_type, mp.label()
                         ),
-                        Some("Add a path, url, uri, or sourceDirectory attribute to the MetadataProvider"),
+                        Some("Add a path, url, uri, file, or sourceDirectory attribute to the MetadataProvider"),
                     )
                     .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
                 );
@@ -802,7 +803,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "XML-033",
                         CAT,
                         Severity::Error,
-                        &format!("MetadataProvider type '{}' is recognized", mp.provider_type),
+                        &format!("MetadataProvider type '{}'{} is recognized", mp.provider_type, mp.label()),
                     ));
                 } else {
                     results.push(
@@ -811,8 +812,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             CAT,
                             Severity::Error,
                             &format!(
-                                "MetadataProvider type '{}' is not recognized",
-                                mp.provider_type
+                                "MetadataProvider type '{}'{} is not recognized",
+                                mp.provider_type, mp.label()
                             ),
                             Some("Valid types: XML, Dynamic, MDQ, Chaining, Folder, LocalDynamic, Null"),
                         )
@@ -877,7 +878,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "XML-035",
                             CAT,
                             Severity::Warning,
-                            &format!("MetadataFilter type '{}' is recognized", filter.filter_type),
+                            &format!("MetadataFilter type '{}'{} is recognized", filter.filter_type, mp.label()),
                         ));
                     } else {
                         results.push(
@@ -886,8 +887,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                                 CAT,
                                 Severity::Warning,
                                 &format!(
-                                    "MetadataFilter type '{}' is not recognized",
-                                    filter.filter_type
+                                    "MetadataFilter type '{}'{} is not recognized",
+                                    filter.filter_type, mp.label()
                                 ),
                                 Some("Check the MetadataFilter type spelling against Shibboleth SP3 documentation"),
                             )
@@ -1100,8 +1101,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     CAT,
                     Severity::Info,
                     &format!(
-                        "MetadataProvider type='{}' has validate attribute set",
-                        mp.provider_type
+                        "MetadataProvider type='{}'{} has validate attribute set",
+                        mp.provider_type, mp.label()
                     ),
                 ));
             } else {
@@ -1111,8 +1112,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         &format!(
-                            "MetadataProvider type='{}' has no validate attribute (schema validation off by default)",
-                            mp.provider_type
+                            "MetadataProvider type='{}'{} has no validate attribute (schema validation off by default)",
+                            mp.provider_type, mp.label()
                         ),
                         Some("Add validate=\"true\" to MetadataProvider to enable schema validation of metadata"),
                     )
