@@ -216,12 +216,16 @@ fn determine_format(cli: &Cli, rc: &rc_config::RcConfig) -> OutputFormat {
         OutputFormat::Sarif
     } else if cli.html {
         OutputFormat::Html
+    } else if cli.markdown {
+        OutputFormat::Markdown
     } else if cli.json || rc.json.unwrap_or(false) {
         OutputFormat::Json
     } else if rc.sarif.unwrap_or(false) {
         OutputFormat::Sarif
     } else if rc.html.unwrap_or(false) {
         OutputFormat::Html
+    } else if rc.markdown.unwrap_or(false) {
+        OutputFormat::Markdown
     } else {
         OutputFormat::Terminal
     }

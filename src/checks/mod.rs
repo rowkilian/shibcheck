@@ -48,7 +48,15 @@ fn annotate_locations(results: &mut [CheckResult], config: &DiscoveredConfig) {
             continue; // already annotated by the check itself
         }
 
-        let (file, line) = locate_check(&result.code, &result.message, xml, config, &shib_file, &attr_map_file, &attr_policy_file);
+        let (file, line) = locate_check(
+            &result.code,
+            &result.message,
+            xml,
+            config,
+            &shib_file,
+            &attr_map_file,
+            &attr_policy_file,
+        );
         if let Some(f) = file {
             result.location = Some(crate::result::SourceLocation {
                 file: f.to_string(),
@@ -77,45 +85,45 @@ fn locate_check<'a>(
     // use message content to disambiguate.
     let element_hint = match code {
         // Sessions-related checks
-        "SEC-001" | "SEC-002" | "SEC-003" | "SEC-017" | "SEC-019" | "SEC-020"
-        | "SEC-022" | "SEC-023" | "SEC-031" | "SEC-038" | "SEC-042" | "SEC-045"
-        | "SEC-058" | "SEC-059" | "SEC-061" | "SEC-066" | "SEC-067" | "SEC-068"
-        | "SEC-071" | "SEC-078" | "SEC-079" | "SEC-082" | "SEC-083" | "SEC-084"
-        | "SEC-092" | "OPS-040" | "OPS-041" | "OPS-060" | "OPS-061" => Some("Sessions"),
+        "SEC-001" | "SEC-002" | "SEC-003" | "SEC-017" | "SEC-019" | "SEC-020" | "SEC-022"
+        | "SEC-023" | "SEC-031" | "SEC-038" | "SEC-042" | "SEC-045" | "SEC-058" | "SEC-059"
+        | "SEC-061" | "SEC-066" | "SEC-067" | "SEC-068" | "SEC-071" | "SEC-078" | "SEC-079"
+        | "SEC-082" | "SEC-083" | "SEC-084" | "SEC-092" | "OPS-040" | "OPS-041" | "OPS-060"
+        | "OPS-061" => Some("Sessions"),
 
         // SSO-related checks
         "SEC-025" | "SEC-029" | "OPS-046" | "OPS-069" | "SEC-117" => Some("SSO"),
 
         // ApplicationDefaults-related checks
-        "SEC-006" | "SEC-007" | "SEC-018" | "SEC-028" | "SEC-035" | "SEC-049"
-        | "SEC-052" | "SEC-053" | "SEC-056" | "SEC-057" | "SEC-088" | "SEC-089"
-        | "SEC-097" | "SEC-106" | "OPS-036" | "OPS-037" | "OPS-048" | "OPS-071"
-        | "OPS-072" | "XML-021" => Some("ApplicationDefaults"),
+        "SEC-006" | "SEC-007" | "SEC-018" | "SEC-028" | "SEC-035" | "SEC-049" | "SEC-052"
+        | "SEC-053" | "SEC-056" | "SEC-057" | "SEC-088" | "SEC-089" | "SEC-097" | "SEC-106"
+        | "OPS-036" | "OPS-037" | "OPS-048" | "OPS-071" | "OPS-072" | "XML-021" => {
+            Some("ApplicationDefaults")
+        }
 
         // Errors-related checks
         "SEC-080" | "SEC-104" | "OPS-038" | "OPS-039" | "OPS-043" | "OPS-068" => Some("Errors"),
 
         // MetadataProvider-related checks — try to locate the specific provider
-        "SEC-011" | "SEC-012" | "SEC-014" | "SEC-026" | "SEC-055" | "SEC-069"
-        | "SEC-070" | "SEC-073" | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047"
-        | "OPS-049" | "OPS-053" | "SEC-054" | "SEC-086" | "SEC-098" | "OPS-029"
-        | "REF-003" | "REF-004" | "REF-009" | "REF-017" | "REF-012" | "REF-020"
-        | "REF-021" | "REF-026" | "REF-032" | "XML-029" | "XML-033" | "XML-035"
-        | "XML-044" => {
+        "SEC-011" | "SEC-012" | "SEC-014" | "SEC-026" | "SEC-055" | "SEC-069" | "SEC-070"
+        | "SEC-073" | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047" | "OPS-049" | "OPS-053"
+        | "SEC-054" | "SEC-086" | "SEC-098" | "OPS-029" | "REF-003" | "REF-004" | "REF-009"
+        | "REF-017" | "REF-012" | "REF-020" | "REF-021" | "REF-026" | "REF-032" | "XML-029"
+        | "XML-033" | "XML-035" | "XML-044" => {
             let line = locate_metadata_provider(xml, message);
             return (Some(shib_file), line);
         }
 
         // CredentialResolver-related checks — try to locate the specific resolver
-        "SEC-004" | "SEC-005" | "SEC-043" | "SEC-051" | "SEC-074" | "SEC-077"
-        | "SEC-091" | "SEC-095" | "OPS-051" => {
+        "SEC-004" | "SEC-005" | "SEC-043" | "SEC-051" | "SEC-074" | "SEC-077" | "SEC-091"
+        | "SEC-095" | "OPS-051" => {
             let line = locate_credential_resolver(xml, message);
             return (Some(shib_file), line);
         }
 
         // Handler-related checks — try to locate the specific handler
-        "SEC-015" | "SEC-032" | "SEC-033" | "SEC-046" | "SEC-047" | "SEC-062"
-        | "SEC-063" | "SEC-064" | "SEC-094" | "SEC-113" | "SEC-115" => {
+        "SEC-015" | "SEC-032" | "SEC-033" | "SEC-046" | "SEC-047" | "SEC-062" | "SEC-063"
+        | "SEC-064" | "SEC-094" | "SEC-113" | "SEC-115" => {
             let line = locate_handler(xml, message);
             return (Some(shib_file), line);
         }
@@ -126,31 +134,32 @@ fn locate_check<'a>(
         "SEC-048" | "SEC-039" => Some("SecurityPolicyProvider"),
 
         // Certificate/key file checks — locate the CredentialResolver referencing the file
-        "SEC-008" | "SEC-009" | "SEC-010" | "SEC-013" | "SEC-016" | "SEC-021"
-        | "SEC-087" | "REF-001" | "REF-002" => {
+        "SEC-008" | "SEC-009" | "SEC-010" | "SEC-013" | "SEC-016" | "SEC-021" | "SEC-087"
+        | "REF-001" | "REF-002" => {
             return locate_from_message_file(message, xml, shib_file);
         }
 
         // Attribute map/policy checks
         "REF-014" | "REF-015" | "XML-017" | "OPS-063" | "SEC-108" => {
             let content = config.attribute_map_content.as_deref().unwrap_or("");
-            let line = extract_attr_from_message(message)
-                .and_then(|needle| find_line(content, &needle));
+            let line =
+                extract_attr_from_message(message).and_then(|needle| find_line(content, &needle));
             return (Some(attr_map_file), line);
         }
         "SEC-085" | "SEC-112" | "OPS-064" => {
             let content = config.attribute_policy_content.as_deref().unwrap_or("");
-            let line = extract_attr_from_message(message)
-                .and_then(|needle| find_line(content, &needle));
+            let line =
+                extract_attr_from_message(message).and_then(|needle| find_line(content, &needle));
             return (Some(attr_policy_file), line);
         }
 
         // ApplicationOverride checks
-        "SEC-065" | "SEC-116" | "SEC-125" | "OPS-032" | "OPS-033" | "OPS-034"
-        | "OPS-035" | "OPS-052" | "OPS-070" => {
+        "SEC-065" | "SEC-116" | "SEC-125" | "OPS-032" | "OPS-033" | "OPS-034" | "OPS-035"
+        | "OPS-052" | "OPS-070" => {
             // Try to find the specific override by its ID from the message
-            let line = extract_quoted_value(message)
-                .and_then(|id| find_element_line(xml, "ApplicationOverride", Some("id"), Some(&id)));
+            let line = extract_quoted_value(message).and_then(|id| {
+                find_element_line(xml, "ApplicationOverride", Some("id"), Some(&id))
+            });
             return (Some(shib_file), line);
         }
 
@@ -166,11 +175,10 @@ fn locate_check<'a>(
         // ContentSetting checks
         "SEC-093" | "SEC-100" | "SEC-101" | "OPS-044" | "OPS-045" | "OPS-065" => {
             // These iterate over Host/Path elements; try to find the named one
-            let line = extract_quoted_value(message)
-                .and_then(|name| {
-                    find_element_line(xml, "Host", Some("name"), Some(&name))
-                        .or_else(|| find_element_line(xml, "Path", Some("name"), Some(&name)))
-                });
+            let line = extract_quoted_value(message).and_then(|name| {
+                find_element_line(xml, "Host", Some("name"), Some(&name))
+                    .or_else(|| find_element_line(xml, "Path", Some("name"), Some(&name)))
+            });
             return (Some(shib_file), line);
         }
 
@@ -182,7 +190,12 @@ fn locate_check<'a>(
         "SEC-121" => return (Some(shib_file), find_line(xml, "catchAll=\"true\"")),
         "SEC-114" => return (Some(shib_file), find_line(xml, "<DataSealer")),
         "OPS-054" => return (Some(shib_file), find_line(xml, "StorageService")),
-        "OPS-055" => return (Some(shib_file), find_line(xml, "OutOfProcess").or_else(|| find_line(xml, "InProcess"))),
+        "OPS-055" => {
+            return (
+                Some(shib_file),
+                find_line(xml, "OutOfProcess").or_else(|| find_line(xml, "InProcess")),
+            )
+        }
         "OPS-056" => return (Some(shib_file), find_line(xml, "ReplayCache")),
         "OPS-059" => return (Some(shib_file), find_line(xml, ".logger")),
         "OPS-062" => return (Some(shib_file), find_line(xml, "ArtifactMap")),
@@ -216,10 +229,16 @@ fn locate_check<'a>(
 }
 
 /// For certificate/key file checks — locate the CredentialResolver that references the file.
-fn locate_from_message_file<'a>(message: &str, xml: &str, shib_file: &'a str) -> (Option<&'a str>, Option<usize>) {
+fn locate_from_message_file<'a>(
+    message: &str,
+    xml: &str,
+    shib_file: &'a str,
+) -> (Option<&'a str>, Option<usize>) {
     if let Some(path) = extract_file_path_from_message(message) {
         // Search for CredentialResolver referencing this file
-        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("certificate"), Some(&path)) {
+        if let Some(line) =
+            find_element_line(xml, "CredentialResolver", Some("certificate"), Some(&path))
+        {
             return (Some(shib_file), Some(line));
         }
         if let Some(line) = find_element_line(xml, "CredentialResolver", Some("key"), Some(&path)) {
@@ -268,7 +287,12 @@ fn locate_metadata_provider(xml: &str, message: &str) -> Option<usize> {
             return Some(line);
         }
         // May be a backing file or filter certificate
-        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("backingFilePath"), Some(&path)) {
+        if let Some(line) = find_element_line(
+            xml,
+            "MetadataProvider",
+            Some("backingFilePath"),
+            Some(&path),
+        ) {
             return Some(line);
         }
         // May be a MetadataFilter certificate
@@ -285,14 +309,24 @@ fn locate_metadata_provider(xml: &str, message: &str) -> Option<usize> {
     }
 
     // Try MetadataFilter type from the message
-    if message.contains("MetadataFilter") || message.contains("Signature") || message.contains("RequireValidUntil") {
+    if message.contains("MetadataFilter")
+        || message.contains("Signature")
+        || message.contains("RequireValidUntil")
+    {
         if message.contains("Signature") {
-            if let Some(line) = find_element_line(xml, "MetadataFilter", Some("type"), Some("Signature")) {
+            if let Some(line) =
+                find_element_line(xml, "MetadataFilter", Some("type"), Some("Signature"))
+            {
                 return Some(line);
             }
         }
         if message.contains("RequireValidUntil") {
-            if let Some(line) = find_element_line(xml, "MetadataFilter", Some("type"), Some("RequireValidUntil")) {
+            if let Some(line) = find_element_line(
+                xml,
+                "MetadataFilter",
+                Some("type"),
+                Some("RequireValidUntil"),
+            ) {
                 return Some(line);
             }
         }
@@ -306,12 +340,16 @@ fn locate_metadata_provider(xml: &str, message: &str) -> Option<usize> {
 fn locate_credential_resolver(xml: &str, message: &str) -> Option<usize> {
     // Try to find use="signing" or use="encryption" from message context
     if message.contains("signing") && !message.contains("encryption") {
-        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("use"), Some("signing")) {
+        if let Some(line) =
+            find_element_line(xml, "CredentialResolver", Some("use"), Some("signing"))
+        {
             return Some(line);
         }
     }
     if message.contains("encryption") && !message.contains("signing") {
-        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("use"), Some("encryption")) {
+        if let Some(line) =
+            find_element_line(xml, "CredentialResolver", Some("use"), Some("encryption"))
+        {
             return Some(line);
         }
     }
@@ -321,14 +359,18 @@ fn locate_credential_resolver(xml: &str, message: &str) -> Option<usize> {
         if let Some(line) = find_element_line(xml, "CredentialResolver", Some("key"), Some(&path)) {
             return Some(line);
         }
-        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("certificate"), Some(&path)) {
+        if let Some(line) =
+            find_element_line(xml, "CredentialResolver", Some("certificate"), Some(&path))
+        {
             return Some(line);
         }
     }
 
     // Try Chaining type
     if message.contains("Chaining") {
-        if let Some(line) = find_element_line(xml, "CredentialResolver", Some("type"), Some("Chaining")) {
+        if let Some(line) =
+            find_element_line(xml, "CredentialResolver", Some("type"), Some("Chaining"))
+        {
             return Some(line);
         }
     }
@@ -341,9 +383,15 @@ fn locate_credential_resolver(xml: &str, message: &str) -> Option<usize> {
 fn locate_handler(xml: &str, message: &str) -> Option<usize> {
     // Handler checks typically mention the type: "Status", "Session", "MetadataGenerator", etc.
     let handler_types = [
-        "Status", "Session", "MetadataGenerator", "DiscoveryFeed",
-        "ExternalAuth", "AttributeResolver", "Diagnostic",
-        "AttributeChecker", "ArtifactResolutionService",
+        "Status",
+        "Session",
+        "MetadataGenerator",
+        "DiscoveryFeed",
+        "ExternalAuth",
+        "AttributeResolver",
+        "Diagnostic",
+        "AttributeChecker",
+        "ArtifactResolutionService",
     ];
     for htype in &handler_types {
         if message.contains(htype) {
@@ -372,8 +420,11 @@ fn extract_url_from_message(message: &str) -> Option<String> {
 fn extract_file_path_from_message(message: &str) -> Option<String> {
     for word in message.split_whitespace() {
         let clean = word.trim_end_matches([')', ',', ';', ':']);
-        if clean.ends_with(".xml") || clean.ends_with(".pem") || clean.ends_with(".crt")
-            || clean.ends_with(".key") || clean.ends_with(".p12")
+        if clean.ends_with(".xml")
+            || clean.ends_with(".pem")
+            || clean.ends_with(".crt")
+            || clean.ends_with(".key")
+            || clean.ends_with(".p12")
         {
             return Some(clean.to_string());
         }

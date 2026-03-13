@@ -30,6 +30,12 @@ shibcheck -v /etc/shibboleth
 # JSON output
 shibcheck --json /etc/shibboleth
 
+# Output formats
+shibcheck --json /etc/shibboleth        # JSON (for scripting/CI)
+shibcheck --sarif /etc/shibboleth       # SARIF (for GitHub Code Scanning)
+shibcheck --html /etc/shibboleth        # Self-contained HTML report
+shibcheck --markdown /etc/shibboleth    # Markdown report
+
 # Disable colors (for piping)
 shibcheck --no-color /etc/shibboleth
 
@@ -461,6 +467,179 @@ With `--json`, output is a JSON object:
     { "path": "attribute-policy.xml", "found": false, "kind": "attribute policy" }
   ]
 }
+```
+
+### Markdown Output
+
+With `--markdown`, output is a Markdown document with tables per category:
+
+```markdown
+# shibcheck report
+
+> /etc/shibboleth
+
+**🟡  184 checks | 144 passed | 0 errors | 7 warnings | 33 info**
+
+## Security (53/64)
+
+| Status | Code | Location | Message | Suggestion |
+|--------|------|----------|---------|------------|
+| 🟡 WARN | `SEC-028` | `shibboleth2.xml:7` | entityID appears to be a placeholder | Set entityID to your actual SP entity ID [docs](...) |
+```
+
+Pipe to a file to produce a report you can attach to a ticket or render in any Markdown viewer:
+
+```bash
+shibcheck --markdown /etc/shibboleth > report.md
+```
+
+### SARIF Output
+
+With `--sarif`, output is a [SARIF v2.1.0](https://sarifweb.azurewebsites.net/) JSON document suitable for GitHub Code Scanning:
+
+```bash
+shibcheck --sarif /etc/shibboleth > results.sarif
+```
+
+### HTML Output
+
+With `--html`, output is a self-contained HTML page with collapsible category sections, color-coded badges, and a file summary table:
+
+```bash
+shibcheck --html /etc/shibboleth > report.html
+```
+
+## Configuration File
+
+Settings can be saved in a `.shibcheckrc` file (TOML format). shibcheck looks for this file first in the checked directory, then in `$HOME`. CLI flags always take precedence over file values.
+
+```toml
+# .shibcheckrc
+
+# Show all checks including passed ones
+verbose = true
+
+# Default output format (only one can be true)
+json = false
+sarif = false
+html = false
+markdown = false
+
+# Disable colored terminal output
+no_color = false
+
+# Fetch and validate remote metadata URLs
+check_remote = false
+
+# Only run checks matching these prefixes
+check = ["SEC", "REF-001"]
+
+# Skip checks matching these prefixes
+skip = ["XML-005", "OPS"]
+
+# Minimum severity for non-zero exit code: "error", "warning", or "info"
+severity = "error"
+
+# Auto-fix safe issues
+fix = false
+
+# Watch for file changes and re-run checks
+watch = false
+```
+
+All fields are optional. A minimal `.shibcheckrc` might look like:
+
+```toml
+severity = "warning"
+skip = ["OPS"]
+```
+
+## GitHub Action
+
+shibcheck is available as a GitHub Action. Add it to your workflow to validate Shibboleth SP configs on every push or pull request.
+
+### Basic Usage
+
+```yaml
+name: Validate Shibboleth config
+on: [push, pull_request]
+
+jobs:
+  shibcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: <owner>/shibcheck@v0
+        with:
+          path: config/shibboleth
+```
+
+### With GitHub Code Scanning (SARIF)
+
+```yaml
+name: Shibboleth Security Scan
+on: [push, pull_request]
+
+permissions:
+  security-events: write
+
+jobs:
+  shibcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: <owner>/shibcheck@v0
+        with:
+          path: config/shibboleth
+          sarif: "true"
+          severity: warning
+```
+
+This uploads results to the **Security** tab in your repository, showing findings inline on pull requests.
+
+### Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Directory containing Shibboleth SP config files | `.` |
+| `severity` | Minimum severity for failure: `error`, `warning`, or `info` | `error` |
+| `check` | Only run checks matching these prefixes (comma-separated) | |
+| `skip` | Skip checks matching these prefixes (comma-separated) | |
+| `sarif` | Upload SARIF results to GitHub Code Scanning | `false` |
+| `version` | shibcheck version to use (e.g. `v0.6.1`) | `latest` |
+| `args` | Additional arguments to pass to shibcheck | |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `exit-code` | Exit code from shibcheck (`0` = pass, `1` = failures found) |
+| `sarif-file` | Path to the SARIF file (when `sarif` is `true`) |
+
+### Examples
+
+**Only security checks, fail on warnings:**
+```yaml
+- uses: <owner>/shibcheck@v0
+  with:
+    path: etc/shibboleth
+    check: SEC
+    severity: warning
+```
+
+**Skip informational operational checks:**
+```yaml
+- uses: <owner>/shibcheck@v0
+  with:
+    path: etc/shibboleth
+    skip: OPS
+```
+
+**Pin to a specific version:**
+```yaml
+- uses: <owner>/shibcheck@v0
+  with:
+    version: v0.6.1
 ```
 
 ## Building from Source

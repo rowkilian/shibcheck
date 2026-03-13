@@ -195,7 +195,11 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-004",
                         CAT,
                         Severity::Warning,
-                        &format!("MetadataFilter{} certificate exists: {}", mp.label(), cert_path),
+                        &format!(
+                            "MetadataFilter{} certificate exists: {}",
+                            mp.label(),
+                            cert_path
+                        ),
                     ));
                 } else {
                     results.push(
@@ -203,7 +207,11 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                             "REF-004",
                             CAT,
                             Severity::Warning,
-                            &format!("MetadataFilter{} certificate not found: {}", mp.label(), cert_path),
+                            &format!(
+                                "MetadataFilter{} certificate not found: {}",
+                                mp.label(),
+                                cert_path
+                            ),
                             Some("Ensure the metadata signature verification certificate exists"),
                         )
                         .with_doc(doc_for(DOC_METADATA_FILTER, v)),
@@ -644,7 +652,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                 Severity::Warning,
                                 &format!(
                                     "MetadataFilter{} Signature certificate is valid PEM: {}",
-                                    mp.label(), cert_path
+                                    mp.label(),
+                                    cert_path
                                 ),
                             ));
                         }
@@ -704,7 +713,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                     Severity::Warning,
                                     &format!(
                                         "MetadataFilter{} Signature certificate is not expired: {}",
-                                        mp.label(), cert_path
+                                        mp.label(),
+                                        cert_path
                                     ),
                                 ));
                             }
@@ -834,7 +844,10 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         "REF-026",
                         CAT,
                         Severity::Warning,
-                        &format!("Signature MetadataFilter{} has certificate or TrustEngine configured", mp.label()),
+                        &format!(
+                            "Signature MetadataFilter{} has certificate or TrustEngine configured",
+                            mp.label()
+                        ),
                     ));
                 } else {
                     results.push(
@@ -997,7 +1010,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     Severity::Info,
                     &format!(
                         "Chaining MetadataProvider{} has {} children",
-                        mp.label(), mp.children_count
+                        mp.label(),
+                        mp.children_count
                     ),
                 ));
             } else {
@@ -1046,7 +1060,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     Severity::Warning,
                     &format!(
                         "MetadataProvider type='{}'{} has ignoreTransport with Signature filter",
-                        mp.provider_type, mp.label()
+                        mp.provider_type,
+                        mp.label()
                     ),
                 ));
             }

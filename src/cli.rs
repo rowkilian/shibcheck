@@ -18,6 +18,7 @@ EXAMPLES:
   shibcheck --json /etc/shibboleth       Output results as JSON
   shibcheck --sarif /etc/shibboleth      Output SARIF for GitHub Code Scanning
   shibcheck --html /etc/shibboleth       Output self-contained HTML report
+  shibcheck --markdown /etc/shibboleth   Output Markdown report
   shibcheck --check SEC,REF-001          Run only SEC-* and REF-001 checks
   shibcheck --skip XML-005               Skip XML-005 check
   shibcheck --severity warning           Fail on warnings and errors
@@ -67,6 +68,10 @@ pub struct Cli {
     /// Output results as a self-contained HTML report
     #[arg(long, group = "output_format")]
     pub html: bool,
+
+    /// Output results as Markdown
+    #[arg(long, group = "output_format")]
+    pub markdown: bool,
 
     /// Disable colored output
     #[arg(long)]

@@ -13,6 +13,7 @@ pub struct RcConfig {
     pub json: Option<bool>,
     pub sarif: Option<bool>,
     pub html: Option<bool>,
+    pub markdown: Option<bool>,
     pub no_color: Option<bool>,
     pub check_remote: Option<bool>,
     pub check: Option<Vec<String>>,

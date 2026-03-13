@@ -2,6 +2,13 @@
 
 All notable changes to shibcheck are documented in this file.
 
+## [0.7.0]
+
+### Added
+- `--markdown` output format: generates a Markdown report with tables per category, severity badges, locations, and doc links. Also configurable via `.shibcheckrc` with `markdown = true`.
+- GitHub Action (`action.yml`): reusable composite action that downloads the correct binary, runs checks, and optionally uploads SARIF to GitHub Code Scanning.
+- README: documented all output formats (Markdown, SARIF, HTML, JSON), `.shibcheckrc` configuration file reference, and GitHub Action usage with examples.
+
 ## [0.6.1]
 
 ### Fixed

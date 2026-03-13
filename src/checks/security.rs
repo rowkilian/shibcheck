@@ -503,7 +503,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-014",
                         CAT,
                         Severity::Warning,
-                        &format!("MetadataProvider{} uses plaintext HTTP URL: {}", mp.label(), url),
+                        &format!(
+                            "MetadataProvider{} uses plaintext HTTP URL: {}",
+                            mp.label(),
+                            url
+                        ),
                         Some("Use HTTPS for metadata URLs to prevent tampering"),
                     )
                     .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
@@ -1681,7 +1685,10 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-054",
                         CAT,
                         Severity::Warning,
-                        &format!("SignatureMetadataFilter{} verifyName is not disabled", mp.label()),
+                        &format!(
+                            "SignatureMetadataFilter{} verifyName is not disabled",
+                            mp.label()
+                        ),
                     ));
                 }
             }
@@ -2114,10 +2121,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         if let (Some(ref cookie_lt), Some(ref session_lt)) =
             (&sessions.cookie_lifetime, &sessions.lifetime)
         {
-            if let (Ok(cookie_secs), Ok(session_secs)) = (
-                cookie_lt.parse::<u64>(),
-                session_lt.parse::<u64>(),
-            ) {
+            if let (Ok(cookie_secs), Ok(session_secs)) =
+                (cookie_lt.parse::<u64>(), session_lt.parse::<u64>())
+            {
                 if cookie_secs > session_secs && session_secs > 0 {
                     results.push(
                         CheckResult::fail(
@@ -2184,7 +2190,10 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-070",
                         CAT,
                         Severity::Error,
-                        &format!("SignatureMetadataFilter{} has certificate or TrustEngine configured", mp.label()),
+                        &format!(
+                            "SignatureMetadataFilter{} has certificate or TrustEngine configured",
+                            mp.label()
+                        ),
                     ));
                 }
             }
@@ -2266,7 +2275,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             Severity::Info,
                             &format!(
                                 "Remote MetadataProvider{} maxRefreshDelay is {} seconds",
-                                mp.label(), secs
+                                mp.label(),
+                                secs
                             ),
                         ));
                     }
@@ -2883,9 +2893,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref app) = sc.application_defaults {
         if let Some(ref suites) = app.cipher_suites {
             let lower = suites.to_lowercase();
-            let weak_patterns = [
-                "rc4", "des", "md5", "null", "export", "anon", "3des",
-            ];
+            let weak_patterns = ["rc4", "des", "md5", "null", "export", "anon", "3des"];
             let mut found_weak: Vec<&str> = Vec::new();
             for pattern in &weak_patterns {
                 if lower.contains(pattern) {
@@ -2920,8 +2928,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // SEC-098: Metadata Signature filter verifyBackup="false"
     for mp in &sc.metadata_providers {
         for filter in &mp.filters {
-            if filter.filter_type == "Signature"
-                && filter.verify_backup.as_deref() == Some("false")
+            if filter.filter_type == "Signature" && filter.verify_backup.as_deref() == Some("false")
             {
                 results.push(
                     CheckResult::fail(
@@ -2975,8 +2982,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // SEC-101: isPassive="true" on content settings (may silently fail authentication)
     for cs in &sc.request_map_content_settings {
-        if cs.is_passive.as_deref() == Some("true")
-            && cs.require_session.as_deref() == Some("true")
+        if cs.is_passive.as_deref() == Some("true") && cs.require_session.as_deref() == Some("true")
         {
             results.push(
                 CheckResult::fail(
@@ -3208,15 +3214,27 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         if security_policy_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&security_policy_path) {
                 let weak_algos = [
-                    ("http://www.w3.org/2000/09/xmldsig#rsa-sha1", "RSA-SHA1 signing"),
-                    ("http://www.w3.org/2000/09/xmldsig#dsa-sha1", "DSA-SHA1 signing"),
+                    (
+                        "http://www.w3.org/2000/09/xmldsig#rsa-sha1",
+                        "RSA-SHA1 signing",
+                    ),
+                    (
+                        "http://www.w3.org/2000/09/xmldsig#dsa-sha1",
+                        "DSA-SHA1 signing",
+                    ),
                     ("http://www.w3.org/2000/09/xmldsig#sha1", "SHA-1 digest"),
-                    ("http://www.w3.org/2001/04/xmlenc#tripledes-cbc", "3DES encryption"),
+                    (
+                        "http://www.w3.org/2001/04/xmlenc#tripledes-cbc",
+                        "3DES encryption",
+                    ),
                 ];
                 let mut found: Vec<&str> = Vec::new();
                 for (uri, label) in &weak_algos {
                     // Only flag if algorithm appears in Allow/Permit context, not in Blacklist
-                    if content.contains(uri) && !content.contains("Blacklist") && !content.contains("blacklist") {
+                    if content.contains(uri)
+                        && !content.contains("Blacklist")
+                        && !content.contains("blacklist")
+                    {
                         found.push(label);
                     }
                 }
@@ -3358,7 +3376,13 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // SEC-115: Handler at default Shibboleth.sso path without ACL (information disclosure handlers)
     {
-        let info_handlers = ["Session", "Status", "MetadataGenerator", "DiscoveryFeed", "Diagnostic"];
+        let info_handlers = [
+            "Session",
+            "Status",
+            "MetadataGenerator",
+            "DiscoveryFeed",
+            "Diagnostic",
+        ];
         for handler in &sc.handlers {
             if info_handlers.contains(&handler.handler_type.as_str()) {
                 if let Some(ref loc) = handler.location {
@@ -3404,10 +3428,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "SEC-116",
                     CAT,
                     Severity::Warning,
-                    &format!(
-                        "ApplicationOverride '{}' entityID uses HTTPS",
-                        override_id
-                    ),
+                    &format!("ApplicationOverride '{}' entityID uses HTTPS", override_id),
                 ));
             }
         }

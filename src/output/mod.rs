@@ -1,5 +1,6 @@
 pub mod html;
 pub mod json;
+pub mod markdown;
 pub mod sarif;
 pub mod terminal;
 
@@ -16,6 +17,7 @@ pub enum OutputFormat {
     Json,
     Sarif,
     Html,
+    Markdown,
 }
 
 #[derive(Debug, Serialize)]
@@ -262,6 +264,7 @@ pub fn print_results(
         OutputFormat::Json => json::print(results, &summary, config),
         OutputFormat::Sarif => sarif::print(results, config),
         OutputFormat::Html => html::print(results, &summary, config),
+        OutputFormat::Markdown => markdown::print(results, &summary, config),
         OutputFormat::Terminal => terminal::print(results, &summary, verbose, config),
     }
 }

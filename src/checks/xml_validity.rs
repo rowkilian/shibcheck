@@ -656,7 +656,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Error,
                     &format!(
                         "MetadataProvider type={}{}  has a data source configured",
-                        mp.provider_type, mp.label()
+                        mp.provider_type,
+                        mp.label()
                     ),
                 ));
             } else {
@@ -803,7 +804,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "XML-033",
                         CAT,
                         Severity::Error,
-                        &format!("MetadataProvider type '{}'{} is recognized", mp.provider_type, mp.label()),
+                        &format!(
+                            "MetadataProvider type '{}'{} is recognized",
+                            mp.provider_type,
+                            mp.label()
+                        ),
                     ));
                 } else {
                     results.push(
@@ -878,7 +883,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "XML-035",
                             CAT,
                             Severity::Warning,
-                            &format!("MetadataFilter type '{}'{} is recognized", filter.filter_type, mp.label()),
+                            &format!(
+                                "MetadataFilter type '{}'{} is recognized",
+                                filter.filter_type,
+                                mp.label()
+                            ),
                         ));
                     } else {
                         results.push(
@@ -1102,7 +1111,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     &format!(
                         "MetadataProvider type='{}'{} has validate attribute set",
-                        mp.provider_type, mp.label()
+                        mp.provider_type,
+                        mp.label()
                     ),
                 ));
             } else {

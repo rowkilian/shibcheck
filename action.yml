@@ -1,0 +1,159 @@
+name: "shibcheck"
+description: "Validate Shibboleth SP configuration files — checks XML validity, cross-file references, and security best practices"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  path:
+    description: "Path to the directory containing Shibboleth SP config files"
+    required: false
+    default: "."
+  severity:
+    description: "Minimum severity for failure: error, warning, or info"
+    required: false
+    default: "error"
+  check:
+    description: "Only run checks matching these prefixes (comma-separated, e.g. SEC,REF-001)"
+    required: false
+  skip:
+    description: "Skip checks matching these prefixes (comma-separated)"
+    required: false
+  sarif:
+    description: "Upload SARIF results to GitHub Code Scanning"
+    required: false
+    default: "false"
+  version:
+    description: "shibcheck version to use (e.g. v0.6.1). Defaults to latest release."
+    required: false
+    default: "latest"
+  args:
+    description: "Additional arguments to pass to shibcheck"
+    required: false
+
+outputs:
+  exit-code:
+    description: "Exit code from shibcheck (0 = pass, 1 = failures found)"
+    value: ${{ steps.run.outputs.exit-code }}
+  sarif-file:
+    description: "Path to the SARIF file (when sarif input is true)"
+    value: ${{ steps.sarif.outputs.file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Determine version
+      id: version
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          VERSION=$(gh release view --repo ${{ github.action_repository || github.repository }} --json tagName -q .tagName 2>/dev/null || echo "")
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not determine latest shibcheck release"
+            exit 1
+          fi
+        else
+          VERSION="${{ inputs.version }}"
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: Cache shibcheck binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/shibcheck
+        key: shibcheck-${{ runner.os }}-${{ runner.arch }}-${{ steps.version.outputs.version }}
+
+    - name: Download shibcheck
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        case "${{ runner.os }}-${{ runner.arch }}" in
+          Linux-X64)   TARGET="x86_64-unknown-linux-gnu" ;;
+          Linux-ARM64) TARGET="aarch64-unknown-linux-gnu" ;;
+          macOS-X64)   TARGET="x86_64-apple-darwin" ;;
+          macOS-ARM64) TARGET="aarch64-apple-darwin" ;;
+          Windows-X64) TARGET="x86_64-pc-windows-msvc" ;;
+          *)
+            echo "::error::Unsupported platform: ${{ runner.os }}-${{ runner.arch }}"
+            exit 1
+            ;;
+        esac
+
+        REPO="${{ github.action_repository || github.repository }}"
+
+        if [[ "$TARGET" == *windows* ]]; then
+          ASSET="shibcheck-${VERSION}-${TARGET}.zip"
+          gh release download "$VERSION" --repo "$REPO" --pattern "$ASSET" --output shibcheck-archive.zip
+          unzip shibcheck-archive.zip -d /usr/local/bin/
+        else
+          ASSET="shibcheck-${VERSION}-${TARGET}.tar.gz"
+          gh release download "$VERSION" --repo "$REPO" --pattern "$ASSET" --output shibcheck-archive.tar.gz
+          tar xzf shibcheck-archive.tar.gz -C /usr/local/bin/
+        fi
+
+        chmod +x /usr/local/bin/shibcheck
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: Run shibcheck
+      id: run
+      shell: bash
+      run: |
+        ARGS="--severity ${{ inputs.severity }}"
+
+        if [ -n "${{ inputs.check }}" ]; then
+          ARGS="$ARGS --check ${{ inputs.check }}"
+        fi
+        if [ -n "${{ inputs.skip }}" ]; then
+          ARGS="$ARGS --skip ${{ inputs.skip }}"
+        fi
+        if [ -n "${{ inputs.args }}" ]; then
+          ARGS="$ARGS ${{ inputs.args }}"
+        fi
+
+        set +e
+        shibcheck $ARGS "${{ inputs.path }}"
+        EXIT_CODE=$?
+        set -e
+
+        echo "exit-code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+        if [ "$EXIT_CODE" -eq 2 ]; then
+          echo "::error::shibcheck encountered a tool failure"
+          exit 2
+        fi
+
+    - name: Generate SARIF
+      id: sarif
+      if: inputs.sarif == 'true'
+      shell: bash
+      run: |
+        SARIF_FILE="${{ runner.temp }}/shibcheck-results.sarif"
+
+        ARGS="--sarif --severity ${{ inputs.severity }}"
+        if [ -n "${{ inputs.check }}" ]; then
+          ARGS="$ARGS --check ${{ inputs.check }}"
+        fi
+        if [ -n "${{ inputs.skip }}" ]; then
+          ARGS="$ARGS --skip ${{ inputs.skip }}"
+        fi
+
+        shibcheck $ARGS "${{ inputs.path }}" > "$SARIF_FILE" || true
+
+        echo "file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF to Code Scanning
+      if: inputs.sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.sarif.outputs.file }}
+        category: shibcheck
+
+    - name: Set check status
+      if: steps.run.outputs.exit-code == '1'
+      shell: bash
+      run: exit 1

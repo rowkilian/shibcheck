@@ -1017,7 +1017,10 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "OPS-029",
                         CAT,
                         Severity::Info,
-                        &format!("SignatureMetadataFilter{} verifyBackup is not disabled", mp.label()),
+                        &format!(
+                            "SignatureMetadataFilter{} verifyBackup is not disabled",
+                            mp.label()
+                        ),
                     ));
                 }
             }
@@ -1196,7 +1199,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         "helpLocation is set but empty on <Errors>",
-                        Some("Set helpLocation to a URL where users can find help or documentation"),
+                        Some(
+                            "Set helpLocation to a URL where users can find help or documentation",
+                        ),
                     )
                     .with_doc(DOC_ERRORS),
                 );
@@ -1234,7 +1239,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     CAT,
                     Severity::Info,
                     "Session lifetime not explicitly set (defaults to 28800s / 8 hours)",
-                    Some("Set lifetime on <Sessions> to explicitly control maximum session duration"),
+                    Some(
+                        "Set lifetime on <Sessions> to explicitly control maximum session duration",
+                    ),
                 )
                 .with_doc(DOC_SESSIONS),
             );
@@ -1326,7 +1333,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         CAT,
                         Severity::Info,
                         "Errors styleSheet is set but empty",
-                        Some("Set styleSheet on <Errors> to a CSS file path for branded error pages"),
+                        Some(
+                            "Set styleSheet on <Errors> to a CSS file path for branded error pages",
+                        ),
                     )
                     .with_doc(DOC_ERRORS),
                 );
@@ -1639,7 +1648,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             if mp.provider_type == "Chaining" {
                 continue;
             }
-            let is_local = mp.path.is_some() || mp.file_attr.is_some() || mp.source_directory.is_some();
+            let is_local =
+                mp.path.is_some() || mp.file_attr.is_some() || mp.source_directory.is_some();
             let is_remote = mp.uri.is_some() || mp.url.is_some();
             if is_local && !is_remote && mp.reload_interval.is_none() {
                 let source = mp
@@ -1668,7 +1678,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         if !any_local_no_reload {
             let has_local = sc.metadata_providers.iter().any(|mp| {
                 mp.provider_type != "Chaining"
-                    && (mp.path.is_some() || mp.file_attr.is_some() || mp.source_directory.is_some())
+                    && (mp.path.is_some()
+                        || mp.file_attr.is_some()
+                        || mp.source_directory.is_some())
                     && mp.uri.is_none()
                     && mp.url.is_none()
             });
