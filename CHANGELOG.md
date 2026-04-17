@@ -2,6 +2,32 @@
 
 All notable changes to shibcheck are documented in this file.
 
+## [0.8.0]
+
+### Fixed
+- `.shibcheckrc` `no_color` and `watch` flags were silently ignored. Both are now honored (CLI flags still take precedence).
+- Malformed `.shibcheckrc` files now print a warning on stderr; previously they were silently replaced with defaults.
+- SARIF output `informationUri` was a `<owner>` placeholder. Now wired to the real repository URL (via `CARGO_PKG_REPOSITORY`).
+- JSON and SARIF serialization failures now propagate as a non-zero exit code (2) with a clear error, instead of printing to stderr while exiting 0.
+- Certificate `notBefore` / `notAfter` timestamps that fell outside `DateTime<Utc>`'s representable range previously coerced silently to `1970-01-01`, making expiry checks wrong. Out-of-range dates now surface as a parse error.
+- Added explicit 15s `timeout_global` for remote metadata fetches (`REF-009`) and `init-test-idp`; federation metadata is capped at 64 MiB. Previously a hung remote could stall the tool.
+- Cert-parse failures in `SEC-008` / `SEC-013` (expiry, key size) and `SEC-021` (cert/key match) no longer silently drop their results — new **SEC-126** warning surfaces the parse failure and notes which checks were skipped. Non-RSA pairs now cleanly skip `SEC-021` via a dedicated `CertKeyMatch::SkippedNonRsa` outcome.
+- `SEC-011` signature-filter detection no longer matches a stray lowercase `"signature"` that Shibboleth itself would reject at load time.
+- `REF-001` (cert), `REF-002` (key), and `REF-003` (metadata path) now handle absolute paths correctly on all platforms via a shared `DiscoveredConfig::resolve_path` helper. `security.rs` user-controlled path sites were updated to the same helper.
+
+### Changed
+- `REF-001`, `REF-002`, `REF-003` now attach their `file:line` source location at the check site (pointing at the CredentialResolver / MetadataProvider that references the file), instead of relying on the message-regexing fallback in `annotate_locations`. The fallback still handles the other ~150 checks; those will be migrated incrementally.
+- `src/checks/migration.rs` rewritten as a `(code, fn)` registry (`CheckFn = fn(&DiscoveredConfig, &ShibbolethConfig) -> Vec<CheckResult>`) instead of a single 700-line `run()`. Each of the 24 MIG checks is now a standalone function. First proof-of-concept for the wider check-registry refactor.
+- `run_multi` now honors per-directory `rc.no_color`.
+- Watch mode surfaces tool-error exit codes (exit 2) from the run closure instead of silently discarding them.
+- SARIF output streams through `stdout.lock()` / `to_writer_pretty` instead of `println!`-ing a serialized string.
+
+### Internal
+- New `src/http.rs` with `build_agent(timeout)`; both remote-fetch sites reuse it. `check_remote_metadata` now takes `&Agent`, so a single agent is built per run instead of one per URL.
+- Hoisted `local_name` / `get_attr` XML parser helpers into `src/parsers/mod.rs`; three parsers previously duplicated them.
+- `Cargo.toml` now sets `repository = "https://github.com/rowkilian/shibcheck"`.
+- Added regression tests: malformed rc warning, SEC-126 on corrupt cert, REF-001 location at check site, SARIF `informationUri` is a real URL.
+
 ## [0.7.0]
 
 ### Added

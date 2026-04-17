@@ -67,7 +67,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 ## Checks Reference
 
-307+ checks across five categories.
+308+ checks across five categories.
 
 ### XML Validity (XML-001 to XML-047)
 
@@ -160,7 +160,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-034 | Local metadata `validUntil` not expired | Warning |
 | REF-035 | Local metadata `validUntil` expiring within 30 days | Info |
 
-### Security (SEC-001 to SEC-125)
+### Security (SEC-001 to SEC-126)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -288,6 +288,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-123 | `SignatureMetadataFilter` certificate not fetched over HTTP | Warning |
 | SEC-124 | `Notify` endpoint does not loop back to SP handler | Warning |
 | SEC-125 | `ApplicationOverride` `entityID` differs from parent | Info |
+| SEC-126 | Certificate / key file parses as valid PEM (surfaces silent parse failures) | Warning |
 
 ### Operational (OPS-001 to OPS-076)
 
@@ -569,7 +570,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: <owner>/shibcheck@v0
+      - uses: rowkilian/shibcheck@v0
         with:
           path: config/shibboleth
 ```
@@ -588,7 +589,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: <owner>/shibcheck@v0
+      - uses: rowkilian/shibcheck@v0
         with:
           path: config/shibboleth
           sarif: "true"
@@ -620,7 +621,7 @@ This uploads results to the **Security** tab in your repository, showing finding
 
 **Only security checks, fail on warnings:**
 ```yaml
-- uses: <owner>/shibcheck@v0
+- uses: rowkilian/shibcheck@v0
   with:
     path: etc/shibboleth
     check: SEC
@@ -629,7 +630,7 @@ This uploads results to the **Security** tab in your repository, showing finding
 
 **Skip informational operational checks:**
 ```yaml
-- uses: <owner>/shibcheck@v0
+- uses: rowkilian/shibcheck@v0
   with:
     path: etc/shibboleth
     skip: OPS
@@ -637,7 +638,7 @@ This uploads results to the **Security** tab in your repository, showing finding
 
 **Pin to a specific version:**
 ```yaml
-- uses: <owner>/shibcheck@v0
+- uses: rowkilian/shibcheck@v0
   with:
     version: v0.6.1
 ```
@@ -647,7 +648,7 @@ This uploads results to the **Security** tab in your repository, showing finding
 Requires Rust 1.70+.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/rowkilian/shibcheck.git
 cd shibcheck
 cargo build --release
 ```

@@ -4,6 +4,7 @@ mod config;
 mod diff;
 mod filter;
 mod fix;
+mod http;
 mod init_test_idp;
 pub mod location;
 mod model;
@@ -48,10 +49,16 @@ fn main() {
             run_multi(&cli, dirs);
         }
         None => {
-            if cli.watch {
+            let base_dir = resolve_dir(&cli.path);
+            let rc = rc_config::RcConfig::load(&base_dir);
+            if !cli.no_color && rc.no_color.unwrap_or(false) {
+                control::set_override(false);
+            }
+            let watch_enabled = cli.watch || rc.watch.unwrap_or(false);
+            if watch_enabled {
                 run_watch(&cli);
             } else {
-                let exit = run_check(&cli);
+                let exit = run_check(&cli, &base_dir, &rc);
                 process::exit(exit);
             }
         }
@@ -66,28 +73,23 @@ fn run_init_test_idp(path: &std::path::Path, force: bool) {
     }
 }
 
-fn run_check(cli: &Cli) -> i32 {
-    let base_dir = resolve_dir(&cli.path);
-
+fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) -> i32 {
     if !base_dir.is_dir() {
         eprintln!("Error: '{}' is not a directory", base_dir.display());
         return 2;
     }
 
-    // Load .shibcheckrc and merge with CLI (CLI takes precedence)
-    let rc = rc_config::RcConfig::load(&base_dir);
-
     let verbose = cli.verbose || rc.verbose.unwrap_or(false);
     let check_remote = cli.check_remote || rc.check_remote.unwrap_or(false);
     let do_fix = cli.fix || rc.fix.unwrap_or(false);
 
-    let format = determine_format(cli, &rc);
-    let severity_threshold = determine_severity(cli, &rc);
+    let format = determine_format(cli, rc);
+    let severity_threshold = determine_severity(cli, rc);
 
-    let include = cli.check.clone().or(rc.check);
-    let exclude = cli.skip.clone().or(rc.skip);
+    let include = cli.check.clone().or_else(|| rc.check.clone());
+    let exclude = cli.skip.clone().or_else(|| rc.skip.clone());
 
-    let discovered = match config::discover(&base_dir) {
+    let discovered = match config::discover(base_dir) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Error discovering configuration: {}", e);
@@ -113,7 +115,7 @@ fn run_check(cli: &Cli) -> i32 {
                     .display()
             );
             // Re-run checks after fixes
-            let rediscovered = match config::discover(&base_dir) {
+            let rediscovered = match config::discover(base_dir) {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error re-discovering after fix: {}", e);
@@ -124,7 +126,10 @@ fn run_check(cli: &Cli) -> i32 {
             let new_results =
                 filter::apply_filters(new_results, include.as_deref(), exclude.as_deref());
             let summary = CheckSummary::from_results(&new_results);
-            output::print_results(&new_results, verbose, format, &rediscovered);
+            if let Err(e) = output::print_results(&new_results, verbose, format, &rediscovered) {
+                eprintln!("Error: {:#}", e);
+                return 2;
+            }
             return if summary.has_failures_at_severity(severity_threshold) {
                 1
             } else {
@@ -134,7 +139,10 @@ fn run_check(cli: &Cli) -> i32 {
     }
 
     let summary = CheckSummary::from_results(&results);
-    output::print_results(&results, verbose, format, &discovered);
+    if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
+        eprintln!("Error: {:#}", e);
+        return 2;
+    }
 
     if summary.has_failures_at_severity(severity_threshold) {
         1
@@ -151,8 +159,14 @@ fn run_watch(cli: &Cli) {
     }
 
     let cli_clone = Cli::parse(); // re-parse to get owned copy for closure
+    let base_dir_clone = base_dir.clone();
     if let Err(e) = watch::watch_and_run(&base_dir, move || {
-        let _ = run_check(&cli_clone);
+        // Reload rc on each run so edits to .shibcheckrc take effect without restart.
+        let rc = rc_config::RcConfig::load(&base_dir_clone);
+        let code = run_check(&cli_clone, &base_dir_clone, &rc);
+        if code == 2 {
+            eprintln!("Watch run failed (tool error); will retry on next change.");
+        }
     }) {
         eprintln!("Watch error: {}", e);
         process::exit(2);
@@ -172,6 +186,10 @@ fn run_multi(cli: &Cli, dirs: &[PathBuf]) {
         }
 
         let rc = rc_config::RcConfig::load(&base_dir);
+        // Honor rc.no_color per-dir in multi mode (CLI --no-color is already set in main).
+        if !cli.no_color && rc.no_color.unwrap_or(false) {
+            control::set_override(false);
+        }
         let verbose = cli.verbose || rc.verbose.unwrap_or(false);
         let check_remote = cli.check_remote || rc.check_remote.unwrap_or(false);
         let format = determine_format(cli, &rc);
@@ -191,7 +209,11 @@ fn run_multi(cli: &Cli, dirs: &[PathBuf]) {
         let results = checks::run_all(&discovered, check_remote);
         let results = filter::apply_filters(results, include.as_deref(), exclude.as_deref());
         let summary = CheckSummary::from_results(&results);
-        output::print_results(&results, verbose, format, &discovered);
+        if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
+            eprintln!("Error rendering output for {}: {:#}", base_dir.display(), e);
+            any_failed = true;
+            continue;
+        }
 
         if summary.has_failures_at_severity(severity_threshold) {
             any_failed = true;

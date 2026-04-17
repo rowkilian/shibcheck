@@ -104,12 +104,13 @@ fn locate_check<'a>(
         // Errors-related checks
         "SEC-080" | "SEC-104" | "OPS-038" | "OPS-039" | "OPS-043" | "OPS-068" => Some("Errors"),
 
-        // MetadataProvider-related checks — try to locate the specific provider
+        // MetadataProvider-related checks — try to locate the specific provider.
+        // (REF-003 sets its own location at check site.)
         "SEC-011" | "SEC-012" | "SEC-014" | "SEC-026" | "SEC-055" | "SEC-069" | "SEC-070"
         | "SEC-073" | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047" | "OPS-049" | "OPS-053"
-        | "SEC-054" | "SEC-086" | "SEC-098" | "OPS-029" | "REF-003" | "REF-004" | "REF-009"
-        | "REF-017" | "REF-012" | "REF-020" | "REF-021" | "REF-026" | "REF-032" | "XML-029"
-        | "XML-033" | "XML-035" | "XML-044" => {
+        | "SEC-054" | "SEC-086" | "SEC-098" | "OPS-029" | "REF-004" | "REF-009" | "REF-017"
+        | "REF-012" | "REF-020" | "REF-021" | "REF-026" | "REF-032" | "XML-029" | "XML-033"
+        | "XML-035" | "XML-044" => {
             let line = locate_metadata_provider(xml, message);
             return (Some(shib_file), line);
         }
@@ -133,9 +134,9 @@ fn locate_check<'a>(
         "SEC-044" | "SEC-081" => Some("TCPListener"),
         "SEC-048" | "SEC-039" => Some("SecurityPolicyProvider"),
 
-        // Certificate/key file checks — locate the CredentialResolver referencing the file
-        "SEC-008" | "SEC-009" | "SEC-010" | "SEC-013" | "SEC-016" | "SEC-021" | "SEC-087"
-        | "REF-001" | "REF-002" => {
+        // Certificate/key file checks — locate the CredentialResolver referencing the file.
+        // (REF-001 and REF-002 set their own location at check site.)
+        "SEC-008" | "SEC-009" | "SEC-010" | "SEC-013" | "SEC-016" | "SEC-021" | "SEC-087" => {
             return locate_from_message_file(message, xml, shib_file);
         }
 

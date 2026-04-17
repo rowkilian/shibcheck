@@ -36,14 +36,14 @@ EXIT CODES:
   2  Tool failure (e.g., directory not found)
 
 CHECKS:
-  200+ checks across five categories:
+  300+ checks across five categories:
     XML-001..047   XML validity and required elements
-    REF-001..033   Cross-file reference validation
-    SEC-001..064   Security best practices
+    REF-001..035   Cross-file reference validation
+    SEC-001..126   Security best practices
     MIG-001..024   SP2 to SP3 migration
-    OPS-001..031   Operational best practices
+    OPS-001..076   Operational best practices
 
-  See https://github.com/<owner>/shibcheck#checks-reference for details."
+  See https://github.com/rowkilian/shibcheck#checks-reference for details."
 )]
 pub struct Cli {
     #[command(subcommand)]

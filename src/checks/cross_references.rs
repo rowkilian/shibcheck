@@ -1,16 +1,23 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::time::Duration;
 
 use chrono::Utc;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::config::DiscoveredConfig;
+use crate::http;
+use crate::location::find_element_line;
 use crate::model::shibboleth_config::SpVersion;
 use crate::parsers::certificate;
 use crate::result::{CheckCategory, CheckResult, Severity};
 
 const CAT: CheckCategory = CheckCategory::CrossReferences;
+
+const REMOTE_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
+// Federation metadata is routinely multi-MB; cap at 64 MiB to bound memory.
+const REMOTE_BODY_LIMIT: u64 = 64 * 1024 * 1024;
 
 // Shibboleth SP3 documentation URLs
 const DOC_CREDENTIAL_RESOLVER: &str =
@@ -45,56 +52,68 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     };
 
     let v = sc.sp_version;
+    let xml = config.shibboleth_xml_content.as_deref().unwrap_or("");
+    let shib_file = config
+        .shibboleth_xml_path
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "shibboleth2.xml".to_string());
 
     // REF-001: CredentialResolver certificate files exist
     for cr in &sc.credential_resolvers {
         if let Some(ref cert_path) = cr.certificate {
-            let full_path = config.base_dir.join(cert_path);
-            if full_path.exists() {
-                results.push(CheckResult::pass(
+            let full_path = config.resolve_path(cert_path);
+            let line = find_element_line(
+                xml,
+                "CredentialResolver",
+                Some("certificate"),
+                Some(cert_path),
+            );
+            let result = if full_path.exists() {
+                CheckResult::pass(
                     "REF-001",
                     CAT,
                     Severity::Error,
                     &format!("Certificate file exists: {}", cert_path),
-                ));
+                )
             } else {
-                results.push(
-                    CheckResult::fail(
-                        "REF-001",
-                        CAT,
-                        Severity::Error,
-                        &format!("Certificate file not found: {}", cert_path),
-                        Some("Ensure the certificate file path is correct and the file exists"),
-                    )
-                    .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
-                );
-            }
+                CheckResult::fail(
+                    "REF-001",
+                    CAT,
+                    Severity::Error,
+                    &format!("Certificate file not found: {}", cert_path),
+                    Some("Ensure the certificate file path is correct and the file exists"),
+                )
+                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v))
+            };
+            results.push(result.with_location(&shib_file, line));
         }
     }
 
     // REF-002: CredentialResolver key files exist
     for cr in &sc.credential_resolvers {
         if let Some(ref key_path) = cr.key {
-            let full_path = config.base_dir.join(key_path);
-            if full_path.exists() {
-                results.push(CheckResult::pass(
+            let full_path = config.resolve_path(key_path);
+            let line =
+                find_element_line(xml, "CredentialResolver", Some("key"), Some(key_path));
+            let result = if full_path.exists() {
+                CheckResult::pass(
                     "REF-002",
                     CAT,
                     Severity::Error,
                     &format!("Key file exists: {}", key_path),
-                ));
+                )
             } else {
-                results.push(
-                    CheckResult::fail(
-                        "REF-002",
-                        CAT,
-                        Severity::Error,
-                        &format!("Key file not found: {}", key_path),
-                        Some("Ensure the key file path is correct and the file exists"),
-                    )
-                    .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
-                );
-            }
+                CheckResult::fail(
+                    "REF-002",
+                    CAT,
+                    Severity::Error,
+                    &format!("Key file not found: {}", key_path),
+                    Some("Ensure the key file path is correct and the file exists"),
+                )
+                .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v))
+            };
+            results.push(result.with_location(&shib_file, line));
         }
     }
 
@@ -103,36 +122,32 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         // Check path attribute (local metadata file)
         if let Some(ref path) = mp.path {
             if !path.starts_with("http://") && !path.starts_with("https://") {
-                let full_path = config.base_dir.join(path);
-                if full_path.exists() {
-                    results.push(CheckResult::pass(
+                let full_path = config.resolve_path(path);
+                let line = find_element_line(xml, "MetadataProvider", Some("path"), Some(path));
+                let result = if full_path.exists() {
+                    CheckResult::pass(
                         "REF-003",
                         CAT,
                         Severity::Error,
                         &format!("Metadata file exists: {}", path),
-                    ));
+                    )
                 } else {
-                    results.push(
-                        CheckResult::fail(
-                            "REF-003",
-                            CAT,
-                            Severity::Error,
-                            &format!("Metadata file not found: {}", path),
-                            Some("Ensure the metadata file path is correct and the file exists"),
-                        )
-                        .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
-                    );
-                }
+                    CheckResult::fail(
+                        "REF-003",
+                        CAT,
+                        Severity::Error,
+                        &format!("Metadata file not found: {}", path),
+                        Some("Ensure the metadata file path is correct and the file exists"),
+                    )
+                    .with_doc(doc_for(DOC_METADATA_PROVIDER, v))
+                };
+                results.push(result.with_location(&shib_file, line));
             }
         }
 
         // Check backingFilePath attribute (auto-created cache file, info-level if missing)
         if let Some(ref backing) = mp.backing_file_path {
-            let full_path = if Path::new(backing).is_absolute() {
-                PathBuf::from(backing)
-            } else {
-                config.base_dir.join(backing)
-            };
+            let full_path = config.resolve_path(backing);
             if full_path.exists() {
                 results.push(CheckResult::pass(
                     "REF-003",
@@ -151,11 +166,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
 
         // Check sourceDirectory attribute (LocalDynamicMetadataProvider)
         if let Some(ref src_dir) = mp.source_directory {
-            let full_path = if Path::new(src_dir).is_absolute() {
-                PathBuf::from(src_dir)
-            } else {
-                config.base_dir.join(src_dir)
-            };
+            let full_path = config.resolve_path(src_dir);
             if full_path.is_dir() {
                 results.push(CheckResult::pass(
                     "REF-003",
@@ -175,11 +186,12 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
 
     // REF-009: Remote metadata URL reachable and valid SAML metadata
     if check_remote {
+        let agent = http::build_agent(REMOTE_FETCH_TIMEOUT);
         for mp in &sc.metadata_providers {
             let remote_url = mp.uri.as_deref().or(mp.url.as_deref());
             if let Some(url) = remote_url {
                 if url.starts_with("http://") || url.starts_with("https://") {
-                    check_remote_metadata(url, &mut results, v);
+                    check_remote_metadata(&agent, url, &mut results, v);
                 }
             }
         }
@@ -360,11 +372,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
         }
         // Check backingFilePath (cached copy of remote metadata)
         if let Some(ref backing) = mp.backing_file_path {
-            let full_path = if Path::new(backing).is_absolute() {
-                PathBuf::from(backing)
-            } else {
-                config.base_dir.join(backing)
-            };
+            let full_path = config.resolve_path(backing);
             if full_path.exists() {
                 check_metadata_valid_until(&full_path, backing, &mut results, v);
             }
@@ -1265,9 +1273,19 @@ fn check_local_metadata_saml(
     }
 }
 
-fn check_remote_metadata(url: &str, results: &mut Vec<CheckResult>, v: SpVersion) {
-    let body = match ureq::get(url).call() {
-        Ok(response) => match response.into_body().read_to_string() {
+fn check_remote_metadata(
+    agent: &ureq::Agent,
+    url: &str,
+    results: &mut Vec<CheckResult>,
+    v: SpVersion,
+) {
+    let body = match agent.get(url).call() {
+        Ok(mut response) => match response
+            .body_mut()
+            .with_config()
+            .limit(REMOTE_BODY_LIMIT)
+            .read_to_string()
+        {
             Ok(body) => body,
             Err(e) => {
                 results.push(

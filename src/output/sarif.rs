@@ -1,3 +1,6 @@
+use std::io::{self, Write};
+
+use anyhow::{Context, Result};
 use serde::Serialize;
 
 use super::collect_file_summary;
@@ -106,7 +109,7 @@ fn severity_to_level(severity: Severity) -> &'static str {
     }
 }
 
-pub fn print(results: &[CheckResult], config: &DiscoveredConfig) {
+pub fn print(results: &[CheckResult], config: &DiscoveredConfig) -> Result<()> {
     // Build unique rules from all results
     let mut seen_rules = std::collections::HashSet::new();
     let mut rules = Vec::new();
@@ -175,7 +178,7 @@ pub fn print(results: &[CheckResult], config: &DiscoveredConfig) {
             tool: SarifTool {
                 driver: SarifDriver {
                     name: "shibcheck",
-                    information_uri: "https://github.com/<owner>/shibcheck",
+                    information_uri: env!("CARGO_PKG_REPOSITORY"),
                     version: env!("CARGO_PKG_VERSION"),
                     rules,
                 },
@@ -186,8 +189,10 @@ pub fn print(results: &[CheckResult], config: &DiscoveredConfig) {
         }],
     };
 
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => println!("{}", json),
-        Err(e) => eprintln!("Failed to serialize SARIF: {}", e),
-    }
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    serde_json::to_writer_pretty(&mut handle, &report)
+        .context("Failed to serialize SARIF report")?;
+    writeln!(handle).context("Failed to write SARIF report")?;
+    Ok(())
 }

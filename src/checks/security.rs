@@ -27,6 +27,8 @@ const DOC_SSO: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/20
 
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
+const CODE_CERT_PARSE_ERROR: &str = "SEC-126";
+
 fn doc_for(sp3_url: &str, version: SpVersion) -> &str {
     match version {
         SpVersion::V2 => DOC_SP2_WIKI,
@@ -284,7 +286,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     let now = Utc::now();
     for cr in &sc.credential_resolvers {
         if let Some(ref cert_path) = cr.certificate {
-            let full_path = config.base_dir.join(cert_path);
+            let full_path = config.resolve_path(cert_path);
             if !full_path.exists() {
                 continue; // REF-001 already flags this
             }
@@ -399,8 +401,20 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         }
                     }
                 }
-                Err(_) => {
-                    // Certificate couldn't be parsed - skip cert checks for this file
+                Err(e) => {
+                    results.push(
+                        CheckResult::fail(
+                            CODE_CERT_PARSE_ERROR,
+                            CAT,
+                            Severity::Warning,
+                            &format!(
+                                "Certificate {} could not be parsed: {} (expiry and key-size checks skipped)",
+                                cert_path, e
+                            ),
+                            Some("Ensure the file is a valid PEM-encoded X.509 certificate"),
+                        )
+                        .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                    );
                 }
             }
         }
@@ -409,11 +423,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // SEC-021: Certificate and key file match
     for cr in &sc.credential_resolvers {
         if let (Some(ref cert_path), Some(ref key_path)) = (&cr.certificate, &cr.key) {
-            let full_cert = config.base_dir.join(cert_path);
-            let full_key = config.base_dir.join(key_path);
+            let full_cert = config.resolve_path(cert_path);
+            let full_key = config.resolve_path(key_path);
             if full_cert.exists() && full_key.exists() {
                 match certificate::check_cert_key_match(&full_cert, &full_key) {
-                    Ok(true) => {
+                    Ok(certificate::CertKeyMatch::Match) => {
                         results.push(CheckResult::pass(
                             "SEC-021",
                             CAT,
@@ -424,26 +438,42 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             ),
                         ));
                     }
-                    Ok(false) => {
+                    Ok(certificate::CertKeyMatch::Mismatch) => {
                         results.push(CheckResult::fail(
                             "SEC-021", CAT, Severity::Error,
                             &format!("Certificate {} and key {} do not match (different RSA modulus)", cert_path, key_path),
                             Some("Ensure the private key corresponds to the certificate's public key"),
                         ).with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)));
                     }
-                    Err(_) => {
-                        // Non-RSA or parse error — skip silently
+                    Ok(certificate::CertKeyMatch::SkippedNonRsa) => {
+                        // Non-RSA pair — SEC-021 only validates RSA modulus matching.
+                    }
+                    Err(e) => {
+                        results.push(
+                            CheckResult::fail(
+                                CODE_CERT_PARSE_ERROR,
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "Certificate/key pair {} + {} could not be parsed: {} (match check skipped)",
+                                    cert_path, key_path, e
+                                ),
+                                Some("Ensure both files are valid PEM-encoded; for RSA, check they are not corrupted"),
+                            )
+                            .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
+                        );
                     }
                 }
             }
         }
     }
 
-    // SEC-011: MetadataFilter with signature validation
+    // SEC-011: MetadataFilter with signature validation.
+    // Shibboleth type names are case-sensitive; a mistyped "signature" is ignored at load time.
     let has_sig_filter = sc.metadata_providers.iter().any(|mp| {
         mp.filters
             .iter()
-            .any(|f| f.filter_type.contains("Signature") || f.filter_type.contains("signature"))
+            .any(|f| f.filter_type.contains("Signature"))
     });
     if has_sig_filter {
         results.push(CheckResult::pass(
@@ -2661,7 +2691,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         use std::os::unix::fs::PermissionsExt;
         for cr in &sc.credential_resolvers {
             if let Some(ref cert_path) = cr.certificate {
-                let full_path = config.base_dir.join(cert_path);
+                let full_path = config.resolve_path(cert_path);
                 if full_path.exists() {
                     if let Ok(metadata) = std::fs::metadata(&full_path) {
                         let mode = metadata.permissions().mode();
@@ -3663,7 +3693,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         use std::os::unix::fs::PermissionsExt;
         for cr in &sc.credential_resolvers {
             if let Some(ref key_path) = cr.key {
-                let full_path = config.base_dir.join(key_path);
+                let full_path = config.resolve_path(key_path);
                 if full_path.exists() {
                     if let Ok(metadata) = std::fs::metadata(&full_path) {
                         let mode = metadata.permissions().mode();

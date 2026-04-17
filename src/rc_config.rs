@@ -25,6 +25,7 @@ pub struct RcConfig {
 
 impl RcConfig {
     /// Load `.shibcheckrc` from the checked directory, falling back to `$HOME`.
+    /// If a file is found but cannot be parsed, warns on stderr and falls through.
     pub fn load(checked_dir: &Path) -> Self {
         let candidates = [
             Some(checked_dir.join(".shibcheckrc")),
@@ -32,9 +33,26 @@ impl RcConfig {
         ];
 
         for candidate in candidates.iter().flatten() {
-            if let Ok(contents) = std::fs::read_to_string(candidate) {
-                if let Ok(cfg) = toml::from_str::<RcConfig>(&contents) {
-                    return cfg;
+            let contents = match std::fs::read_to_string(candidate) {
+                Ok(c) => c,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to read {}: {}",
+                        candidate.display(),
+                        e
+                    );
+                    continue;
+                }
+            };
+            match toml::from_str::<RcConfig>(&contents) {
+                Ok(cfg) => return cfg,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: ignoring malformed {}: {}",
+                        candidate.display(),
+                        e
+                    );
                 }
             }
         }

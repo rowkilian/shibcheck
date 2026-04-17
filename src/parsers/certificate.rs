@@ -25,8 +25,12 @@ pub fn parse_pem_bytes(data: &[u8]) -> Result<CertInfo> {
     let (_, cert) = X509Certificate::from_der(&pem.contents)
         .map_err(|e| anyhow::anyhow!("X509 parse error: {}", e))?;
 
-    let not_before = cert.validity().not_before.to_datetime();
-    let not_after = cert.validity().not_after.to_datetime();
+    let not_before_ts = cert.validity().not_before.to_datetime().unix_timestamp();
+    let not_after_ts = cert.validity().not_after.to_datetime().unix_timestamp();
+    let not_before = DateTime::from_timestamp(not_before_ts, 0)
+        .ok_or_else(|| anyhow::anyhow!("certificate notBefore timestamp {} out of range", not_before_ts))?;
+    let not_after = DateTime::from_timestamp(not_after_ts, 0)
+        .ok_or_else(|| anyhow::anyhow!("certificate notAfter timestamp {} out of range", not_after_ts))?;
 
     let key_size_bits = match cert.public_key().parsed() {
         Ok(PublicKey::RSA(rsa)) => rsa.key_size() as u32,
@@ -54,8 +58,8 @@ pub fn parse_pem_bytes(data: &[u8]) -> Result<CertInfo> {
     let subject = cert.subject().to_string();
 
     Ok(CertInfo {
-        not_before: DateTime::from_timestamp(not_before.unix_timestamp(), 0).unwrap_or_default(),
-        not_after: DateTime::from_timestamp(not_after.unix_timestamp(), 0).unwrap_or_default(),
+        not_before,
+        not_after,
         key_size_bits,
         subject,
     })
@@ -81,16 +85,33 @@ pub fn validate_pem_key_file(path: &Path) -> Result<()> {
     }
 }
 
-/// Check if a certificate and private key file form a matching pair.
-/// Returns Ok(true) if they match, Ok(false) if mismatch.
-/// Returns Err if the files can't be parsed or aren't RSA (non-RSA is skipped by the caller).
-pub fn check_cert_key_match(cert_path: &Path, key_path: &Path) -> Result<bool> {
-    let cert_modulus = extract_cert_rsa_modulus(cert_path)?;
-    let key_modulus = extract_key_rsa_modulus(key_path)?;
-    Ok(cert_modulus == key_modulus)
+/// Result of comparing a certificate and private key file.
+#[derive(Debug)]
+pub enum CertKeyMatch {
+    Match,
+    Mismatch,
+    SkippedNonRsa,
 }
 
-fn extract_cert_rsa_modulus(cert_path: &Path) -> Result<Vec<u8>> {
+/// Compare a certificate and private key file.
+/// `Err` indicates a parse/IO failure; non-RSA pairs return `Ok(SkippedNonRsa)`.
+pub fn check_cert_key_match(cert_path: &Path, key_path: &Path) -> Result<CertKeyMatch> {
+    let cert_modulus = match extract_cert_rsa_modulus(cert_path)? {
+        Some(m) => m,
+        None => return Ok(CertKeyMatch::SkippedNonRsa),
+    };
+    let key_modulus = match extract_key_rsa_modulus(key_path)? {
+        Some(m) => m,
+        None => return Ok(CertKeyMatch::SkippedNonRsa),
+    };
+    Ok(if cert_modulus == key_modulus {
+        CertKeyMatch::Match
+    } else {
+        CertKeyMatch::Mismatch
+    })
+}
+
+fn extract_cert_rsa_modulus(cert_path: &Path) -> Result<Option<Vec<u8>>> {
     let content = std::fs::read(cert_path)
         .with_context(|| format!("Failed to read certificate {}", cert_path.display()))?;
     let (_, pem) =
@@ -98,19 +119,19 @@ fn extract_cert_rsa_modulus(cert_path: &Path) -> Result<Vec<u8>> {
     let (_, cert) = X509Certificate::from_der(&pem.contents)
         .map_err(|e| anyhow::anyhow!("X509 parse error: {}", e))?;
     match cert.public_key().parsed() {
-        Ok(PublicKey::RSA(rsa)) => Ok(rsa.modulus.to_vec()),
-        _ => anyhow::bail!("Not an RSA certificate"),
+        Ok(PublicKey::RSA(rsa)) => Ok(Some(rsa.modulus.to_vec())),
+        _ => Ok(None),
     }
 }
 
-fn extract_key_rsa_modulus(key_path: &Path) -> Result<Vec<u8>> {
+fn extract_key_rsa_modulus(key_path: &Path) -> Result<Option<Vec<u8>>> {
     let data = std::fs::read(key_path)
         .with_context(|| format!("Failed to read key file {}", key_path.display()))?;
     let parsed = ::pem::parse(&data).map_err(|e| anyhow::anyhow!("PEM parse error: {}", e))?;
     match parsed.tag() {
-        "RSA PRIVATE KEY" => extract_rsa_modulus_pkcs1(parsed.contents()),
-        "PRIVATE KEY" => extract_rsa_modulus_pkcs8(parsed.contents()),
-        other => anyhow::bail!("Unsupported key type: {}", other),
+        "RSA PRIVATE KEY" => extract_rsa_modulus_pkcs1(parsed.contents()).map(Some),
+        "PRIVATE KEY" => extract_rsa_modulus_pkcs8(parsed.contents()).map(Some),
+        _ => Ok(None),
     }
 }
 

@@ -40,6 +40,19 @@ pub struct DiscoveredConfig {
     pub attribute_policy_content: Option<String>,
 }
 
+impl DiscoveredConfig {
+    /// Resolve a path referenced from the config: absolute paths unchanged,
+    /// relative paths joined against `base_dir`.
+    pub fn resolve_path(&self, path: &str) -> PathBuf {
+        let candidate = Path::new(path);
+        if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else {
+            self.base_dir.join(path)
+        }
+    }
+}
+
 pub fn discover(base_dir: &Path) -> Result<DiscoveredConfig> {
     let shibboleth_xml_path = base_dir.join("shibboleth2.xml");
     let attribute_map_path = base_dir.join("attribute-map.xml");

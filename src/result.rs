@@ -111,7 +111,6 @@ impl CheckResult {
     }
 
     /// Attach a source location (file and optional line number) to this check result.
-    #[allow(dead_code)]
     pub fn with_location(mut self, file: &str, line: Option<usize>) -> Self {
         self.location = Some(SourceLocation {
             file: file.to_string(),

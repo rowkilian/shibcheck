@@ -1,0 +1,2 @@
+verbose = "not a bool"
+this is not valid toml = =

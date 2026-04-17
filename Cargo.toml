@@ -1,8 +1,9 @@
 [package]
 name = "shibcheck"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "Shibboleth SP Configuration Checker"
+repository = "https://github.com/rowkilian/shibcheck"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

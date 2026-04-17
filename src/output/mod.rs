@@ -257,14 +257,23 @@ pub fn print_results(
     verbose: bool,
     format: OutputFormat,
     config: &DiscoveredConfig,
-) {
+) -> anyhow::Result<()> {
     let summary = CheckSummary::from_results(results);
 
     match format {
         OutputFormat::Json => json::print(results, &summary, config),
         OutputFormat::Sarif => sarif::print(results, config),
-        OutputFormat::Html => html::print(results, &summary, config),
-        OutputFormat::Markdown => markdown::print(results, &summary, config),
-        OutputFormat::Terminal => terminal::print(results, &summary, verbose, config),
+        OutputFormat::Html => {
+            html::print(results, &summary, config);
+            Ok(())
+        }
+        OutputFormat::Markdown => {
+            markdown::print(results, &summary, config);
+            Ok(())
+        }
+        OutputFormat::Terminal => {
+            terminal::print(results, &summary, verbose, config);
+            Ok(())
+        }
     }
 }

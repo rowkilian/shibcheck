@@ -76,6 +76,14 @@ fn sarif_output_is_valid() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid SARIF JSON");
     assert_eq!(parsed["version"], "2.1.0");
     assert!(parsed["runs"].is_array());
+    let info_uri = parsed["runs"][0]["tool"]["driver"]["informationUri"]
+        .as_str()
+        .expect("informationUri is a string");
+    assert!(
+        info_uri.starts_with("https://github.com/") && !info_uri.contains("<owner>"),
+        "SARIF informationUri should be a real URL, got: {}",
+        info_uri
+    );
 }
 
 // ── HTML output ──
@@ -384,5 +392,69 @@ fn check_mig_019_wayf_deprecated() {
     assert!(
         !mig_019[0]["passed"].as_bool().unwrap(),
         "Expected MIG-019 to fail on WAYF discoveryProtocol"
+    );
+}
+
+// ── Regression tests for recent bug fixes ──
+
+#[test]
+fn malformed_shibcheckrc_prints_warning() {
+    let output = shibcheck()
+        .arg("tests/fixtures/malformed_rc")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Warning: ignoring malformed"),
+        "Expected malformed .shibcheckrc warning on stderr, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn corrupt_cert_emits_sec_126() {
+    let output = shibcheck()
+        .args(["--json", "tests/fixtures/corrupt_cert"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let results = parsed["results"].as_array().unwrap();
+    let sec_126: Vec<_> = results
+        .iter()
+        .filter(|r| r["code"].as_str().unwrap() == "SEC-126")
+        .collect();
+    assert!(
+        !sec_126.is_empty(),
+        "Expected SEC-126 for corrupt certificate so the parse failure isn't silent"
+    );
+    assert!(
+        !sec_126[0]["passed"].as_bool().unwrap(),
+        "SEC-126 should be a failure"
+    );
+}
+
+#[test]
+fn ref_001_attaches_location_at_check_site() {
+    // REF-001 is now set at the check site, so even broken fixtures with missing
+    // certs should carry a shibboleth2.xml location pointing at the CredentialResolver.
+    let output = shibcheck()
+        .args(["--json", "tests/fixtures/corrupt_cert"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let results = parsed["results"].as_array().unwrap();
+    let ref_001 = results
+        .iter()
+        .find(|r| r["code"].as_str().unwrap() == "REF-001")
+        .expect("REF-001 result present");
+    let location = ref_001
+        .get("location")
+        .expect("REF-001 should carry a location");
+    assert_eq!(location["file"], "shibboleth2.xml");
+    assert!(
+        location.get("line").is_some(),
+        "Expected a line number for the CredentialResolver referencing the cert"
     );
 }

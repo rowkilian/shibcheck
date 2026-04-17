@@ -1,3 +1,6 @@
+use std::io::{self, Write};
+
+use anyhow::{Context, Result};
 use serde::Serialize;
 
 use super::{collect_file_summary, FileEntry};
@@ -25,7 +28,11 @@ struct JsonReport<'a> {
     files: Vec<FileEntry>,
 }
 
-pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &DiscoveredConfig) {
+pub fn print(
+    results: &[CheckResult],
+    summary: &CheckSummary,
+    config: &DiscoveredConfig,
+) -> Result<()> {
     let metadata_sources = config
         .shibboleth_config
         .as_ref()
@@ -52,8 +59,10 @@ pub fn print(results: &[CheckResult], summary: &CheckSummary, config: &Discovere
         summary,
         files,
     };
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => println!("{}", json),
-        Err(e) => eprintln!("Failed to serialize JSON: {}", e),
-    }
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    serde_json::to_writer_pretty(&mut handle, &report)
+        .context("Failed to serialize JSON report")?;
+    writeln!(handle).context("Failed to write JSON report")?;
+    Ok(())
 }

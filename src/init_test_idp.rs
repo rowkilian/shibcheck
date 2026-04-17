@@ -1,9 +1,13 @@
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
+
+use crate::http;
 
 const METADATA_URL: &str = "https://mocksaml.com/api/saml/metadata";
 const METADATA_FILENAME: &str = "mocksaml-metadata.xml";
 const ENTITY_ID: &str = "https://saml.example.com/entityid";
+const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub fn run(base_dir: &Path, force: bool) -> Result<(), String> {
     if !base_dir.is_dir() {
@@ -21,7 +25,9 @@ pub fn run(base_dir: &Path, force: bool) -> Result<(), String> {
 
     eprintln!("Fetching metadata from {} ...", METADATA_URL);
 
-    let body = ureq::get(METADATA_URL)
+    let agent = http::build_agent(FETCH_TIMEOUT);
+    let body = agent
+        .get(METADATA_URL)
         .call()
         .map_err(|e| format!("Failed to fetch metadata: {}", e))?
         .into_body()
