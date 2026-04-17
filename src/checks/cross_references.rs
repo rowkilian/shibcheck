@@ -1204,16 +1204,14 @@ fn check_local_metadata_saml(
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
-            Ok(Event::Start(e)) => {
-                if root_element.is_none() {
-                    let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    let local = full_name
-                        .rsplit(':')
-                        .next()
-                        .unwrap_or(&full_name)
-                        .to_string();
-                    root_element = Some(local);
-                }
+            Ok(Event::Start(e)) if root_element.is_none() => {
+                let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let local = full_name
+                    .rsplit(':')
+                    .next()
+                    .unwrap_or(&full_name)
+                    .to_string();
+                root_element = Some(local);
             }
             Err(_) => {
                 results.push(
@@ -1323,16 +1321,14 @@ fn check_remote_metadata(
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
-            Ok(Event::Start(e)) => {
-                if root_element.is_none() {
-                    let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    let local = full_name
-                        .rsplit(':')
-                        .next()
-                        .unwrap_or(&full_name)
-                        .to_string();
-                    root_element = Some(local);
-                }
+            Ok(Event::Start(e)) if root_element.is_none() => {
+                let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let local = full_name
+                    .rsplit(':')
+                    .next()
+                    .unwrap_or(&full_name)
+                    .to_string();
+                root_element = Some(local);
             }
             Err(_) => {
                 is_well_formed = false;

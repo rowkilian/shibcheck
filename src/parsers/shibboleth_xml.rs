@@ -147,11 +147,10 @@ fn process_element(
             };
             config.clock_skew = get_attr(e, "clockSkew");
         }
-        "TCPListener" | "UnixListener" => {
-            if config.tcp_listener_address.is_none() {
+        "TCPListener" | "UnixListener"
+            if config.tcp_listener_address.is_none() => {
                 config.tcp_listener_address = get_attr(e, "address");
             }
-        }
         "ApplicationDefaults" => {
             config.has_application_defaults = true;
             config.entity_id = get_attr(e, "entityID");
@@ -167,8 +166,8 @@ fn process_element(
                 require_confidentiality: get_attr(e, "requireConfidentiality"),
             });
         }
-        "Sessions" => {
-            if parent_is(stack, "ApplicationDefaults") {
+        "Sessions"
+            if parent_is(stack, "ApplicationDefaults") => {
                 config.sessions = Some(SessionsConfig {
                     handler_url: get_attr(e, "handlerURL"),
                     handler_ssl: get_attr(e, "handlerSSL"),
@@ -201,7 +200,6 @@ fn process_element(
                     redirect_allow: get_attr(e, "redirectAllow"),
                 });
             }
-        }
         "SSO" => {
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_sso = true;
@@ -293,16 +291,15 @@ fn process_element(
                 mp.filters.push(filter);
             }
         }
-        "TrustEngine" => {
+        "TrustEngine"
             // If inside a MetadataFilter, mark the parent filter as having a TrustEngine
-            if parent_is(stack, "MetadataFilter") {
+            if parent_is(stack, "MetadataFilter") => {
                 if let Some(mp) = mp_stack.last_mut() {
                     if let Some(filter) = mp.filters.last_mut() {
                         filter.has_trust_engine = true;
                     }
                 }
             }
-        }
         "CredentialResolver" => {
             let cr = CredentialResolver {
                 resolver_type: get_attr(e, "type").unwrap_or_default(),
@@ -328,14 +325,13 @@ fn process_element(
                 config.attribute_extractor_paths.push(path);
             }
         }
-        "AttributeFilter" => {
+        "AttributeFilter"
             // Only capture path attribute if it's the AttributeFilter element, not the filter rules
-            if parent_is(stack, "ApplicationDefaults") || stack.is_empty() {
+            if (parent_is(stack, "ApplicationDefaults") || stack.is_empty()) => {
                 if let Some(path) = get_attr(e, "path") {
                     config.attribute_filter_paths.push(path);
                 }
             }
-        }
         "Errors" => {
             config.errors = Some(crate::model::shibboleth_config::ErrorsConfig {
                 support_contact: get_attr(e, "supportContact"),
@@ -399,8 +395,8 @@ fn process_element(
         "RequestMap" => {
             config.request_map_root_app_id = get_attr(e, "applicationId");
         }
-        "Host" | "Path" => {
-            if in_request_map {
+        "Host" | "Path"
+            if in_request_map => {
                 if let Some(app_id) = get_attr(e, "applicationId") {
                     config.request_map_application_ids.push(app_id);
                 }
@@ -416,7 +412,6 @@ fn process_element(
                     },
                 );
             }
-        }
         _ => {}
     }
     Ok(())
