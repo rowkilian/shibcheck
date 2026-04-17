@@ -27,10 +27,18 @@ pub fn parse_pem_bytes(data: &[u8]) -> Result<CertInfo> {
 
     let not_before_ts = cert.validity().not_before.to_datetime().unix_timestamp();
     let not_after_ts = cert.validity().not_after.to_datetime().unix_timestamp();
-    let not_before = DateTime::from_timestamp(not_before_ts, 0)
-        .ok_or_else(|| anyhow::anyhow!("certificate notBefore timestamp {} out of range", not_before_ts))?;
-    let not_after = DateTime::from_timestamp(not_after_ts, 0)
-        .ok_or_else(|| anyhow::anyhow!("certificate notAfter timestamp {} out of range", not_after_ts))?;
+    let not_before = DateTime::from_timestamp(not_before_ts, 0).ok_or_else(|| {
+        anyhow::anyhow!(
+            "certificate notBefore timestamp {} out of range",
+            not_before_ts
+        )
+    })?;
+    let not_after = DateTime::from_timestamp(not_after_ts, 0).ok_or_else(|| {
+        anyhow::anyhow!(
+            "certificate notAfter timestamp {} out of range",
+            not_after_ts
+        )
+    })?;
 
     let key_size_bits = match cert.public_key().parsed() {
         Ok(PublicKey::RSA(rsa)) => rsa.key_size() as u32,

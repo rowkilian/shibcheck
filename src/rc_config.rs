@@ -37,22 +37,14 @@ impl RcConfig {
                 Ok(c) => c,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => {
-                    eprintln!(
-                        "Warning: failed to read {}: {}",
-                        candidate.display(),
-                        e
-                    );
+                    eprintln!("Warning: failed to read {}: {}", candidate.display(), e);
                     continue;
                 }
             };
             match toml::from_str::<RcConfig>(&contents) {
                 Ok(cfg) => return cfg,
                 Err(e) => {
-                    eprintln!(
-                        "Warning: ignoring malformed {}: {}",
-                        candidate.display(),
-                        e
-                    );
+                    eprintln!("Warning: ignoring malformed {}: {}", candidate.display(), e);
                 }
             }
         }

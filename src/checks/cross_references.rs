@@ -94,8 +94,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     for cr in &sc.credential_resolvers {
         if let Some(ref key_path) = cr.key {
             let full_path = config.resolve_path(key_path);
-            let line =
-                find_element_line(xml, "CredentialResolver", Some("key"), Some(key_path));
+            let line = find_element_line(xml, "CredentialResolver", Some("key"), Some(key_path));
             let result = if full_path.exists() {
                 CheckResult::pass(
                     "REF-002",
