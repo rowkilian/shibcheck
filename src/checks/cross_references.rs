@@ -74,14 +74,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-001",
                     CAT,
                     Severity::Error,
-                    &format!("Certificate file exists: {}", cert_path),
+                    &format!(
+                        "CredentialResolver{} certificate file exists: {}",
+                        cr.label(),
+                        cert_path
+                    ),
                 )
             } else {
                 CheckResult::fail(
                     "REF-001",
                     CAT,
                     Severity::Error,
-                    &format!("Certificate file not found: {}", cert_path),
+                    &format!(
+                        "CredentialResolver{} certificate file not found: {}",
+                        cr.label(),
+                        cert_path
+                    ),
                     Some("Ensure the certificate file path is correct and the file exists"),
                 )
                 .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v))
@@ -100,14 +108,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     "REF-002",
                     CAT,
                     Severity::Error,
-                    &format!("Key file exists: {}", key_path),
+                    &format!(
+                        "CredentialResolver{} key file exists: {}",
+                        cr.label(),
+                        key_path
+                    ),
                 )
             } else {
                 CheckResult::fail(
                     "REF-002",
                     CAT,
                     Severity::Error,
-                    &format!("Key file not found: {}", key_path),
+                    &format!(
+                        "CredentialResolver{} key file not found: {}",
+                        cr.label(),
+                        key_path
+                    ),
                     Some("Ensure the key file path is correct and the file exists"),
                 )
                 .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v))
@@ -714,16 +730,54 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                                     .with_doc(doc_for(DOC_METADATA_FILTER, v)),
                                 );
                             } else {
-                                results.push(CheckResult::pass(
-                                    "REF-021",
-                                    CAT,
-                                    Severity::Warning,
-                                    &format!(
-                                        "MetadataFilter{} Signature certificate is not expired: {}",
-                                        mp.label(),
-                                        cert_path
-                                    ),
-                                ));
+                                let days_until =
+                                    cert_info.not_after.signed_duration_since(now).num_days();
+                                if days_until <= 30 {
+                                    results.push(
+                                        CheckResult::fail(
+                                            "REF-021",
+                                            CAT,
+                                            Severity::Warning,
+                                            &format!(
+                                                "MetadataFilter{} Signature certificate expires in {} days: {} ({})",
+                                                mp.label(),
+                                                days_until,
+                                                cert_path,
+                                                cert_info.not_after.format("%Y-%m-%d")
+                                            ),
+                                            Some("Replace the metadata signing certificate immediately — it expires within 30 days"),
+                                        )
+                                        .with_doc(doc_for(DOC_METADATA_FILTER, v)),
+                                    );
+                                } else if days_until <= 90 {
+                                    results.push(
+                                        CheckResult::fail(
+                                            "REF-021",
+                                            CAT,
+                                            Severity::Info,
+                                            &format!(
+                                                "MetadataFilter{} Signature certificate expires in {} days: {} ({})",
+                                                mp.label(),
+                                                days_until,
+                                                cert_path,
+                                                cert_info.not_after.format("%Y-%m-%d")
+                                            ),
+                                            Some("Plan to rotate the metadata signing certificate before it expires"),
+                                        )
+                                        .with_doc(doc_for(DOC_METADATA_FILTER, v)),
+                                    );
+                                } else {
+                                    results.push(CheckResult::pass(
+                                        "REF-021",
+                                        CAT,
+                                        Severity::Warning,
+                                        &format!(
+                                            "MetadataFilter{} Signature certificate is not expired: {}",
+                                            mp.label(),
+                                            cert_path
+                                        ),
+                                    ));
+                                }
                             }
                         }
                     }
@@ -966,6 +1020,117 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                         Some("Use ScopeMatchesShibMDScope instead of ANY for scoped attributes to prevent scope spoofing"),
                     )
                     .with_doc(doc_for(DOC_ATTR_FILTER, v)),
+                );
+            }
+        }
+    }
+
+    // REF-036: Attributes declared in attribute-map.xml but never referenced in attribute-policy.xml.
+    // Under the default deny-all policy, these extracted attributes will be filtered out —
+    // a silent misconfiguration that's easy to miss.
+    if let (Some(ref map), Some(ref policy)) = (&config.attribute_map, &config.attribute_policy) {
+        let policy_attr_ids: HashSet<&str> = policy
+            .rules
+            .iter()
+            .map(|r| r.attribute_id.as_str())
+            .collect();
+
+        let mut unreferenced: Vec<&str> = Vec::new();
+        for attr in &map.attributes {
+            if attr.id.is_empty() {
+                continue;
+            }
+            if !policy_attr_ids.contains(attr.id.as_str()) {
+                unreferenced.push(attr.id.as_str());
+            }
+        }
+
+        if unreferenced.is_empty() {
+            results.push(CheckResult::pass(
+                "REF-036",
+                CAT,
+                Severity::Info,
+                "All attribute-map entries are referenced in attribute-policy.xml",
+            ));
+        } else {
+            for id in &unreferenced {
+                results.push(
+                    CheckResult::fail(
+                        "REF-036",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "Attribute '{}' is declared in attribute-map.xml but has no rule in attribute-policy.xml",
+                            id
+                        ),
+                        Some("Add an AttributeRule for this attribute, or remove it from attribute-map if not used"),
+                    )
+                    .with_doc(doc_for(DOC_ATTR_FILTER, v)),
+                );
+            }
+        }
+    }
+
+    // REF-037: Persistent NameID source attribute must be scoped (or use a stable, scoped identifier).
+    // The SAML persistent NameID must be generated from a value that is unique *within a scope*;
+    // using an unscoped attribute (like uid) can leak or collide across federations.
+    if let (Some(ref map), Some(ref content)) =
+        (&config.attribute_map, &config.shibboleth_xml_content)
+    {
+        // Look for persistent NameID source configuration in shibboleth2.xml:
+        //   <SSO ... nameIdSources="..."/>  or  attribute references for persistent IDs.
+        // A broad heuristic: scan for `source` attributes on persistent-id generators.
+        let uses_persistent = content
+            .contains("urn:oasis:names:tc:SAML:2.0:nameid-format:persistent")
+            || content.contains("<GenerateTransientIDs") && content.contains("persistent");
+
+        if uses_persistent {
+            // Find attributes declared scoped in attribute-map
+            let scoped_ids: HashSet<&str> = map
+                .attributes
+                .iter()
+                .filter(|a| {
+                    a.decoder_type
+                        .as_deref()
+                        .is_some_and(|d| d.contains("Scoped"))
+                })
+                .map(|a| a.id.as_str())
+                .collect();
+
+            // Known unsafe-as-persistent-source attribute IDs (commonly seen misconfigurations)
+            let unsafe_sources = ["uid", "mail", "cn", "displayName", "givenName", "sn"];
+            let mut warnings: Vec<String> = Vec::new();
+            for candidate in unsafe_sources {
+                // if the config mentions the unsafe source near "persistent"/"NameID" wording, flag
+                let needle = format!("\"{}\"", candidate);
+                if content.contains(&needle)
+                    && !scoped_ids.contains(candidate)
+                    && (content.contains("persistent") || content.contains("NameID"))
+                {
+                    warnings.push(candidate.to_string());
+                }
+            }
+
+            if warnings.is_empty() {
+                results.push(CheckResult::pass(
+                    "REF-037",
+                    CAT,
+                    Severity::Info,
+                    "No unscoped source attributes detected for persistent NameID generation",
+                ));
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "REF-037",
+                        CAT,
+                        Severity::Warning,
+                        &format!(
+                            "Persistent NameID appears sourced from unscoped attribute(s): {}",
+                            warnings.join(", ")
+                        ),
+                        Some("Use a scoped attribute (e.g., eduPersonPrincipalName) as the persistent NameID source, and validate its scope via ScopeMatchesShibMDScope in attribute-policy.xml"),
+                    )
+                    .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
                 );
             }
         }
@@ -1462,7 +1627,22 @@ fn check_metadata_valid_until(
                 } else {
                     let days_until = (valid_until.signed_duration_since(now)).num_days();
                     if days_until <= 30 {
-                        // REF-035: expiring soon
+                        // REF-035: expiring soon (critical) — Warning tier
+                        results.push(
+                            CheckResult::fail(
+                                "REF-035",
+                                CAT,
+                                Severity::Warning,
+                                &format!(
+                                    "Local metadata validUntil expires in {} days: {} (valid until {})",
+                                    days_until, display_path, date_display
+                                ),
+                                Some("Refresh this metadata immediately — it will expire within 30 days"),
+                            )
+                            .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
+                        );
+                    } else if days_until <= 90 {
+                        // REF-035: expiring (planning window) — Info tier
                         results.push(
                             CheckResult::fail(
                                 "REF-035",

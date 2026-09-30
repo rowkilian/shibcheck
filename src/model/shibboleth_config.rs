@@ -151,6 +151,23 @@ pub struct CredentialResolver {
     pub children_count: usize,
 }
 
+impl CredentialResolver {
+    /// Short identifier to distinguish resolvers in messages, e.g.
+    /// " (use=signing)" or " (cert: sp-cert.pem)".
+    pub fn label(&self) -> String {
+        if let Some(ref u) = self.use_attr {
+            return format!(" (use={})", u);
+        }
+        if let Some(ref c) = self.certificate {
+            return format!(" (cert: {})", c);
+        }
+        if let Some(ref k) = self.key {
+            return format!(" (key: {})", k);
+        }
+        String::new()
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct StatusHandler {
     pub acl: Option<String>,

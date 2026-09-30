@@ -198,6 +198,8 @@ fn diff_two_dirs() {
 
 // ── New check tests ──
 
+/// MIG-012 flags `<MetadataFilter type="Whitelist">` — renamed to `Include` in SP3.
+/// Configs that still use `Whitelist` load cleanly on SP2 but silently stop filtering on SP3.
 #[test]
 fn check_mig_011_deprecated_whitelist_filter() {
     let output = shibcheck()
@@ -222,6 +224,8 @@ fn check_mig_011_deprecated_whitelist_filter() {
     );
 }
 
+/// `--check OPS` filtering must produce only OPS-prefixed codes — guards against
+/// the filter accidentally passing through unrelated categories when the prefix has no trailing dash.
 #[test]
 fn check_ops_json_returns_ops_checks() {
     let output = shibcheck()
@@ -251,6 +255,8 @@ fn check_ops_json_returns_ops_checks() {
     );
 }
 
+/// SEC-032 flags `showAttributeValues="true"` on the Status handler — which exposes
+/// session attribute values (potential PII / secrets) to anyone who can hit /Shibboleth.sso/Status.
 #[test]
 fn check_sec_032_show_attribute_values() {
     let output = shibcheck()
@@ -275,6 +281,8 @@ fn check_sec_032_show_attribute_values() {
     );
 }
 
+/// SEC-044 flags a `TCPListener` bound to `0.0.0.0` — the shibd control channel
+/// should never be reachable off-host, as it exposes session management to the network.
 #[test]
 fn check_sec_044_tcp_listener_insecure_binding() {
     let output = shibcheck()
@@ -299,6 +307,8 @@ fn check_sec_044_tcp_listener_insecure_binding() {
     );
 }
 
+/// SEC-062 flags an `ExternalAuth` handler with no ACL — the handler accepts
+/// remote-user assertions, so without an ACL any caller can inject a pre-authenticated session.
 #[test]
 fn check_sec_062_external_auth_no_acl() {
     let output = shibcheck()
@@ -323,6 +333,9 @@ fn check_sec_062_external_auth_no_acl() {
     );
 }
 
+/// SEC-055 flags `ignoreTransport="true"` on a MetadataProvider without a Signature
+/// filter — HTTPS trust is disabled and there's nothing else verifying metadata integrity,
+/// so an on-path attacker can replace the federation metadata entirely.
 #[test]
 fn check_sec_055_ignore_transport_no_sig() {
     let output = shibcheck()
@@ -347,6 +360,8 @@ fn check_sec_055_ignore_transport_no_sig() {
     );
 }
 
+/// MIG-022 flags `SessionInitiator type="Shib1"` — the Shibboleth 1.x protocol was
+/// removed in SP3 (SAML1-only, no encryption). Configs carrying it over will fail authentication silently.
 #[test]
 fn check_mig_022_shib1_session_initiator() {
     let output = shibcheck()
@@ -371,6 +386,8 @@ fn check_mig_022_shib1_session_initiator() {
     );
 }
 
+/// MIG-019 flags `discoveryProtocol="WAYF"` — the pre-SAML2 discovery protocol was
+/// removed in SP3. Configs using it lose IdP discovery entirely after upgrade.
 #[test]
 fn check_mig_019_wayf_deprecated() {
     let output = shibcheck()

@@ -556,6 +556,9 @@ mod tests {
         );
     }
 
+    /// Exercises the MetadataProvider stack: a top-level `Chaining` wraps multiple child
+    /// providers (XML, LocalDynamic), and nested providers each carry their own filters.
+    /// The parser must push/pop the stack so nested children are attributed to their direct parent.
     #[test]
     fn test_parse_chaining_metadata_provider() {
         let xml = r#"
@@ -712,6 +715,9 @@ mod tests {
         );
     }
 
+    /// A `<TrustEngine>` child inside a `<MetadataFilter type="Signature">` is an
+    /// alternative to the `certificate` attribute (REF-026 accepts either).
+    /// The parser must mark `has_trust_engine` so REF-026 doesn't false-positive on TrustEngine-only filters.
     #[test]
     fn test_parse_trust_engine_in_metadata_filter() {
         let xml = r#"
@@ -735,6 +741,9 @@ mod tests {
         assert!(mp.filters[0].has_trust_engine);
     }
 
+    /// Mirrors the Chaining MetadataProvider pattern for CredentialResolvers:
+    /// nested File resolvers must be counted both individually and as children of the Chaining
+    /// parent. Guards REF-027 (Chaining with <2 children) from miscounting.
     #[test]
     fn test_parse_chaining_credential_resolver() {
         let xml = r#"
@@ -788,6 +797,8 @@ mod tests {
         assert_eq!(config.sso_ecp.as_deref(), Some("true"));
     }
 
+    /// Per-override entityIDs are captured as `(id, entityID)` tuples so REF-024 can
+    /// detect overrides that redundantly repeat the parent entityID (a common copy-paste bug).
     #[test]
     fn test_parse_application_override_entity_ids() {
         let xml = r#"
@@ -925,6 +936,9 @@ mod tests {
         );
     }
 
+    /// `children_count` drives REF-031 (Chaining with <2 children). Guards the
+    /// stack-based counter from either double-counting (end-tag event races) or
+    /// undercounting when nested providers also carry child elements.
     #[test]
     fn test_parse_metadata_provider_children_count() {
         let xml = r#"

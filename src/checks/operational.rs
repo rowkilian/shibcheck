@@ -2349,6 +2349,137 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // OPS-077: Session timeout/lifetime/maxTimeSinceAuthn consistency
+    // maxTimeSinceAuthn > lifetime is a contradiction — the session will expire before
+    // an authentication could ever be considered stale. timeout > lifetime is similarly odd:
+    // the idle window exceeds the absolute window.
+    if let Some(ref sessions) = sc.sessions {
+        let lifetime_secs = sessions
+            .lifetime
+            .as_deref()
+            .and_then(|s| s.parse::<u64>().ok());
+        let timeout_secs = sessions
+            .timeout
+            .as_deref()
+            .and_then(|s| s.parse::<u64>().ok());
+        let max_auth_secs = sessions
+            .max_time_since_authn
+            .as_deref()
+            .and_then(|s| s.parse::<u64>().ok());
+
+        let mut problems: Vec<String> = Vec::new();
+        if let (Some(lt), Some(mt)) = (lifetime_secs, max_auth_secs) {
+            // lifetime=0 means sessions never expire — any maxTimeSinceAuthn is fine
+            if lt > 0 && mt > lt {
+                problems.push(format!(
+                    "maxTimeSinceAuthn ({}s) exceeds lifetime ({}s)",
+                    mt, lt
+                ));
+            }
+        }
+        if let (Some(lt), Some(to)) = (lifetime_secs, timeout_secs) {
+            if lt > 0 && to > lt {
+                problems.push(format!("timeout ({}s) exceeds lifetime ({}s)", to, lt));
+            }
+        }
+
+        if problems.is_empty() {
+            results.push(CheckResult::pass(
+                "OPS-077",
+                CAT,
+                Severity::Info,
+                "Sessions lifetime/timeout/maxTimeSinceAuthn are internally consistent",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-077",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "Sessions attribute inconsistency: {}",
+                        problems.join("; ")
+                    ),
+                    Some(
+                        "Ensure maxTimeSinceAuthn and timeout are <= lifetime, since the session cannot outlive its absolute lifetime",
+                    ),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
+    // OPS-078: Transient NameID format preferred for privacy-sensitive deployments.
+    // Scans for explicit NameIDFormat requests in the config; transient is the recommended
+    // default unless the deployment needs a correlatable identifier.
+    if let Some(ref content) = config.shibboleth_xml_content {
+        let non_transient_formats = [
+            (
+                "persistent",
+                "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+            ),
+            (
+                "unspecified",
+                "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified",
+            ),
+            (
+                "X509SubjectName",
+                "urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName",
+            ),
+            (
+                "kerberos",
+                "urn:oasis:names:tc:SAML:2.0:nameid-format:kerberos",
+            ),
+            (
+                "WindowsDomainQualifiedName",
+                "urn:oasis:names:tc:SAML:1.1:nameid-format:WindowsDomainQualifiedName",
+            ),
+        ];
+        let found: Vec<&str> = non_transient_formats
+            .iter()
+            .filter_map(|(label, urn)| {
+                if content.contains(urn) {
+                    Some(*label)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let has_nameid_element =
+            content.contains("<NameIDFormat") || content.contains(":NameIDFormat");
+
+        if !has_nameid_element {
+            results.push(CheckResult::pass(
+                "OPS-078",
+                CAT,
+                Severity::Info,
+                "No explicit NameIDFormat requested (Shibboleth default is transient)",
+            ));
+        } else if found.is_empty() {
+            results.push(CheckResult::pass(
+                "OPS-078",
+                CAT,
+                Severity::Info,
+                "Requested NameIDFormat is transient",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-078",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Non-transient NameIDFormat requested: {}",
+                        found.join(", ")
+                    ),
+                    Some("Prefer transient NameIDFormat unless the deployment requires a stable correlatable identifier"),
+                )
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+    }
+
     // OPS-032 to OPS-035: ApplicationOverride child element replacement checks
     if let Some(ref content) = config.shibboleth_xml_content {
         let mut current_override_id: Option<String> = None;

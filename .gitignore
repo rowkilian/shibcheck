@@ -1,1 +1,8 @@
 /target
+
+# Editor/tool directories
+.obsidian/
+.zed/
+.claude/
+.vscode/
+.idea/

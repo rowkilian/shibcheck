@@ -2,6 +2,20 @@
 
 All notable changes to shibcheck are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **OPS-077**: Sessions `lifetime`/`timeout`/`maxTimeSinceAuthn` internal consistency check — warns when `maxTimeSinceAuthn` or `timeout` exceeds `lifetime`, since the session cannot outlive its absolute lifetime.
+- **OPS-078**: Transient `NameIDFormat` preference check — flags persistent, unspecified, X509SubjectName, kerberos, or WindowsDomainQualifiedName NameID requests, since transient is the recommended privacy default.
+- **REF-036**: Cross-file attribute coverage check — flags attributes declared in `attribute-map.xml` that have no matching rule in `attribute-policy.xml` (silently filtered out under deny-all).
+- **REF-037**: Persistent NameID source scoping check — flags unscoped source attributes (e.g., `uid`, `mail`) used for persistent NameID generation, where a scoped attribute validated via `ScopeMatchesShibMDScope` is required.
+
+### Changed
+- **REF-035** (metadata `validUntil` expiry) now tiers severity: Warning if expiring within 30 days (critical), Info if within 90 days (planning window), pass otherwise. Previously a single Info-level 30-day threshold.
+- **REF-021** (metadata signing certificate expiry) now also tiers expiring-soon at Warning (<=30d) / Info (<=90d), in addition to the existing Warning for already-expired certs.
+- **REF-001** and **REF-002** messages now include the `CredentialResolver` `use=` or certificate/key path label, so findings are distinguishable when multiple resolvers are configured.
+- **XML-033**, **XML-034**, **XML-035** now strip namespace prefixes (e.g., `md:XML` → `XML`) before type comparison, and skip empty-type elements instead of flagging them as unrecognized — removing false positives on namespaced or partial configs.
+
 ## [0.8.0]
 
 ### Fixed

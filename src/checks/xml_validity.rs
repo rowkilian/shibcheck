@@ -799,7 +799,17 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "Null",
             ];
             for mp in &sc.metadata_providers {
-                if known_types.contains(&mp.provider_type.as_str()) {
+                // Strip any namespace prefix (e.g., "md:XML" -> "XML")
+                let bare_type = mp
+                    .provider_type
+                    .rsplit(':')
+                    .next()
+                    .unwrap_or(&mp.provider_type);
+                if mp.provider_type.is_empty() {
+                    // Type omitted — a separate concern, don't produce a false positive here.
+                    continue;
+                }
+                if known_types.contains(&bare_type) {
                     results.push(CheckResult::pass(
                         "XML-033",
                         CAT,
@@ -832,7 +842,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         {
             let known_types = ["File", "Chaining", "PKCS12"];
             for cr in &sc.credential_resolvers {
-                if known_types.contains(&cr.resolver_type.as_str()) {
+                if cr.resolver_type.is_empty() {
+                    continue;
+                }
+                let bare_type = cr
+                    .resolver_type
+                    .rsplit(':')
+                    .next()
+                    .unwrap_or(&cr.resolver_type);
+                if known_types.contains(&bare_type) {
                     results.push(CheckResult::pass(
                         "XML-034",
                         CAT,
@@ -878,7 +896,17 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             ];
             for mp in &sc.metadata_providers {
                 for filter in &mp.filters {
-                    if known_types.contains(&filter.filter_type.as_str()) {
+                    if filter.filter_type.is_empty() {
+                        // Type omitted — don't produce a false positive here.
+                        continue;
+                    }
+                    // Strip any namespace prefix (e.g., "md:Signature" -> "Signature")
+                    let bare_type = filter
+                        .filter_type
+                        .rsplit(':')
+                        .next()
+                        .unwrap_or(&filter.filter_type);
+                    if known_types.contains(&bare_type) {
                         results.push(CheckResult::pass(
                             "XML-035",
                             CAT,

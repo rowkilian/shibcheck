@@ -67,7 +67,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 ## Checks Reference
 
-308+ checks across five categories.
+312+ checks across five categories.
 
 ### XML Validity (XML-001 to XML-047)
 
@@ -121,7 +121,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-046 | `requireSession="true"` without `authType` | Warning |
 | XML-047 | `RequestMapper` `type="XML"` (web server directives ignored) | Info |
 
-### Cross-file References (REF-001 to REF-035)
+### Cross-file References (REF-001 to REF-037)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -145,7 +145,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-018 | `SecurityPolicyProvider` file exists | Error |
 | REF-019 | Logging config files exist (`shibd.logger`, `native.logger`) | Info |
 | REF-020 | `MetadataFilter` Signature certificate is valid PEM | Warning |
-| REF-021 | `MetadataFilter` Signature certificate not expired | Warning |
+| REF-021 | `MetadataFilter` Signature certificate not expired (tiered: Warning < 30d, Info < 90d) | Warning |
 | REF-022 | `postTemplate` file exists | Info |
 | REF-024 | `ApplicationOverride` `entityID` same as parent (redundant) | Info |
 | REF-025 | `AttributeDecoder` type is recognized | Warning |
@@ -158,7 +158,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-032 | `MetadataProvider` `ignoreTransport="true"` has compensating Signature filter | Warning |
 | REF-033 | `RequestMap` root `applicationId` is `"default"` | Warning |
 | REF-034 | Local metadata `validUntil` not expired | Warning |
-| REF-035 | Local metadata `validUntil` expiring within 30 days | Info |
+| REF-035 | Local metadata `validUntil` expiring (tiered: Warning < 30d, Info < 90d) | Warning |
+| REF-036 | `attribute-map` entries have matching `attribute-policy` rules | Info |
+| REF-037 | Persistent NameID source uses a scoped attribute | Warning |
 
 ### Security (SEC-001 to SEC-126)
 
@@ -290,7 +292,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-125 | `ApplicationOverride` `entityID` differs from parent | Info |
 | SEC-126 | Certificate / key file parses as valid PEM (surfaces silent parse failures) | Warning |
 
-### Operational (OPS-001 to OPS-076)
+### Operational (OPS-001 to OPS-078)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -370,6 +372,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-074 | `AttributeChecker` handler configured for attribute validation | Info |
 | OPS-075 | No `TODO`/`FIXME`/`XXX` comments in configuration | Warning |
 | OPS-076 | `DiscoveryFeed` handler enabled (exposes IdP list) | Info |
+| OPS-077 | `Sessions` `lifetime`/`timeout`/`maxTimeSinceAuthn` are internally consistent | Warning |
+| OPS-078 | `NameIDFormat` prefers transient over persistent/unspecified | Info |
 
 ### Migration (MIG-001 to MIG-024)
 
