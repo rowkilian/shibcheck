@@ -202,14 +202,13 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     // REF-009: Remote metadata URL reachable and valid SAML metadata
     if check_remote {
         let agent = http::build_agent(REMOTE_FETCH_TIMEOUT);
-        for mp in &sc.metadata_providers {
-            let remote_url = mp.uri.as_deref().or(mp.url.as_deref());
-            if let Some(url) = remote_url {
-                if url.starts_with("http://") || url.starts_with("https://") {
-                    check_remote_metadata(&agent, url, &mut results, v);
-                }
-            }
-        }
+        let urls: Vec<&str> = sc
+            .metadata_providers
+            .iter()
+            .filter_map(|mp| mp.uri.as_deref().or(mp.url.as_deref()))
+            .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+            .collect();
+        results.extend(check_remote_metadata_all(&agent, &urls, v));
     }
 
     // REF-004: MetadataFilter certificate files exist
@@ -1369,7 +1368,7 @@ fn check_local_metadata_saml(
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
-            Ok(Event::Start(e)) if root_element.is_none() => {
+            Ok(Event::Start(e) | Event::Empty(e)) if root_element.is_none() => {
                 let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let local = full_name
                     .rsplit(':')
@@ -1435,6 +1434,27 @@ fn check_local_metadata_saml(
     }
 }
 
+/// Fetch and validate each URL concurrently so slow hosts don't add up.
+/// Results come back in the order of `urls`.
+fn check_remote_metadata_all(agent: &ureq::Agent, urls: &[&str], v: SpVersion) -> Vec<CheckResult> {
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = urls
+            .iter()
+            .map(|url| {
+                scope.spawn(move || {
+                    let mut results = Vec::new();
+                    check_remote_metadata(agent, url, &mut results, v);
+                    results
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    })
+}
+
 fn check_remote_metadata(
     agent: &ureq::Agent,
     url: &str,
@@ -1486,7 +1506,7 @@ fn check_remote_metadata(
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
-            Ok(Event::Start(e)) if root_element.is_none() => {
+            Ok(Event::Start(e) | Event::Empty(e)) if root_element.is_none() => {
                 let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let local = full_name
                     .rsplit(':')
@@ -1696,5 +1716,53 @@ mod tests {
 
         dir.write("attribute-map.xml", "<Attributes/>");
         assert_outcome(&run(&dir.discover(), false), "REF-005", true);
+    }
+
+    /// Serve `body` once per connection on a local port; returns the URL.
+    fn serve(body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/metadata", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+            }
+        });
+        url
+    }
+
+    fn remote_results(urls: &[String]) -> Vec<CheckResult> {
+        let agent = crate::http::build_agent(std::time::Duration::from_secs(5));
+        let refs: Vec<&str> = urls.iter().map(String::as_str).collect();
+        check_remote_metadata_all(&agent, &refs, SpVersion::V3)
+    }
+
+    #[test]
+    fn remote_metadata_results_keep_url_order() {
+        let saml =
+            serve(r#"<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"/>"#);
+        let other = serve("<html/>");
+        let results = remote_results(&[saml.clone(), other.clone()]);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].passed, "{}", results[0].message);
+        assert!(results[0].message.contains(&saml));
+        assert!(!results[1].passed && results[1].message.contains(&other));
+    }
+
+    #[test]
+    fn unreachable_remote_metadata_fails() {
+        // Port 1 on loopback refuses connections
+        let results = remote_results(&["http://127.0.0.1:1/metadata".to_string()]);
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].passed);
+        assert_eq!(results[0].code, "REF-009");
     }
 }
