@@ -11,14 +11,63 @@ pub fn parse(path: &Path) -> Result<ShibbolethConfig> {
     parse_str(&content)
 }
 
+/// Mutable state threaded through the event loop.
+#[derive(Default)]
+struct ParseState {
+    config: ShibbolethConfig,
+    stack: Vec<String>,
+    mp_stack: Vec<MetadataProvider>,
+    cr_stack: Vec<CredentialResolver>,
+    in_request_map: bool,
+}
+
+impl ParseState {
+    fn end_element(&mut self) {
+        let Some(name) = self.stack.pop() else {
+            return;
+        };
+        match name.as_str() {
+            "RequestMap" => self.in_request_map = false,
+            "MetadataProvider" => {
+                if let Some(mp) = self.mp_stack.pop() {
+                    if let Some(parent) = self.mp_stack.last_mut() {
+                        if parent.provider_type == "Chaining" {
+                            parent.children_count += 1;
+                        }
+                    }
+                    self.config.metadata_providers.push(mp);
+                }
+            }
+            "CredentialResolver" => {
+                if let Some(cr) = self.cr_stack.pop() {
+                    if let Some(parent) = self.cr_stack.last_mut() {
+                        if parent.resolver_type == "Chaining" {
+                            parent.children_count += 1;
+                        }
+                    }
+                    self.config.credential_resolvers.push(cr);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn set_protocols(&mut self, target: &str, text: String) {
+        if let Some(ref mut sessions) = self.config.sessions {
+            match target {
+                "SSO" => sessions.sso_protocols = Some(text),
+                "Logout" => sessions.logout_protocols = Some(text),
+                _ => {}
+            }
+        }
+    }
+}
+
 pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
     let mut reader = Reader::from_str(xml);
-    let mut config = ShibbolethConfig::default();
-    let mut element_stack: Vec<String> = Vec::new();
-    let mut mp_stack: Vec<MetadataProvider> = Vec::new();
-    let mut cr_stack: Vec<CredentialResolver> = Vec::new();
+    let mut state = ParseState::default();
+    // Element whose text content we need (SSO and Logout list their protocols as text)
     let mut text_target: Option<String> = None;
-    let mut in_request_map = false;
 
     loop {
         match reader.read_event() {
@@ -30,113 +79,65 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
             Ok(Event::Eof) => break,
             Ok(Event::Start(e)) => {
                 let name = local_name(&e);
-                process_element(
-                    &name,
-                    &e,
-                    &element_stack,
-                    &mut config,
-                    &mut mp_stack,
-                    &mut cr_stack,
-                    false,
-                    in_request_map,
-                )?;
+                process_element(&name, &e, &mut state, false);
                 if name == "RequestMap" {
-                    in_request_map = true;
+                    state.in_request_map = true;
                 }
-                // Track elements whose text content we need
-                if name == "SSO" || name == "Logout" {
-                    text_target = Some(name.clone());
-                } else {
-                    text_target = None;
-                }
-                element_stack.push(name);
+                text_target = matches!(name.as_str(), "SSO" | "Logout").then(|| name.clone());
+                state.stack.push(name);
             }
             Ok(Event::Empty(e)) => {
                 let name = local_name(&e);
-                process_element(
-                    &name,
-                    &e,
-                    &element_stack,
-                    &mut config,
-                    &mut mp_stack,
-                    &mut cr_stack,
-                    true,
-                    in_request_map,
-                )?;
+                process_element(&name, &e, &mut state, true);
                 text_target = None;
             }
             Ok(Event::Text(e)) => {
                 if let Some(ref target) = text_target {
-                    let text = e.unescape().unwrap_or_default().trim().to_string();
+                    // Fall back to the raw text if it has a bad entity reference
+                    let text = match e.unescape() {
+                        Ok(t) => t.trim().to_string(),
+                        Err(_) => String::from_utf8_lossy(e.as_ref()).trim().to_string(),
+                    };
                     if !text.is_empty() {
-                        if let Some(ref mut sessions) = config.sessions {
-                            match target.as_str() {
-                                "SSO" => sessions.sso_protocols = Some(text),
-                                "Logout" => sessions.logout_protocols = Some(text),
-                                _ => {}
-                            }
-                        }
+                        state.set_protocols(target, text);
                     }
                 }
             }
             Ok(Event::End(_)) => {
                 text_target = None;
-                if let Some(name) = element_stack.pop() {
-                    if name == "RequestMap" {
-                        in_request_map = false;
-                    } else if name == "MetadataProvider" {
-                        if let Some(mp) = mp_stack.pop() {
-                            // If there's a parent Chaining MP on the stack, increment its count
-                            if let Some(parent) = mp_stack.last_mut() {
-                                if parent.provider_type == "Chaining" {
-                                    parent.children_count += 1;
-                                }
-                            }
-                            config.metadata_providers.push(mp);
-                        }
-                    } else if name == "CredentialResolver" {
-                        if let Some(cr) = cr_stack.pop() {
-                            // If there's a parent Chaining CR on the stack, increment its count
-                            if let Some(parent) = cr_stack.last_mut() {
-                                if parent.resolver_type == "Chaining" {
-                                    parent.children_count += 1;
-                                }
-                            }
-                            config.credential_resolvers.push(cr);
-                        }
-                    }
-                }
+                state.end_element();
             }
             _ => {}
         }
     }
 
-    // Push any remaining metadata providers
-    for mp in mp_stack.drain(..) {
-        config.metadata_providers.push(mp);
-    }
+    // Elements left open at EOF still count
+    state.config.metadata_providers.append(&mut state.mp_stack);
+    state
+        .config
+        .credential_resolvers
+        .append(&mut state.cr_stack);
 
-    // Push any remaining credential resolvers
-    for cr in cr_stack.drain(..) {
-        config.credential_resolvers.push(cr);
-    }
-
-    Ok(config)
+    Ok(state.config)
 }
 
 use super::{get_attr, local_name};
 
-#[allow(clippy::too_many_arguments)]
 fn process_element(
     name: &str,
     e: &quick_xml::events::BytesStart<'_>,
-    stack: &[String],
-    config: &mut ShibbolethConfig,
-    mp_stack: &mut Vec<MetadataProvider>,
-    cr_stack: &mut Vec<CredentialResolver>,
+    state: &mut ParseState,
     is_empty: bool,
-    in_request_map: bool,
-) -> Result<()> {
+) {
+    let ParseState {
+        config,
+        stack,
+        mp_stack,
+        cr_stack,
+        in_request_map,
+    } = state;
+    let in_request_map = *in_request_map;
+
     match name {
         "SPConfig" => {
             config.has_sp_config = true;
@@ -414,7 +415,6 @@ fn process_element(
             }
         _ => {}
     }
-    Ok(())
 }
 
 fn parent_is(stack: &[String], name: &str) -> bool {
