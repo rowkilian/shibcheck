@@ -32,6 +32,13 @@ pub struct ShibbolethConfig {
     pub sso_authn_context_class_ref: Option<String>,
     pub sso_ecp: Option<String>,
     pub sso_authn_context_comparison: Option<String>,
+    pub in_process_check_spoofing: Option<String>,
+    pub isapi_normalize_request: Option<String>,
+    pub isapi_use_headers: Option<String>,
+    /// `id` of each IIS <Site> with useHeaders="true" (empty if it has no id)
+    pub site_use_headers: Vec<String>,
+    pub tcp_listener_acl: Option<String>,
+    pub storage_references: Vec<StorageReference>,
     /// `id` of every <StorageService> element
     pub storage_service_ids: Vec<String>,
     pub data_sealers: Vec<DataSealerInfo>,
@@ -212,6 +219,14 @@ pub struct SessionInitiatorInfo {
     pub initiator_type: Option<String>,
     pub id: Option<String>,
     pub is_default: Option<String>,
+}
+
+/// A reference from a plugin element to a <StorageService> id.
+#[derive(Debug)]
+pub struct StorageReference {
+    pub element: &'static str,
+    pub attribute: &'static str,
+    pub id: String,
 }
 
 #[derive(Debug)]

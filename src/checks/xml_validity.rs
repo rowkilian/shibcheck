@@ -26,6 +26,13 @@ const DOC_NOTIFY: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages
 const DOC_SAML2_SESSION_INITIATOR: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334736/SAML2+SessionInitiator";
 
+const DOC_HANDLER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399676/HandlerCommonAttributes";
+const DOC_SIGNING_ENCRYPTION: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334379/SigningEncryption";
+const DOC_FILE_CREDENTIAL_RESOLVER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335213/FileCredentialResolver";
+
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
 /// Return the SP2 wiki root for V2 configs, otherwise the SP3-specific page URL.
@@ -1286,6 +1293,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     check_notify(config, &mut results);
     check_redirect_limit(config, &mut results);
     check_authn_context_comparison(config, &mut results);
+    check_handler_attributes(config, &mut results);
+    check_credential_use(config, &mut results);
+    check_signing_encryption_values(config, &mut results);
 
     results
 }
@@ -1420,6 +1430,132 @@ fn check_authn_context_comparison(config: &DiscoveredConfig, results: &mut Vec<C
     results.push(result.at_element("SSO"));
 }
 
+/// XML-051: every <Handler> needs `type` and `Location`.
+fn check_handler_attributes(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    let mut any_bad = false;
+    for handler in &sc.handlers {
+        let missing = match (handler.handler_type.is_empty(), handler.location.is_none()) {
+            (true, true) => Some("type and Location"),
+            (true, false) => Some("type"),
+            (false, true) => Some("Location"),
+            (false, false) => None,
+        };
+        if let Some(missing) = missing {
+            any_bad = true;
+            let label = if handler.handler_type.is_empty() {
+                "Handler".to_string()
+            } else {
+                format!("Handler type=\"{}\"", handler.handler_type)
+            };
+            results.push(
+                CheckResult::fail(
+                    "XML-051",
+                    CAT,
+                    Severity::Error,
+                    &format!("{} has no {}", label, missing),
+                    Some("Both type and Location are required on every <Handler>"),
+                )
+                .at_element("Handler")
+                .with_doc(DOC_HANDLER),
+            );
+        }
+    }
+    if !any_bad && !sc.handlers.is_empty() {
+        results.push(
+            CheckResult::pass(
+                "XML-051",
+                CAT,
+                Severity::Error,
+                "All Handler elements have type and Location",
+            )
+            .at_element("Handler"),
+        );
+    }
+}
+
+/// XML-052: a File CredentialResolver `use` is one of signing, TLS or encryption.
+fn check_credential_use(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for resolver in &sc.credential_resolvers {
+        if resolver.resolver_type != "File" {
+            continue;
+        }
+        let Some(ref use_attr) = resolver.use_attr else {
+            continue;
+        };
+        if ["signing", "TLS", "encryption"].contains(&use_attr.as_str()) {
+            results.push(
+                CheckResult::pass(
+                    "XML-052",
+                    CAT,
+                    Severity::Warning,
+                    &format!("CredentialResolver use=\"{}\" is recognized", use_attr),
+                )
+                .at_element("CredentialResolver"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "XML-052",
+                    CAT,
+                    Severity::Warning,
+                    &format!("CredentialResolver use=\"{}\" is not recognized", use_attr),
+                    Some("Use \"signing\", \"TLS\" or \"encryption\" (case-sensitive), or remove use"),
+                )
+                .at_element("CredentialResolver")
+                .with_doc(DOC_FILE_CREDENTIAL_RESOLVER),
+            );
+        }
+    }
+}
+
+/// XML-053: `signing` and `encryption` on ApplicationDefaults take one of five values.
+fn check_signing_encryption_values(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(defaults) = config
+        .shibboleth_config
+        .as_ref()
+        .and_then(|sc| sc.application_defaults.as_ref())
+    else {
+        return;
+    };
+    for (name, value) in [
+        ("signing", defaults.signing.as_deref()),
+        ("encryption", defaults.encryption.as_deref()),
+    ] {
+        let Some(value) = value else {
+            continue;
+        };
+        if ["conditional", "true", "false", "front", "back"].contains(&value) {
+            results.push(
+                CheckResult::pass(
+                    "XML-053",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{}=\"{}\" is a recognized value", name, value),
+                )
+                .at_element("ApplicationDefaults"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "XML-053",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{}=\"{}\" is not a recognized value", name, value),
+                    Some("Use one of conditional, true, false, front or back"),
+                )
+                .at_element("ApplicationDefaults")
+                .with_doc(DOC_SIGNING_ENCRYPTION),
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1528,5 +1664,64 @@ mod tests {
         // Dynamic providers name their sources in child elements
         crate::testutil::assert_absent(&provider(r#"type="Dynamic""#), "XML-029");
         crate::testutil::assert_outcome(&provider(r#"type="XML""#), "XML-029", false);
+    }
+
+    #[test]
+    fn handlers_need_type_and_location() {
+        let handlers = |body: &str| {
+            let xml = crate::testutil::sp3_app("", &format!("<Sessions>{body}</Sessions>"));
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+                .into_iter()
+                .filter(|r| r.code == "XML-051")
+                .collect::<Vec<_>>()
+        };
+        let ok = handlers(r#"<Handler type="Status" Location="/Status"/>"#);
+        assert_eq!(ok.len(), 1);
+        assert!(ok[0].passed);
+        for bad in [
+            r#"<Handler Location="/Status"/>"#,
+            r#"<Handler type="Status"/>"#,
+            r#"<Handler/>"#,
+        ] {
+            let r = handlers(bad);
+            assert_eq!(r.len(), 1, "{bad}");
+            assert!(!r[0].passed, "{bad}");
+        }
+        assert!(handlers("").is_empty());
+    }
+
+    #[test]
+    fn credential_use_and_signing_values() {
+        let run_app2 = |defaults: &str, body: &str| {
+            let (_dir, config) = config_from_xml(&crate::testutil::sp3_app(
+                defaults,
+                &format!("<Sessions><SSO>SAML2</SSO></Sessions>{body}"),
+            ));
+            run(&config)
+        };
+        let r = run_app2(
+            "",
+            r#"<CredentialResolver type="File" use="TLS" key="k.pem" certificate="c.pem"/>"#,
+        );
+        crate::testutil::assert_outcome(&r, "XML-052", true);
+        let r = run_app2(
+            "",
+            r#"<CredentialResolver type="File" use="tls" key="k.pem" certificate="c.pem"/>"#,
+        );
+        crate::testutil::assert_outcome(&r, "XML-052", false);
+        crate::testutil::assert_absent(
+            &run_app2(
+                "",
+                r#"<CredentialResolver type="File" key="k.pem" certificate="c.pem"/>"#,
+            ),
+            "XML-052",
+        );
+
+        let r = run_app2(r#"signing="front""#, "");
+        crate::testutil::assert_outcome(&r, "XML-053", true);
+        let r = run_app2(r#"signing="always""#, "");
+        crate::testutil::assert_outcome(&r, "XML-053", false);
+        crate::testutil::assert_absent(&run_app2("", ""), "XML-053");
     }
 }

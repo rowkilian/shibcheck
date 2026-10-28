@@ -40,6 +40,16 @@ const DOC_STATIC_DATASEALER: &str =
 const DOC_VERSIONED_DATASEALER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2070413454/VersionedDataSealer";
 
+const DOC_INPROCESS: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696243/InProcess";
+const DOC_ISAPI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696253/ISAPI";
+const DOC_LISTENER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334609/Listener";
+const DOC_NULL_SECURITY: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334892/NullSecurity+Rule";
+const DOC_MESSAGE_FLOW: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334545/MessageFlow+Rule";
+
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
 const CODE_CERT_PARSE_ERROR: &str = "SEC-126";
@@ -3918,6 +3928,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     check_application_defaults_flags(sc, v, &mut results);
     check_errors_external_parameters(sc, v, &mut results);
     check_redirect_allow_prefixes(sc, v, &mut results);
+    check_web_server_settings(sc, &mut results);
+    check_policy_rules(config, sc, &mut results);
 
     results
 }
@@ -4148,6 +4160,181 @@ fn check_redirect_allow_prefixes(
     }
 }
 
+/// SEC-133 (checkSpoofing), SEC-134 (ISAPI normalizeRequest), SEC-135 (ISAPI useHeaders)
+/// and SEC-136 (TCPListener acl).
+fn check_web_server_settings(sc: &ShibbolethConfig, results: &mut Vec<CheckResult>) {
+    if let Some(ref value) = sc.in_process_check_spoofing {
+        if value == "false" || value == "0" {
+            results.push(
+                CheckResult::fail(
+                    "SEC-133",
+                    CAT,
+                    Severity::Warning,
+                    "InProcess checkSpoofing is disabled",
+                    Some("Leave checkSpoofing enabled. It rejects requests whose headers clash with names the SP controls; fix false alarms with spoofKey instead"),
+                )
+                .at_element("InProcess")
+                .with_doc(DOC_INPROCESS),
+            );
+        } else {
+            results.push(
+                CheckResult::pass(
+                    "SEC-133",
+                    CAT,
+                    Severity::Warning,
+                    "InProcess checkSpoofing is enabled",
+                )
+                .at_element("InProcess"),
+            );
+        }
+    }
+
+    if sc.isapi_normalize_request.as_deref() == Some("false") {
+        results.push(
+            CheckResult::fail(
+                "SEC-134",
+                CAT,
+                Severity::Warning,
+                "ISAPI normalizeRequest is disabled",
+                Some("Leave normalizeRequest enabled. Turning it off generally causes security issues unless you avoid content settings and the RequestMapper"),
+            )
+            .at_element("ISAPI")
+            .with_doc(DOC_ISAPI),
+        );
+    }
+
+    if sc.isapi_use_headers.as_deref() == Some("true") || !sc.site_use_headers.is_empty() {
+        results.push(
+            CheckResult::fail(
+                "SEC-135",
+                CAT,
+                Severity::Info,
+                "IIS passes attributes as HTTP headers (useHeaders=\"true\")",
+                Some("Avoid useHeaders and read attributes from server variables. Headers are only there for compatibility with applications written for the old ISAPI extension"),
+            )
+            .at_element("ISAPI")
+            .with_doc(DOC_ISAPI),
+        );
+    }
+
+    if let Some(ref acl) = sc.tcp_listener_acl {
+        if acl_is_loopback_only(acl) {
+            results.push(
+                CheckResult::pass(
+                    "SEC-136",
+                    CAT,
+                    Severity::Warning,
+                    "TCPListener acl is limited to loopback",
+                )
+                .at_element("TCPListener"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-136",
+                    CAT,
+                    Severity::Warning,
+                    &format!("TCPListener acl allows non-loopback addresses: {}", acl),
+                    Some("Keep the listener on 127.0.0.1 and ::1. The shibd link is not secured, so any other address needs a network you control"),
+                )
+                .at_element("TCPListener")
+                .with_doc(DOC_LISTENER),
+            );
+        }
+    }
+}
+
+/// Line of `attr="value"` or `attr='value'` in `content`.
+fn find_attr_value_line(content: &str, attr: &str, value: &str) -> Option<usize> {
+    crate::location::find_line(content, &format!("{}=\"{}\"", attr, value))
+        .or_else(|| crate::location::find_line(content, &format!("{}='{}'", attr, value)))
+}
+
+/// SEC-137 (NullSecurity rule) and SEC-138 (MessageFlow checkReplay="false"), in
+/// security-policy.xml and in policies written inline in shibboleth2.xml.
+fn check_policy_rules(
+    config: &DiscoveredConfig,
+    sc: &ShibbolethConfig,
+    results: &mut Vec<CheckResult>,
+) {
+    let file_name = |path: &std::path::Path| {
+        path.file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let mut sources: Vec<(String, String)> = Vec::new();
+    if let Some(ref content) = config.shibboleth_xml_content {
+        sources.push((file_name(&config.shibboleth_xml_path), content.clone()));
+    }
+    let policy_path = match sc.security_policy_provider_path {
+        Some(ref p) => config.resolve_path(p),
+        None => config.base_dir.join("security-policy.xml"),
+    };
+    if let Ok(content) = std::fs::read_to_string(&policy_path) {
+        sources.push((file_name(&policy_path), content));
+    }
+    if sources.is_empty() {
+        return;
+    }
+
+    struct Rule {
+        code: &'static str,
+        severity: Severity,
+        fail_message: &'static str,
+        suggestion: &'static str,
+        attr: &'static str,
+        value: &'static str,
+        pass_message: &'static str,
+        doc: &'static str,
+    }
+    let rules = [
+        Rule {
+            code: "SEC-137",
+            severity: Severity::Error,
+            fail_message: "A NullSecurity policy rule is configured",
+            suggestion: "Remove the NullSecurity rule. It disables security checks and lets unauthenticated messages through; it is for debugging only",
+            attr: "type",
+            value: "NullSecurity",
+            pass_message: "No NullSecurity policy rule is configured",
+            doc: DOC_NULL_SECURITY,
+        },
+        Rule {
+            code: "SEC-138",
+            severity: Severity::Warning,
+            fail_message: "A MessageFlow policy rule disables the replay check (checkReplay=\"false\")",
+            suggestion: "Remove checkReplay=\"false\". Do not turn off the replay check in production",
+            attr: "checkReplay",
+            value: "false",
+            pass_message: "No policy rule disables the replay check",
+            doc: DOC_MESSAGE_FLOW,
+        },
+    ];
+    for rule in rules {
+        let hit = sources.iter().find_map(|(name, content)| {
+            find_attr_value_line(content, rule.attr, rule.value).map(|line| (name.clone(), line))
+        });
+        match hit {
+            Some((name, line)) => results.push(
+                CheckResult::fail(
+                    rule.code,
+                    CAT,
+                    rule.severity,
+                    rule.fail_message,
+                    Some(rule.suggestion),
+                )
+                .with_location(&name, Some(line))
+                .with_doc(rule.doc),
+            ),
+            None => results.push(CheckResult::pass(
+                rule.code,
+                CAT,
+                rule.severity,
+                rule.pass_message,
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4370,5 +4557,94 @@ mod tests {
         );
         assert_outcome(&run_app(r#"attributePrefix="AJP_""#, ""), "SEC-132", true);
         assert_absent(&run_app("", ""), "SEC-132");
+    }
+
+    #[test]
+    fn check_spoofing_disabled_is_flagged() {
+        let r = run_app("", r#"<InProcess checkSpoofing="false"/>"#);
+        assert_outcome(&r, "SEC-133", false);
+        let r = run_app("", r#"<InProcess checkSpoofing="true"/>"#);
+        assert_outcome(&r, "SEC-133", true);
+        assert_absent(&run_app("", r#"<InProcess/>"#), "SEC-133");
+    }
+
+    #[test]
+    fn isapi_settings() {
+        let r = run_app(
+            "",
+            r#"<InProcess><ISAPI normalizeRequest="false"/></InProcess>"#,
+        );
+        assert_outcome(&r, "SEC-134", false);
+        assert_absent(
+            &run_app("", r#"<ISAPI normalizeRequest="true"/>"#),
+            "SEC-134",
+        );
+
+        let r = run_app("", r#"<ISAPI useHeaders="true"/>"#);
+        assert_outcome(&r, "SEC-135", false);
+        let r = run_app(
+            "",
+            r#"<ISAPI><Site id="1" name="a.example" useHeaders="true"/></ISAPI>"#,
+        );
+        assert_outcome(&r, "SEC-135", false);
+        assert_absent(
+            &run_app("", r#"<ISAPI><Site id="1" name="a.example"/></ISAPI>"#),
+            "SEC-135",
+        );
+    }
+
+    #[test]
+    fn tcp_listener_acl() {
+        let r = run_app(
+            "",
+            r#"<TCPListener address="127.0.0.1" port="1600" acl="127.0.0.1 ::1"/>"#,
+        );
+        assert_outcome(&r, "SEC-136", true);
+        let r = run_app(
+            "",
+            r#"<TCPListener address="127.0.0.1" port="1600" acl="10.0.0.0/8"/>"#,
+        );
+        assert_outcome(&r, "SEC-136", false);
+        assert_absent(
+            &run_app("", r#"<TCPListener address="127.0.0.1"/>"#),
+            "SEC-136",
+        );
+    }
+
+    fn run_with_policy(shib_body: &str, policy: Option<&str>) -> Vec<CheckResult> {
+        let dir = crate::testutil::TestDir::new();
+        dir.write("shibboleth2.xml", &crate::testutil::sp3_app("", shib_body));
+        if let Some(policy) = policy {
+            dir.write("security-policy.xml", policy);
+        }
+        run(&dir.discover())
+    }
+
+    #[test]
+    fn policy_rules_in_security_policy_file() {
+        let policy = r#"<SecurityPolicies>
+  <Policy id="default">
+    <PolicyRule type="NullSecurity"/>
+    <PolicyRule type="MessageFlow" checkReplay="false"/>
+  </Policy>
+</SecurityPolicies>"#;
+        let r = run_with_policy("", Some(policy));
+        assert_outcome(&r, "SEC-137", false);
+        assert_outcome(&r, "SEC-138", false);
+        let hit = r.iter().find(|r| r.code == "SEC-137").unwrap();
+        let loc = hit.location.as_ref().unwrap();
+        assert_eq!(loc.file, "security-policy.xml");
+        assert_eq!(loc.line, Some(3));
+    }
+
+    #[test]
+    fn clean_policy_passes_and_missing_policy_is_not_reported() {
+        let policy = r#"<SecurityPolicies><Policy id="default"><PolicyRule type="MessageFlow" checkReplay="true"/></Policy></SecurityPolicies>"#;
+        let r = run_with_policy("", Some(policy));
+        assert_outcome(&r, "SEC-137", true);
+        assert_outcome(&r, "SEC-138", true);
+        // Without security-policy.xml the inline config is still scanned
+        let r = run_with_policy(r#"<PolicyRule type="NullSecurity"/>"#, None);
+        assert_outcome(&r, "SEC-137", false);
     }
 }

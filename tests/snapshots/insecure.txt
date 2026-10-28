@@ -119,6 +119,8 @@ SEC-109 pass shibboleth2.xml
 SEC-117 fail shibboleth2.xml:20
 SEC-119 pass shibboleth2.xml
 SEC-120 fail shibboleth2.xml:23
+SEC-137 pass shibboleth2.xml
+SEC-138 pass shibboleth2.xml
 XML-001 pass shibboleth2.xml:1
 XML-002 pass shibboleth2.xml:1
 XML-003 pass shibboleth2.xml:1
@@ -155,3 +157,4 @@ XML-039 fail shibboleth2.xml
 XML-044 fail shibboleth2.xml:28
 XML-048 pass shibboleth2.xml:25
 XML-049 pass shibboleth2.xml:11
+XML-051 pass shibboleth2.xml:40

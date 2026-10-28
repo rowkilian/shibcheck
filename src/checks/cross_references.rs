@@ -215,6 +215,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     }
 
     check_storage_references(sc, v, &mut results);
+    check_plugin_storage_references(sc, v, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
     for mp in &sc.metadata_providers {
@@ -1439,6 +1440,52 @@ fn check_local_metadata_saml(
     }
 }
 
+/// A StorageService id is defined if some <StorageService> has it, or it is the built-in
+/// in-memory "mem" service that exists when none is configured.
+fn storage_id_defined(sc: &crate::model::shibboleth_config::ShibbolethConfig, id: &str) -> bool {
+    sc.storage_service_ids.iter().any(|s| s == id)
+        || (id == "mem" && sc.storage_service_ids.is_empty())
+}
+
+/// REF-039: SessionCache, ReplayCache and ArtifactMap `StorageService` references.
+fn check_plugin_storage_references(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    v: SpVersion,
+    results: &mut Vec<CheckResult>,
+) {
+    for reference in &sc.storage_references {
+        if storage_id_defined(sc, &reference.id) {
+            results.push(
+                CheckResult::pass(
+                    "REF-039",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "{} {} references StorageService '{}'",
+                        reference.element, reference.attribute, reference.id
+                    ),
+                )
+                .at_element(reference.element),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-039",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "{} {} references StorageService '{}', which is not defined",
+                        reference.element, reference.attribute, reference.id
+                    ),
+                    Some("Define a <StorageService> with this id, or point the attribute at an existing one"),
+                )
+                .at_element(reference.element)
+                .with_doc(doc_for(DOC_STORAGE_SERVICE, v)),
+            );
+        }
+    }
+}
+
 /// REF-038: `postData` and `relayState` of the form `ss:<id>` must name a configured
 /// StorageService. SP3 provides an in-memory one, id "mem", when none is configured.
 fn check_storage_references(
@@ -1456,9 +1503,7 @@ fn check_storage_references(
         let Some(id) = value.and_then(|v| v.strip_prefix("ss:")) else {
             continue;
         };
-        let known = sc.storage_service_ids.iter().any(|s| s == id)
-            || (id == "mem" && sc.storage_service_ids.is_empty());
-        if known {
+        if storage_id_defined(sc, id) {
             results.push(
                 CheckResult::pass(
                     "REF-038",
@@ -1848,5 +1893,40 @@ mod tests {
             false,
         );
         assert_absent(&run_storage(r#"relayState="cookie""#, ""), "REF-038");
+    }
+
+    #[test]
+    fn plugin_storage_references_must_resolve() {
+        use crate::testutil::{assert_absent, assert_outcome};
+        let with = |extra: &str| run_storage("", extra);
+        let defined = r#"<StorageService type="Memory" id="db"/>"#;
+        assert_outcome(
+            &with(&format!(r#"{defined}<ReplayCache StorageService="db"/>"#)),
+            "REF-039",
+            true,
+        );
+        assert_outcome(
+            &with(r#"<ReplayCache StorageService="gone"/>"#),
+            "REF-039",
+            false,
+        );
+        assert_outcome(
+            &with(r#"<ReplayCache StorageService="mem"/>"#),
+            "REF-039",
+            true,
+        );
+        assert_outcome(
+            &with(&format!(r#"{defined}<ArtifactMap StorageService="nope"/>"#)),
+            "REF-039",
+            false,
+        );
+        assert_outcome(
+            &with(&format!(
+                r#"{defined}<SessionCache type="StorageService" StorageServiceLite="nope"/>"#
+            )),
+            "REF-039",
+            false,
+        );
+        assert_absent(&with("<ReplayCache/>"), "REF-039");
     }
 }

@@ -69,6 +69,8 @@ SEC-095 pass shibboleth2.xml:6
 SEC-106 fail shibboleth2.xml:2
 SEC-126 fail shibboleth2.xml
 SEC-126 fail shibboleth2.xml
+SEC-137 pass shibboleth2.xml
+SEC-138 pass shibboleth2.xml
 XML-001 pass shibboleth2.xml:1
 XML-002 pass shibboleth2.xml:1
 XML-003 fail shibboleth2.xml:1

@@ -2682,6 +2682,41 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // OPS-080: Cookie SessionInitiator reads the IdP history cookie, which needs idpHistory
+    if sc
+        .session_initiators
+        .iter()
+        .any(|i| i.initiator_type.as_deref() == Some("Cookie"))
+    {
+        let enabled = sc
+            .sessions
+            .as_ref()
+            .is_some_and(|s| s.idp_history.as_deref() == Some("true"));
+        if enabled {
+            results.push(
+                CheckResult::pass(
+                    "OPS-080",
+                    CAT,
+                    Severity::Warning,
+                    "Cookie SessionInitiator has idpHistory enabled",
+                )
+                .at_element("SessionInitiator"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-080",
+                    CAT,
+                    Severity::Warning,
+                    "Cookie SessionInitiator is configured but idpHistory is not enabled",
+                    Some("Set idpHistory=\"true\" on <Sessions>; the initiator reads the cookie that feature maintains"),
+                )
+                .at_element("SessionInitiator")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334760/Cookie+SessionInitiator"),
+            );
+        }
+    }
+
     // OPS-079: postData without postTemplate
     if let Some(ref sessions) = sc.sessions {
         if sessions.post_data.is_some() {
@@ -2759,5 +2794,30 @@ mod tests {
             true,
         );
         assert_absent(&run_sessions(""), "OPS-079");
+    }
+
+    #[test]
+    fn cookie_initiator_needs_idp_history() {
+        use crate::testutil::{assert_absent, assert_outcome, sp3_app};
+        let run_sessions = |attrs: &str, initiators: &str| {
+            let (_dir, config) = config_from_xml(&sp3_app(
+                "",
+                &format!("<Sessions {attrs}>{initiators}</Sessions>"),
+            ));
+            run(&config)
+        };
+        let cookie = r#"<SessionInitiator type="Cookie" Location="/Cookie"/>"#;
+        assert_outcome(&run_sessions("", cookie), "OPS-080", false);
+        assert_outcome(
+            &run_sessions(r#"idpHistory="false""#, cookie),
+            "OPS-080",
+            false,
+        );
+        assert_outcome(
+            &run_sessions(r#"idpHistory="true""#, cookie),
+            "OPS-080",
+            true,
+        );
+        assert_absent(&run_sessions("", ""), "OPS-080");
     }
 }

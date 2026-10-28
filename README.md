@@ -69,7 +69,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 312+ checks across five categories.
 
-### XML Validity (XML-001 to XML-050)
+### XML Validity (XML-001 to XML-053)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -123,8 +123,11 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-048 | `Notify` has `Channel` (`front`/`back`) and an absolute `Location` | Error |
 | XML-049 | `redirectLimit` is a recognized value | Warning |
 | XML-050 | `authnContextComparison` is a recognized value and has an `authnContextClassRef` | Warning |
+| XML-051 | Every `Handler` has `type` and `Location` | Error |
+| XML-052 | File `CredentialResolver` `use` is `signing`, `TLS` or `encryption` | Warning |
+| XML-053 | `signing` / `encryption` on `ApplicationDefaults` is a recognized value | Warning |
 
-### Cross-file References (REF-001 to REF-038)
+### Cross-file References (REF-001 to REF-039)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -165,8 +168,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-036 | `attribute-map` entries have matching `attribute-policy` rules | Info |
 | REF-037 | Persistent NameID source uses a scoped attribute | Warning |
 | REF-038 | `postData` / `relayState` `ss:<id>` names a defined `StorageService` | Error |
+| REF-039 | `SessionCache` / `ReplayCache` / `ArtifactMap` `StorageService` names a defined service | Error |
 
-### Security (SEC-001 to SEC-132)
+### Security (SEC-001 to SEC-138)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -301,8 +305,14 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-130 | `redirectAllow` entries end with a slash after the host | Warning |
 | SEC-131 | `Errors` `externalParameters` is not enabled | Warning |
 | SEC-132 | `attributePrefix` does not start with `HTTP_` | Error |
+| SEC-133 | `InProcess` `checkSpoofing` is not disabled | Warning |
+| SEC-134 | ISAPI `normalizeRequest` is not disabled | Warning |
+| SEC-135 | IIS does not pass attributes as headers (`useHeaders`) | Info |
+| SEC-136 | `TCPListener` `acl` is limited to loopback | Warning |
+| SEC-137 | No `NullSecurity` policy rule | Error |
+| SEC-138 | No policy rule sets `checkReplay="false"` | Warning |
 
-### Operational (OPS-001 to OPS-079)
+### Operational (OPS-001 to OPS-080)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -385,6 +395,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-077 | `Sessions` `lifetime`/`timeout`/`maxTimeSinceAuthn` are internally consistent | Warning |
 | OPS-078 | `NameIDFormat` prefers transient over persistent/unspecified | Info |
 | OPS-079 | `postData` has a `postTemplate` | Info |
+| OPS-080 | `Cookie` `SessionInitiator` has `idpHistory` enabled | Warning |
 
 ### Migration (MIG-001 to MIG-024)
 

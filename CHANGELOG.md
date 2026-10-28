@@ -21,6 +21,14 @@ All notable changes to shibcheck are documented in this file.
 - **XML-050**: `authnContextComparison` must be a documented value and is ignored without `authnContextClassRef`.
 - **REF-038**: `postData` / `relayState` values of the form `ss:<id>` must name a defined `StorageService` (`mem` is built in when none is configured).
 - **OPS-079**: `postData` without `postTemplate`.
+- **SEC-133**: `InProcess` `checkSpoofing` disabled.
+- **SEC-134** / **SEC-135**: ISAPI `normalizeRequest="false"`, and `useHeaders="true"` on `ISAPI` or a `Site`.
+- **SEC-136**: `TCPListener` `acl` allows non-loopback addresses.
+- **SEC-137** / **SEC-138**: a `NullSecurity` policy rule, and `checkReplay="false"` on a policy rule, in `security-policy.xml` or inline.
+- **XML-051**: `Handler` without `type` or `Location`.
+- **XML-052** / **XML-053**: `use` on a File `CredentialResolver`, and `signing` / `encryption` on `ApplicationDefaults`, must be documented values.
+- **REF-039**: `StorageService` / `StorageServiceLite` references from `SessionCache`, `ReplayCache` and `ArtifactMap` must name a defined service.
+- **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
 
 ### Changed
 - **SEC-017** now flags a `SameSite` attribute in `cookieProps` (SP3) instead of asking for one. The SameSite and Sessions docs say supported SP versions add the right value to each cookie and `cookieProps` should not set it. Severity is Warning. `--fix` no longer adds `SameSite=None`.

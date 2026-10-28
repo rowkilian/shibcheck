@@ -151,7 +151,42 @@ fn process_element(
         "TCPListener" | "UnixListener"
             if config.tcp_listener_address.is_none() => {
                 config.tcp_listener_address = get_attr(e, "address");
+                config.tcp_listener_acl = get_attr(e, "acl");
             }
+        "InProcess" => {
+            config.in_process_check_spoofing = get_attr(e, "checkSpoofing");
+        }
+        "ISAPI" => {
+            config.isapi_normalize_request = get_attr(e, "normalizeRequest");
+            config.isapi_use_headers = get_attr(e, "useHeaders");
+        }
+        "Site" if get_attr(e, "useHeaders").as_deref() == Some("true") => {
+            config
+                .site_use_headers
+                .push(get_attr(e, "id").unwrap_or_default());
+        }
+        "SessionCache" | "ReplayCache" | "ArtifactMap" => {
+            let element = match name {
+                "SessionCache" => "SessionCache",
+                "ReplayCache" => "ReplayCache",
+                _ => "ArtifactMap",
+            };
+            for attribute in ["StorageService", "StorageServiceLite"] {
+                if let Some(id) = get_attr(e, attribute) {
+                    config
+                        .storage_references
+                        .push(crate::model::shibboleth_config::StorageReference {
+                            element,
+                            attribute: if attribute == "StorageService" {
+                                "StorageService"
+                            } else {
+                                "StorageServiceLite"
+                            },
+                            id,
+                        });
+                }
+            }
+        }
         "ApplicationDefaults" => {
             config.has_application_defaults = true;
             config.entity_id = get_attr(e, "entityID");
