@@ -1,21 +1,3 @@
-mod checks;
-mod cli;
-mod config;
-mod diff;
-mod filter;
-mod fix;
-mod http;
-mod init_test_idp;
-pub mod location;
-mod model;
-mod output;
-mod parsers;
-mod rc_config;
-mod result;
-#[cfg(test)]
-mod testutil;
-mod watch;
-
 use std::path::PathBuf;
 use std::process;
 
@@ -23,9 +5,10 @@ use clap::Parser;
 use clap_complete::generate;
 use colored::control;
 
-use cli::{Cli, Command, SeverityArg};
-use output::OutputFormat;
-use result::{CheckSummary, Severity};
+use shibcheck::cli::{Cli, Command, SeverityArg};
+use shibcheck::output::{self, OutputFormat};
+use shibcheck::result::{self, CheckSummary, Severity};
+use shibcheck::{checks, config, diff, filter, fix, init_test_idp, rc_config, watch};
 
 fn main() {
     let cli = Cli::parse();
