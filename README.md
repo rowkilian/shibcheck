@@ -67,7 +67,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 ## Checks Reference
 
-312+ checks across five categories.
+330+ checks across five categories.
 
 ### XML Validity (XML-001 to XML-053)
 
