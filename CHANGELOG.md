@@ -16,6 +16,17 @@ All notable changes to shibcheck are documented in this file.
 - **REF-001** and **REF-002** messages now include the `CredentialResolver` `use=` or certificate/key path label, so findings are distinguishable when multiple resolvers are configured.
 - **XML-033**, **XML-034**, **XML-035** now strip namespace prefixes (e.g., `md:XML` → `XML`) before type comparison, and skip empty-type elements instead of flagging them as unrecognized — removing false positives on namespaced or partial configs.
 
+### Fixed
+- Attribute values are now entity-decoded when parsed, so a metadata `uri` containing `&amp;` is read as `&`. Source-line lookup matches both forms.
+- A self-closing root element (e.g. `<EntityDescriptor/>`) was reported as an empty XML document by the local and remote metadata checks.
+
+### Internal
+- Remote metadata URLs (REF-009) are fetched concurrently; results keep provider order.
+- Source locations for single-element checks are set at the check site with `CheckResult::at_element`, replacing the code-to-element table in `locate_check`.
+- Unit tests for the security, operational and cross-reference checks, plus snapshot tests that pin every result and location for each fixture (`UPDATE_SNAPSHOTS=1 cargo test` regenerates them).
+- Crate split into a library and a thin binary.
+- CI lints test code, runs on macOS (and Windows, non-blocking), and runs `cargo audit`.
+
 ## [0.8.0]
 
 ### Fixed
