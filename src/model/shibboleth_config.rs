@@ -25,10 +25,16 @@ pub struct ShibbolethConfig {
     pub security_policy_provider_path: Option<String>,
     pub application_override_ids: Vec<String>,
     pub handlers: Vec<HandlerInfo>,
+    /// `Location` of each <Notify> that has one
     pub notify_endpoints: Vec<String>,
+    pub notify_elements: Vec<NotifyInfo>,
     pub application_override_entity_ids: Vec<(String, Option<String>)>,
     pub sso_authn_context_class_ref: Option<String>,
     pub sso_ecp: Option<String>,
+    pub sso_authn_context_comparison: Option<String>,
+    /// `id` of every <StorageService> element
+    pub storage_service_ids: Vec<String>,
+    pub data_sealers: Vec<DataSealerInfo>,
     pub security_policy_provider_validate: Option<String>,
     pub tcp_listener_address: Option<String>,
     pub request_map_application_ids: Vec<String>,
@@ -50,6 +56,8 @@ pub struct ApplicationDefaults {
     pub digest_alg: Option<String>,
     pub require_transport_auth: Option<String>,
     pub require_confidentiality: Option<String>,
+    pub attribute_prefix: Option<String>,
+    pub artifact_by_filesystem: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -78,6 +86,7 @@ pub struct SessionsConfig {
     pub same_site_fallback: Option<String>,
     pub same_site_session: Option<String>,
     pub post_data: Option<String>,
+    pub post_template: Option<String>,
     pub logout_outgoing_bindings: Option<String>,
     pub max_time_since_authn: Option<String>,
     pub cookie_lifetime: Option<String>,
@@ -102,6 +111,7 @@ pub struct MetadataProvider {
     pub id_attr: Option<String>,
     pub validate_attr: Option<String>,
     pub ignore_transport: Option<String>,
+    pub base_url: Option<String>,
 }
 
 impl MetadataProvider {
@@ -186,6 +196,7 @@ pub struct ErrorsConfig {
     pub local_logout: Option<String>,
     pub metadata_error: Option<String>,
     pub global_logout: Option<String>,
+    pub external_parameters: Option<String>,
 }
 
 #[derive(Debug)]
@@ -201,6 +212,21 @@ pub struct SessionInitiatorInfo {
     pub initiator_type: Option<String>,
     pub id: Option<String>,
     pub is_default: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct DataSealerInfo {
+    pub sealer_type: String,
+    pub has_key: bool,
+    pub path: Option<String>,
+    pub url: Option<String>,
+    pub backing_file_path: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct NotifyInfo {
+    pub channel: Option<String>,
+    pub location: Option<String>,
 }
 
 #[derive(Debug)]

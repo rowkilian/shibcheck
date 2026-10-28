@@ -22,7 +22,7 @@
 
             <SessionInitiator type="Shib1" id="legacy"/>
 
-            <Notify Channel="http://app.example.org/notify"/>
+            <Notify Channel="back" Location="http://app.example.org/notify"/>
         </Sessions>
 
         <MetadataProvider type="XML"

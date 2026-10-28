@@ -32,7 +32,10 @@ const DOC_ATTR_FILTER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
 const DOC_ATTR_ACCESS: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess";
-const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors";
+const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334361/Errors";
+
+const DOC_STORAGE_SERVICE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334626/StorageService";
 
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
@@ -210,6 +213,8 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
             .collect();
         results.extend(check_remote_metadata_all(&agent, &urls, v));
     }
+
+    check_storage_references(sc, v, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
     for mp in &sc.metadata_providers {
@@ -1434,6 +1439,51 @@ fn check_local_metadata_saml(
     }
 }
 
+/// REF-038: `postData` and `relayState` of the form `ss:<id>` must name a configured
+/// StorageService. SP3 provides an in-memory one, id "mem", when none is configured.
+fn check_storage_references(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    v: SpVersion,
+    results: &mut Vec<CheckResult>,
+) {
+    let Some(ref sessions) = sc.sessions else {
+        return;
+    };
+    for (attr, value) in [
+        ("postData", sessions.post_data.as_deref()),
+        ("relayState", sessions.relay_state.as_deref()),
+    ] {
+        let Some(id) = value.and_then(|v| v.strip_prefix("ss:")) else {
+            continue;
+        };
+        let known = sc.storage_service_ids.iter().any(|s| s == id)
+            || (id == "mem" && sc.storage_service_ids.is_empty());
+        if known {
+            results.push(
+                CheckResult::pass(
+                    "REF-038",
+                    CAT,
+                    Severity::Error,
+                    &format!("{} references StorageService '{}'", attr, id),
+                )
+                .at_element("Sessions"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-038",
+                    CAT,
+                    Severity::Error,
+                    &format!("{} references StorageService '{}', which is not defined", attr, id),
+                    Some("Define a <StorageService> with this id, or point the setting at an existing one (the default is ss:mem)"),
+                )
+                .at_element("Sessions")
+                .with_doc(doc_for(DOC_STORAGE_SERVICE, v)),
+            );
+        }
+    }
+}
+
 /// Fetch and validate each URL concurrently so slow hosts don't add up.
 /// Results come back in the order of `urls`.
 fn check_remote_metadata_all(agent: &ureq::Agent, urls: &[&str], v: SpVersion) -> Vec<CheckResult> {
@@ -1764,5 +1814,39 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(!results[0].passed);
         assert_eq!(results[0].code, "REF-009");
+    }
+
+    fn run_storage(sessions_attrs: &str, extra: &str) -> Vec<CheckResult> {
+        let xml = crate::testutil::sp3_app(
+            "",
+            &format!("<Sessions {sessions_attrs}><SSO>SAML2</SSO></Sessions>{extra}"),
+        );
+        let (_dir, config) = crate::testutil::config_from_xml(&xml);
+        run(&config, false)
+    }
+
+    #[test]
+    fn storage_references_must_resolve() {
+        use crate::testutil::{assert_absent, assert_outcome};
+        // The built-in "mem" service exists when nothing is configured
+        assert_outcome(&run_storage(r#"relayState="ss:mem""#, ""), "REF-038", true);
+        // Once StorageServices are configured, "mem" must be one of them
+        let other = r#"<StorageService type="Memory" id="other"/>"#;
+        assert_outcome(
+            &run_storage(r#"relayState="ss:mem""#, other),
+            "REF-038",
+            false,
+        );
+        assert_outcome(
+            &run_storage(r#"relayState="ss:other""#, other),
+            "REF-038",
+            true,
+        );
+        assert_outcome(
+            &run_storage(r#"postData="ss:nope""#, other),
+            "REF-038",
+            false,
+        );
+        assert_absent(&run_storage(r#"relayState="cookie""#, ""), "REF-038");
     }
 }

@@ -153,3 +153,5 @@ XML-035 pass shibboleth2.xml:28
 XML-037 pass shibboleth2.xml
 XML-039 fail shibboleth2.xml
 XML-044 fail shibboleth2.xml:28
+XML-048 pass shibboleth2.xml:25
+XML-049 pass shibboleth2.xml:11

@@ -4,7 +4,7 @@ use crate::result::{CheckCategory, CheckResult, Severity};
 
 const CAT: CheckCategory = CheckCategory::Migration;
 const DOC_UPGRADE: &str =
-    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335062/Upgrading";
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067400004/UpgradingFromV2";
 
 /// Each registered migration check receives the discovered config plus the parsed
 /// `ShibbolethConfig` and returns zero or more `CheckResult`s.

@@ -69,7 +69,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 312+ checks across five categories.
 
-### XML Validity (XML-001 to XML-047)
+### XML Validity (XML-001 to XML-050)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -101,7 +101,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-026 | No duplicate `ApplicationOverride` id | Error |
 | XML-027 | `SSO` protocol text contains valid values | Warning |
 | XML-028 | `Logout` protocol text contains valid values | Warning |
-| XML-029 | `MetadataProvider` has a data source (path/url/uri/sourceDirectory) | Error |
+| XML-029 | `MetadataProvider` has a data source (`path`/`url`/`uri`/`sourceDirectory`, or `baseUrl` for `MDQ`) | Error |
 | XML-030 | File `CredentialResolver` has both certificate and key | Warning |
 | XML-031 | `Errors` element configured | Info |
 | XML-032 | `Errors` element has `helpLocation` attribute | Info |
@@ -120,8 +120,11 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-045 | `isPassive="true"` combined with `requireSession="true"` | Warning |
 | XML-046 | `requireSession="true"` without `authType` | Warning |
 | XML-047 | `RequestMapper` `type="XML"` (web server directives ignored) | Info |
+| XML-048 | `Notify` has `Channel` (`front`/`back`) and an absolute `Location` | Error |
+| XML-049 | `redirectLimit` is a recognized value | Warning |
+| XML-050 | `authnContextComparison` is a recognized value and has an `authnContextClassRef` | Warning |
 
-### Cross-file References (REF-001 to REF-037)
+### Cross-file References (REF-001 to REF-038)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -161,8 +164,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-035 | Local metadata `validUntil` expiring (tiered: Warning < 30d, Info < 90d) | Warning |
 | REF-036 | `attribute-map` entries have matching `attribute-policy` rules | Info |
 | REF-037 | Persistent NameID source uses a scoped attribute | Warning |
+| REF-038 | `postData` / `relayState` `ss:<id>` names a defined `StorageService` | Error |
 
-### Security (SEC-001 to SEC-127)
+### Security (SEC-001 to SEC-132)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -278,7 +282,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-111 | Error template paths are not absolute URLs (no external redirect) | Info |
 | SEC-112 | Scoped attributes have scope validation in attribute policy | Warning |
 | SEC-113 | `DiagnosticService` handler has ACL | Warning |
-| SEC-114 | `DataSealer` has explicit `keyStorePath` configured | Warning |
+| SEC-114 | `DataSealer` is not `Static` (key in the config) and a remote `Versioned` one has `backingFilePath` | Warning |
 | SEC-115 | Informational handlers at default paths have ACL | Info |
 | SEC-116 | `ApplicationOverride` `entityID` uses HTTPS | Warning |
 | SEC-117 | SSO `discoveryProtocol` is not WAYF (outdated) | Info |
@@ -292,8 +296,13 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-125 | `ApplicationOverride` `entityID` differs from parent | Info |
 | SEC-126 | Certificate / key file parses as valid PEM (surfaces silent parse failures) | Warning |
 | SEC-127 | `sameSiteSession` is `Lax` (not `None`, `Strict` or unrecognized) | Warning |
+| SEC-128 | `ExternalAuth` / `AttributeResolver` handler `acl` is limited to loopback | Warning |
+| SEC-129 | `artifactByFilesystem` is not enabled | Info |
+| SEC-130 | `redirectAllow` entries end with a slash after the host | Warning |
+| SEC-131 | `Errors` `externalParameters` is not enabled | Warning |
+| SEC-132 | `attributePrefix` does not start with `HTTP_` | Error |
 
-### Operational (OPS-001 to OPS-078)
+### Operational (OPS-001 to OPS-079)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -375,6 +384,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-076 | `DiscoveryFeed` handler enabled (exposes IdP list) | Info |
 | OPS-077 | `Sessions` `lifetime`/`timeout`/`maxTimeSinceAuthn` are internally consistent | Warning |
 | OPS-078 | `NameIDFormat` prefers transient over persistent/unspecified | Info |
+| OPS-079 | `postData` has a `postTemplate` | Info |
 
 ### Migration (MIG-001 to MIG-024)
 

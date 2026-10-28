@@ -10,13 +10,30 @@ All notable changes to shibcheck are documented in this file.
 - **REF-036**: Cross-file attribute coverage check — flags attributes declared in `attribute-map.xml` that have no matching rule in `attribute-policy.xml` (silently filtered out under deny-all).
 - **REF-037**: Persistent NameID source scoping check — flags unscoped source attributes (e.g., `uid`, `mail`) used for persistent NameID generation, where a scoped attribute validated via `ScopeMatchesShibMDScope` is required.
 
+- **SEC-127**: `sameSiteSession` check (SP 3.1+) — `None` makes the session cookie cross-site, `Strict` generally does not work, other values are invalid.
+- **SEC-128**: `ExternalAuth` and `AttributeResolver` handler `acl` must be loopback only; these handlers have no other protection.
+- **SEC-129**: flags `artifactByFilesystem="true"` (file-based external authentication).
+- **SEC-130**: `redirectAllow` / `redirectWhitelist` entries must end with a slash after the host, or `https://example.com` also matches `example.com.evil.com`.
+- **SEC-131**: flags `Errors` `externalParameters="true"` (XSS and phishing risk in error pages).
+- **SEC-132**: `attributePrefix` must not start with `HTTP_` (IIS treats those server variables as request headers).
+- **XML-048**: `Notify` needs `Channel` (`front` or `back`) and an absolute `Location`.
+- **XML-049**: `redirectLimit` must be a documented value.
+- **XML-050**: `authnContextComparison` must be a documented value and is ignored without `authnContextClassRef`.
+- **REF-038**: `postData` / `relayState` values of the form `ss:<id>` must name a defined `StorageService` (`mem` is built in when none is configured).
+- **OPS-079**: `postData` without `postTemplate`.
+
 ### Changed
+- **SEC-017** now flags a `SameSite` attribute in `cookieProps` (SP3) instead of asking for one. The SameSite and Sessions docs say supported SP versions add the right value to each cookie and `cookieProps` should not set it. Severity is Warning. `--fix` no longer adds `SameSite=None`.
+- **SEC-114** (`DataSealer`) no longer looks for `keyStorePath` / `keyStorePassword`, which do not exist in SP3. It now flags a `Static` sealer (secret key in `shibboleth2.xml`) and a `Versioned` sealer that loads keys from a `url` without `backingFilePath`.
 - **REF-035** (metadata `validUntil` expiry) now tiers severity: Warning if expiring within 30 days (critical), Info if within 90 days (planning window), pass otherwise. Previously a single Info-level 30-day threshold.
 - **REF-021** (metadata signing certificate expiry) now also tiers expiring-soon at Warning (<=30d) / Info (<=90d), in addition to the existing Warning for already-expired certs.
 - **REF-001** and **REF-002** messages now include the `CredentialResolver` `use=` or certificate/key path label, so findings are distinguishable when multiple resolvers are configured.
 - **XML-033**, **XML-034**, **XML-035** now strip namespace prefixes (e.g., `md:XML` → `XML`) before type comparison, and skip empty-type elements instead of flagging them as unrecognized — removing false positives on namespaced or partial configs.
 
 ### Fixed
+- `Notify` endpoints were read from the `Channel` attribute (`front`/`back`) whenever it was present, so SEC-041, SEC-105, SEC-124 and OPS-010 never saw the real `Location` URL. Endpoints now come from `Location`.
+- **XML-029** reported a valid `MDQ` `MetadataProvider` (which uses `baseUrl`) as having no data source, and also flagged `Dynamic` providers. `MDQ` now needs `baseUrl` and `Dynamic` is skipped.
+- Documentation links for ApplicationOverride, Errors, Sessions and the SP2 upgrade guide pointed at page ids that do not exist.
 - Attribute values are now entity-decoded when parsed, so a metadata `uri` containing `&amp;` is read as `&`. Source-line lookup matches both forms.
 - A self-closing root element (e.g. `<EntityDescriptor/>`) was reported as an empty XML document by the local and remote metadata checks.
 

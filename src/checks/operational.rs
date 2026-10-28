@@ -5,7 +5,7 @@ use crate::result::{CheckCategory, CheckResult, Severity};
 
 const CAT: CheckCategory = CheckCategory::Operational;
 
-const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors";
+const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334361/Errors";
 const DOC_METADATA_PROVIDER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider";
 const DOC_SESSIONS: &str =
@@ -19,7 +19,7 @@ const DOC_ATTR_EXTRACTOR: &str =
 const DOC_SPCONFIG: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695926/SPConfig";
 const DOC_APP_OVERRIDE: &str =
-    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334278/ApplicationOverride";
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696335/ApplicationOverride";
 
 use crate::model::shibboleth_config::ShibbolethConfig;
 
@@ -493,7 +493,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-010: No Notify endpoints configured for logout notification
-    if sc.notify_endpoints.is_empty() {
+    if sc.notify_elements.is_empty() {
         results.push(
             CheckResult::fail(
                 "OPS-010",
@@ -509,10 +509,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             "OPS-010",
             CAT,
             Severity::Info,
-            &format!(
-                "{} Notify endpoint(s) configured",
-                sc.notify_endpoints.len()
-            ),
+            &format!("{} Notify endpoint(s) configured", sc.notify_elements.len()),
         ));
     }
 
@@ -2685,6 +2682,35 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // OPS-079: postData without postTemplate
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.post_data.is_some() {
+            if sessions.post_template.is_some() {
+                results.push(
+                    CheckResult::pass(
+                        "OPS-079",
+                        CAT,
+                        Severity::Info,
+                        "postData has a postTemplate for replaying the saved form",
+                    )
+                    .at_element("Sessions"),
+                );
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-079",
+                        CAT,
+                        Severity::Info,
+                        "postData is set without postTemplate",
+                        Some("Set postTemplate (for example postTemplate.html) so saved form data can be re-posted after login"),
+                    )
+                    .at_element("Sessions")
+                    .with_doc(DOC_SESSIONS),
+                );
+            }
+        }
+    }
+
     results
 }
 
@@ -2717,5 +2743,21 @@ mod tests {
     fn real_support_contact_passes() {
         let results = run_with_errors(r#"supportContact="help@university.edu""#);
         assert_outcome(&results, "OPS-001", true);
+    }
+
+    #[test]
+    fn post_data_needs_post_template() {
+        use crate::testutil::{assert_absent, assert_outcome, sp3_with_sessions};
+        let run_sessions = |attrs: &str| {
+            let (_dir, config) = config_from_xml(&sp3_with_sessions(attrs));
+            run(&config)
+        };
+        assert_outcome(&run_sessions(r#"postData="ss:mem""#), "OPS-079", false);
+        assert_outcome(
+            &run_sessions(r#"postData="ss:mem" postTemplate="postTemplate.html""#),
+            "OPS-079",
+            true,
+        );
+        assert_absent(&run_sessions(""), "OPS-079");
     }
 }

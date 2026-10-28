@@ -64,7 +64,7 @@ Auto-submitting HTML form that replays POST data preserved across the SSO redire
 
 - **Referenced by:** `<Sessions postTemplate="postTemplate.html">` in `shibboleth2.xml`
 - **Requires:** `postData="ss:mem"` or similar on `<Sessions>` to activate POST data preservation
-- **Docs:** [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334337/Sessions)
+- **Docs:** [Sessions](https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions)
 
 ### `bindingTemplate.html`
 

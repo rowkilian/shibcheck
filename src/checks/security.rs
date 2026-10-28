@@ -1,7 +1,7 @@
 use chrono::Utc;
 
 use crate::config::DiscoveredConfig;
-use crate::model::shibboleth_config::SpVersion;
+use crate::model::shibboleth_config::{ShibbolethConfig, SpVersion};
 use crate::parsers::certificate;
 use crate::result::{CheckCategory, CheckResult, Severity};
 
@@ -27,6 +27,18 @@ const DOC_SSO: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/20
 
 const DOC_SAMESITE: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2093318581/SameSite";
+
+const DOC_EXTERNAL_AUTH: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334899/External+Authentication+Handler";
+const DOC_ATTR_RESOLVER_HANDLER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334903/Attribute+Resolver+Handler";
+const DOC_BACKDOOR: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334897/BackDoor";
+const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334361/Errors";
+const DOC_STATIC_DATASEALER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2070413452/StaticDataSealer";
+const DOC_VERSIONED_DATASEALER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2070413454/VersionedDataSealer";
 
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
@@ -3578,31 +3590,6 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // SEC-114: DataSealer configuration uses default or weak key
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("<DataSealer") {
-            if !content.contains("keyStorePath=") && !content.contains("keyStorePassword=") {
-                results.push(
-                    CheckResult::fail(
-                        "SEC-114",
-                        CAT,
-                        Severity::Warning,
-                        "DataSealer configured without explicit keyStorePath (may use default/weak key)",
-                        Some("Set keyStorePath and keyStorePassword on <DataSealer> with a strong randomly-generated key"),
-                    )
-                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-                );
-            } else {
-                results.push(CheckResult::pass(
-                    "SEC-114",
-                    CAT,
-                    Severity::Warning,
-                    "DataSealer has explicit keyStorePath configured",
-                ));
-            }
-        }
-    }
-
     // SEC-115: Handler at default Shibboleth.sso path without ACL (information disclosure handlers)
     {
         let info_handlers = [
@@ -3926,7 +3913,239 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    check_data_sealers(sc, &mut results);
+    check_loopback_handlers(sc, &mut results);
+    check_application_defaults_flags(sc, v, &mut results);
+    check_errors_external_parameters(sc, v, &mut results);
+    check_redirect_allow_prefixes(sc, v, &mut results);
+
     results
+}
+
+/// SEC-114: a Static DataSealer keeps the secret key in shibboleth2.xml (the docs call it
+/// a testing variant); a Versioned one that loads keys from a URL needs backingFilePath.
+fn check_data_sealers(sc: &ShibbolethConfig, results: &mut Vec<CheckResult>) {
+    for sealer in &sc.data_sealers {
+        let problem = match sealer.sealer_type.as_str() {
+            "Static" => Some((
+                Severity::Warning,
+                "DataSealer type=\"Static\" embeds the secret key in shibboleth2.xml".to_string(),
+                "Use type=\"Versioned\" and keep the keys in a separate file that only the SP can read",
+                DOC_STATIC_DATASEALER,
+            )),
+            "Versioned" if sealer.url.is_some() && sealer.backing_file_path.is_none() => Some((
+                Severity::Error,
+                "Versioned DataSealer loads keys from a url but has no backingFilePath".to_string(),
+                "Set backingFilePath so a valid copy of the key file survives a restart, or use a local path",
+                DOC_VERSIONED_DATASEALER,
+            )),
+            _ => None,
+        };
+        let result = match problem {
+            Some((severity, message, suggestion, doc)) => {
+                CheckResult::fail("SEC-114", CAT, severity, &message, Some(suggestion))
+                    .with_doc(doc)
+            }
+            None => CheckResult::pass(
+                "SEC-114",
+                CAT,
+                Severity::Warning,
+                "DataSealer keeps its keys outside shibboleth2.xml",
+            ),
+        };
+        results.push(result.at_element("DataSealer"));
+    }
+}
+
+/// True when every address in an ACL is loopback (or the name `localhost`).
+fn acl_is_loopback_only(acl: &str) -> bool {
+    acl.split_whitespace().all(|a| {
+        let host = a.split('/').next().unwrap_or(a);
+        host == "::1" || host == "localhost" || host.starts_with("127.")
+    })
+}
+
+/// SEC-128: the ExternalAuth and AttributeResolver handlers have no security beyond
+/// their ACL and are meant for local use only.
+fn check_loopback_handlers(sc: &ShibbolethConfig, results: &mut Vec<CheckResult>) {
+    for handler in &sc.handlers {
+        let doc = match handler.handler_type.as_str() {
+            "ExternalAuth" => DOC_EXTERNAL_AUTH,
+            "AttributeResolver" => DOC_ATTR_RESOLVER_HANDLER,
+            _ => continue,
+        };
+        let Some(ref acl) = handler.acl else {
+            continue; // SEC-062 / SEC-063 report a missing ACL
+        };
+        if acl_is_loopback_only(acl) {
+            results.push(
+                CheckResult::pass(
+                    "SEC-128",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} handler ACL is limited to loopback",
+                        handler.handler_type
+                    ),
+                )
+                .at_element("Handler"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-128",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} handler ACL allows non-loopback addresses: {}",
+                        handler.handler_type, acl
+                    ),
+                    Some("Limit acl to 127.0.0.1 and ::1. The handler has no other protection, so any address you add must be on a secured network"),
+                )
+                .at_element("Handler")
+                .with_doc(doc),
+            );
+        }
+    }
+}
+
+/// SEC-129 (artifactByFilesystem) and SEC-132 (attributePrefix) on ApplicationDefaults.
+fn check_application_defaults_flags(
+    sc: &ShibbolethConfig,
+    v: SpVersion,
+    results: &mut Vec<CheckResult>,
+) {
+    let Some(ref defaults) = sc.application_defaults else {
+        return;
+    };
+
+    if defaults.artifact_by_filesystem.as_deref() == Some("true") {
+        results.push(
+            CheckResult::fail(
+                "SEC-129",
+                CAT,
+                Severity::Info,
+                "artifactByFilesystem is enabled (file-based external authentication)",
+                Some("Only enable this if you use the BackDoor mechanism; the SP then trusts SAML artifacts it finds as files"),
+            )
+            .at_element("ApplicationDefaults")
+            .with_doc(DOC_BACKDOOR),
+        );
+    }
+
+    if let Some(ref prefix) = defaults.attribute_prefix {
+        if prefix.to_uppercase().starts_with("HTTP_") {
+            results.push(
+                CheckResult::fail(
+                    "SEC-132",
+                    CAT,
+                    Severity::Error,
+                    &format!("attributePrefix '{}' starts with HTTP_", prefix),
+                    Some("Use another prefix. On IIS, server variables named HTTP_* are treated as request headers without header smuggling protection, which allows impersonation"),
+                )
+                .at_element("ApplicationDefaults")
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        } else {
+            results.push(
+                CheckResult::pass(
+                    "SEC-132",
+                    CAT,
+                    Severity::Error,
+                    "attributePrefix does not start with HTTP_",
+                )
+                .at_element("ApplicationDefaults"),
+            );
+        }
+    }
+}
+
+/// SEC-131: externalParameters lets the browser fill error page tags.
+fn check_errors_external_parameters(
+    sc: &ShibbolethConfig,
+    v: SpVersion,
+    results: &mut Vec<CheckResult>,
+) {
+    let Some(ref errors) = sc.errors else {
+        return;
+    };
+    match errors.external_parameters.as_deref() {
+        Some("true") | Some("1") => results.push(
+            CheckResult::fail(
+                "SEC-131",
+                CAT,
+                Severity::Warning,
+                "Errors externalParameters is enabled",
+                Some("Error page tags can then be filled from browser-supplied values, which exposes users to XSS and phishing. Leave it disabled unless your templates need it"),
+            )
+            .at_element("Errors")
+            .with_doc(doc_for(DOC_ERRORS, v)),
+        ),
+        Some(_) => results.push(
+            CheckResult::pass(
+                "SEC-131",
+                CAT,
+                Severity::Warning,
+                "Errors externalParameters is not enabled",
+            )
+            .at_element("Errors"),
+        ),
+        None => {}
+    }
+}
+
+/// SEC-130: redirectAllow entries must end with a slash after the host, or
+/// "https://example.com" also matches example.com.evil.com.
+fn check_redirect_allow_prefixes(
+    sc: &ShibbolethConfig,
+    v: SpVersion,
+    results: &mut Vec<CheckResult>,
+) {
+    let Some(ref sessions) = sc.sessions else {
+        return;
+    };
+    let list = sessions
+        .redirect_allow
+        .as_deref()
+        .or(sessions.redirect_whitelist.as_deref());
+    let Some(list) = list else {
+        return;
+    };
+    let bad: Vec<&str> = list
+        .split_whitespace()
+        .filter(|prefix| {
+            // Needs scheme://host[:port]/ — a "/" after the authority
+            prefix
+                .split_once("://")
+                .is_none_or(|(_, rest)| !rest.contains('/') || rest.starts_with('/'))
+        })
+        .collect();
+    if bad.is_empty() {
+        results.push(
+            CheckResult::pass(
+                "SEC-130",
+                CAT,
+                Severity::Warning,
+                "redirect allow-list entries end with a slash after the host",
+            )
+            .at_element("Sessions"),
+        );
+    } else {
+        results.push(
+            CheckResult::fail(
+                "SEC-130",
+                CAT,
+                Severity::Warning,
+                &format!(
+                    "redirect allow-list entries lack a trailing slash: {}",
+                    bad.join(", ")
+                ),
+                Some("Write each prefix as scheme://hostname[:port]/ . Without the slash, https://example.com also allows example.com.evil.com"),
+            )
+            .at_element("Sessions")
+            .with_doc(doc_for(DOC_SESSIONS, v)),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -4049,5 +4268,107 @@ mod tests {
 </SPConfig>"#;
         let (_dir, config) = config_from_xml(xml);
         assert_absent(&run(&config), "SEC-001");
+    }
+
+    fn run_app(defaults_attrs: &str, body: &str) -> Vec<CheckResult> {
+        let (_dir, config) = config_from_xml(&crate::testutil::sp3_app(defaults_attrs, body));
+        run(&config)
+    }
+
+    #[test]
+    fn data_sealer_variants() {
+        let r = run_app(
+            "",
+            r#"<DataSealer type="Static" key="AAAAAAAAAAAAAAAAAAAAAA=="/>"#,
+        );
+        assert_outcome(&r, "SEC-114", false);
+        let r = run_app("", r#"<DataSealer type="Versioned" path="sealer.keys"/>"#);
+        assert_outcome(&r, "SEC-114", true);
+        let r = run_app(
+            "",
+            r#"<DataSealer type="Versioned" url="https://k.example/keys"/>"#,
+        );
+        assert_outcome(&r, "SEC-114", false);
+        let r = run_app(
+            "",
+            r#"<DataSealer type="Versioned" url="https://k.example/keys" backingFilePath="keys.bak"/>"#,
+        );
+        assert_outcome(&r, "SEC-114", true);
+        assert_absent(&run_app("", ""), "SEC-114");
+    }
+
+    #[test]
+    fn loopback_handlers_need_loopback_acl() {
+        for (handler, passed) in [
+            (
+                r#"<Handler type="ExternalAuth" Location="/Ext" acl="127.0.0.1 ::1"/>"#,
+                true,
+            ),
+            (
+                r#"<Handler type="ExternalAuth" Location="/Ext" acl="127.0.0.1 10.0.0.0/8"/>"#,
+                false,
+            ),
+            (
+                r#"<Handler type="AttributeResolver" Location="/AR" acl="192.168.1.5"/>"#,
+                false,
+            ),
+        ] {
+            let r = run_app("", &format!("<Sessions>{handler}</Sessions>"));
+            assert_outcome(&r, "SEC-128", passed);
+        }
+        // No ACL at all is SEC-062's job
+        let r = run_app(
+            "",
+            r#"<Sessions><Handler type="ExternalAuth" Location="/Ext"/></Sessions>"#,
+        );
+        assert_absent(&r, "SEC-128");
+    }
+
+    #[test]
+    fn artifact_by_filesystem_is_reported() {
+        assert_outcome(
+            &run_app(r#"artifactByFilesystem="true""#, ""),
+            "SEC-129",
+            false,
+        );
+        assert_absent(&run_app(r#"artifactByFilesystem="false""#, ""), "SEC-129");
+    }
+
+    #[test]
+    fn redirect_allow_needs_trailing_slash() {
+        for (value, passed) in [
+            ("https://a.example/ https://b.example:8443/", true),
+            ("https://a.example", false),
+            ("https://a.example/ https://b.example", false),
+            ("a.example/", false),
+        ] {
+            let r = run_sessions(&format!(r#"redirectLimit="allow" redirectAllow="{value}""#));
+            assert_outcome(&r, "SEC-130", passed);
+        }
+        // Pre-3.2 spelling is checked too
+        let r = run_sessions(r#"redirectLimit="whitelist" redirectWhitelist="https://a.example""#);
+        assert_outcome(&r, "SEC-130", false);
+        assert_absent(&run_sessions(""), "SEC-130");
+    }
+
+    #[test]
+    fn errors_external_parameters() {
+        let r = run_app("", r#"<Errors externalParameters="true"/>"#);
+        assert_outcome(&r, "SEC-131", false);
+        let r = run_app("", r#"<Errors externalParameters="false"/>"#);
+        assert_outcome(&r, "SEC-131", true);
+        assert_absent(&run_app("", "<Errors/>"), "SEC-131");
+    }
+
+    #[test]
+    fn attribute_prefix_must_not_be_http() {
+        assert_outcome(&run_app(r#"attributePrefix="HTTP_""#, ""), "SEC-132", false);
+        assert_outcome(
+            &run_app(r#"attributePrefix="http_x""#, ""),
+            "SEC-132",
+            false,
+        );
+        assert_outcome(&run_app(r#"attributePrefix="AJP_""#, ""), "SEC-132", true);
+        assert_absent(&run_app("", ""), "SEC-132");
     }
 }

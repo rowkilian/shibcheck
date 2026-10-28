@@ -60,6 +60,17 @@ pub fn sp3_with_sessions(sessions_attrs: &str) -> String {
     )
 }
 
+/// Wrap `body` in an SP3 `ApplicationDefaults`. `body` usually holds a `<Sessions>` element.
+pub fn sp3_app(defaults_attrs: &str, body: &str) -> String {
+    format!(
+        r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth" {defaults_attrs}>
+    {body}
+  </ApplicationDefaults>
+</SPConfig>"#
+    )
+}
+
 /// All results with the given code.
 pub fn with_code<'a>(results: &'a [CheckResult], code: &str) -> Vec<&'a CheckResult> {
     results.iter().filter(|r| r.code == code).collect()

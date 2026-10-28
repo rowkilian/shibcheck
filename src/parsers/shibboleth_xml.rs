@@ -165,6 +165,8 @@ fn process_element(
                 digest_alg: get_attr(e, "digestAlg"),
                 require_transport_auth: get_attr(e, "requireTransportAuth"),
                 require_confidentiality: get_attr(e, "requireConfidentiality"),
+                attribute_prefix: get_attr(e, "attributePrefix"),
+                artifact_by_filesystem: get_attr(e, "artifactByFilesystem"),
             });
         }
         "Sessions"
@@ -194,6 +196,7 @@ fn process_element(
                     same_site_fallback: get_attr(e, "sameSiteFallback"),
                     same_site_session: get_attr(e, "sameSiteSession"),
                     post_data: get_attr(e, "postData"),
+                    post_template: get_attr(e, "postTemplate"),
                     logout_outgoing_bindings: None,
                     max_time_since_authn: get_attr(e, "maxTimeSinceAuthn"),
                     cookie_lifetime: get_attr(e, "cookieLifetime"),
@@ -220,6 +223,9 @@ fn process_element(
             }
             if config.sso_ecp.is_none() {
                 config.sso_ecp = get_attr(e, "ECP");
+            }
+            if config.sso_authn_context_comparison.is_none() {
+                config.sso_authn_context_comparison = get_attr(e, "authnContextComparison");
             }
         }
         "SessionInitiator" => {
@@ -266,6 +272,7 @@ fn process_element(
                 id_attr: get_attr(e, "id"),
                 validate_attr: get_attr(e, "validate"),
                 ignore_transport: get_attr(e, "ignoreTransport"),
+                base_url: get_attr(e, "baseUrl"),
             };
             if is_empty {
                 // If there's a parent Chaining MP on the stack, increment its count
@@ -345,6 +352,7 @@ fn process_element(
                 local_logout: get_attr(e, "localLogout"),
                 metadata_error: get_attr(e, "metadata"),
                 global_logout: get_attr(e, "globalLogout"),
+                external_parameters: get_attr(e, "externalParameters"),
             });
         }
         "SecurityPolicyProvider" => {
@@ -383,13 +391,31 @@ fn process_element(
                 acl,
             });
         }
-        "Notify" => {
-            // Capture Channel or Location attr as notify endpoint
-            if let Some(channel) = get_attr(e, "Channel") {
-                config.notify_endpoints.push(channel);
-            } else if let Some(loc) = get_attr(e, "Location") {
-                config.notify_endpoints.push(loc);
+        "StorageService" => {
+            if let Some(id) = get_attr(e, "id") {
+                config.storage_service_ids.push(id);
             }
+        }
+        "DataSealer" => {
+            config
+                .data_sealers
+                .push(crate::model::shibboleth_config::DataSealerInfo {
+                    sealer_type: get_attr(e, "type").unwrap_or_default(),
+                    has_key: get_attr(e, "key").is_some(),
+                    path: get_attr(e, "path"),
+                    url: get_attr(e, "url"),
+                    backing_file_path: get_attr(e, "backingFilePath"),
+                });
+        }
+        "Notify" => {
+            let info = crate::model::shibboleth_config::NotifyInfo {
+                channel: get_attr(e, "Channel"),
+                location: get_attr(e, "Location"),
+            };
+            if let Some(ref loc) = info.location {
+                config.notify_endpoints.push(loc.clone());
+            }
+            config.notify_elements.push(info);
         }
         "RequestMapper" => {
             config.request_map_type = get_attr(e, "type");
@@ -701,14 +727,19 @@ mod tests {
         <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
             <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
                 <Sessions handlerURL="/Shibboleth.sso">
-                    <Notify Channel="https://app.example.org/notify"/>
+                    <Notify Channel="back" Location="https://app.example.org/notify"/>
                     <Notify Location="https://app2.example.org/logout"/>
+                    <Notify Channel="front"/>
                 </Sessions>
             </ApplicationDefaults>
         </SPConfig>
         "#;
         let config = parse_str(xml).unwrap();
+        // Only Location values are endpoints; Channel is kept separately
         assert_eq!(config.notify_endpoints.len(), 2);
+        assert_eq!(config.notify_elements.len(), 3);
+        assert_eq!(config.notify_elements[0].channel.as_deref(), Some("back"));
+        assert_eq!(config.notify_elements[2].location, None);
         assert_eq!(config.notify_endpoints[0], "https://app.example.org/notify");
         assert_eq!(
             config.notify_endpoints[1],

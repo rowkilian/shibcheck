@@ -21,6 +21,11 @@ const DOC_ATTR_EXTRACTOR: &str =
 const DOC_ATTR_FILTER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
 
+const DOC_NOTIFY: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334394/Notify";
+
+const DOC_SAML2_SESSION_INITIATOR: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334736/SAML2+SessionInitiator";
+
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
 /// Return the SP2 wiki root for V2 configs, otherwise the SP3-specific page URL.
@@ -426,7 +431,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "XML-020", CAT, Severity::Info,
                     "Shibboleth SP2 configuration detected",
                     Some("SP2 is end-of-life; consider upgrading to SP3"),
-                ).at_element("SPConfig").with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335062/Upgrading"));
+                ).at_element("SPConfig").with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067400004/UpgradingFromV2"));
             }
             SpVersion::Unknown => {
                 results.push(
@@ -648,14 +653,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
         // XML-029: MetadataProvider has a source (path/url/uri/sourceDirectory)
         for mp in &sc.metadata_providers {
-            if mp.provider_type == "Chaining" {
+            // Chaining has child providers; Dynamic names its sources in Subst/Regex children
+            if mp.provider_type == "Chaining" || mp.provider_type == "Dynamic" {
                 continue;
             }
-            let has_source = mp.path.is_some()
-                || mp.uri.is_some()
-                || mp.url.is_some()
-                || mp.source_directory.is_some()
-                || mp.file_attr.is_some();
+            let has_source = if mp.provider_type == "MDQ" {
+                mp.base_url.is_some()
+            } else {
+                mp.path.is_some()
+                    || mp.uri.is_some()
+                    || mp.url.is_some()
+                    || mp.source_directory.is_some()
+                    || mp.file_attr.is_some()
+            };
             if has_source {
                 results.push(CheckResult::pass(
                     "XML-029",
@@ -677,7 +687,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "MetadataProvider type={}{} has no data source (path/url/uri/file/sourceDirectory)",
                             mp.provider_type, mp.label()
                         ),
-                        Some("Add a path, url, uri, file, or sourceDirectory attribute to the MetadataProvider"),
+                        Some(if mp.provider_type == "MDQ" {
+                            "Add baseUrl, the root of the MDQ server, to the MDQ MetadataProvider"
+                        } else {
+                            "Add a path, url, uri, file, or sourceDirectory attribute to the MetadataProvider"
+                        }),
                     )
                     .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
                 );
@@ -1269,5 +1283,250 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    check_notify(config, &mut results);
+    check_redirect_limit(config, &mut results);
+    check_authn_context_comparison(config, &mut results);
+
     results
+}
+/// XML-048: each <Notify> needs Channel="front"|"back" and an absolute Location.
+fn check_notify(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for notify in &sc.notify_elements {
+        let problem = match (notify.channel.as_deref(), notify.location.as_deref()) {
+            (None, _) => Some((
+                Severity::Error,
+                "Notify has no Channel attribute".to_string(),
+                "Set Channel=\"front\" or Channel=\"back\"",
+            )),
+            (Some(c), _) if c != "front" && c != "back" => Some((
+                Severity::Warning,
+                format!("Notify Channel '{}' is not \"front\" or \"back\"", c),
+                "Set Channel=\"front\" or Channel=\"back\"",
+            )),
+            (_, None) => Some((
+                Severity::Warning,
+                "Notify has no Location attribute".to_string(),
+                "Set Location to the absolute URL that receives the notification",
+            )),
+            (_, Some(l)) if !l.starts_with("http://") && !l.starts_with("https://") => Some((
+                Severity::Warning,
+                format!("Notify Location is not an absolute URL: {}", l),
+                "Use an absolute http(s) URL for Location",
+            )),
+            _ => None,
+        };
+        let result = match problem {
+            Some((severity, message, suggestion)) => {
+                CheckResult::fail("XML-048", CAT, severity, &message, Some(suggestion))
+                    .with_doc(DOC_NOTIFY)
+            }
+            None => CheckResult::pass(
+                "XML-048",
+                CAT,
+                Severity::Warning,
+                "Notify has a valid Channel and absolute Location",
+            ),
+        };
+        results.push(result.at_element("Notify"));
+    }
+}
+
+const REDIRECT_LIMITS: &[&str] = &[
+    "none",
+    "exact",
+    "host",
+    "allow",
+    "exact+allow",
+    "host+allow",
+    // names used before SP 3.2
+    "whitelist",
+    "exact+whitelist",
+    "host+whitelist",
+];
+
+/// XML-049: redirectLimit must be one of the documented values.
+fn check_redirect_limit(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    let Some(limit) = sc
+        .sessions
+        .as_ref()
+        .and_then(|s| s.redirect_limit.as_deref())
+    else {
+        return;
+    };
+    let result = if REDIRECT_LIMITS.contains(&limit) {
+        CheckResult::pass(
+            "XML-049",
+            CAT,
+            Severity::Warning,
+            "redirectLimit is a recognized value",
+        )
+    } else {
+        CheckResult::fail(
+            "XML-049",
+            CAT,
+            Severity::Warning,
+            &format!("redirectLimit has unrecognized value '{}'", limit),
+            Some("Use one of none, exact, host, allow, exact+allow or host+allow"),
+        )
+        .with_doc(doc_for(DOC_SESSIONS, sc.sp_version))
+    };
+    results.push(result.at_element("Sessions"));
+}
+
+/// XML-050: authnContextComparison takes four values and is ignored without
+/// authnContextClassRef.
+fn check_authn_context_comparison(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    let Some(ref comparison) = sc.sso_authn_context_comparison else {
+        return;
+    };
+    let result = if !["exact", "minimum", "maximum", "better"].contains(&comparison.as_str()) {
+        CheckResult::fail(
+            "XML-050",
+            CAT,
+            Severity::Warning,
+            &format!(
+                "SSO authnContextComparison has unrecognized value '{}'",
+                comparison
+            ),
+            Some("Use one of exact, minimum, maximum or better"),
+        )
+        .with_doc(DOC_SAML2_SESSION_INITIATOR)
+    } else if sc.sso_authn_context_class_ref.is_none() {
+        CheckResult::fail(
+            "XML-050",
+            CAT,
+            Severity::Info,
+            "SSO authnContextComparison is set without authnContextClassRef, so it is ignored",
+            Some("Set authnContextClassRef too, or remove authnContextComparison"),
+        )
+        .with_doc(DOC_SAML2_SESSION_INITIATOR)
+    } else {
+        CheckResult::pass(
+            "XML-050",
+            CAT,
+            Severity::Warning,
+            "SSO authnContextComparison is valid and has an authnContextClassRef",
+        )
+    };
+    results.push(result.at_element("SSO"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::config_from_xml;
+
+    fn notify_results(notify: &str) -> Vec<CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <Sessions>{notify}</Sessions>
+  </ApplicationDefaults>
+</SPConfig>"#
+        );
+        let (_dir, config) = config_from_xml(&xml);
+        run(&config)
+            .into_iter()
+            .filter(|r| r.code == "XML-048")
+            .collect()
+    }
+
+    #[test]
+    fn valid_notify_passes() {
+        let r = notify_results(r#"<Notify Channel="back" Location="https://app.example.org/n"/>"#);
+        assert_eq!(r.len(), 1);
+        assert!(r[0].passed);
+    }
+
+    #[test]
+    fn notify_problems_are_reported() {
+        for (notify, severity) in [
+            (
+                r#"<Notify Location="https://a.example/n"/>"#,
+                Severity::Error,
+            ),
+            (
+                r#"<Notify Channel="sideways" Location="https://a.example/n"/>"#,
+                Severity::Warning,
+            ),
+            (r#"<Notify Channel="back"/>"#, Severity::Warning),
+            (
+                r#"<Notify Channel="back" Location="/relative"/>"#,
+                Severity::Warning,
+            ),
+        ] {
+            let r = notify_results(notify);
+            assert_eq!(r.len(), 1, "{notify}");
+            assert!(!r[0].passed, "{notify}");
+            assert_eq!(r[0].severity, severity, "{notify}");
+        }
+    }
+
+    fn run_app(body: &str, sso_attrs: &str) -> Vec<CheckResult> {
+        let xml = crate::testutil::sp3_app(
+            "",
+            &format!(
+                r#"<Sessions {body}><SSO entityID="https://idp.example.org/idp" {sso_attrs}>SAML2</SSO></Sessions>"#
+            ),
+        );
+        let (_dir, config) = config_from_xml(&xml);
+        run(&config)
+    }
+
+    #[test]
+    fn redirect_limit_values() {
+        for (value, passed) in [
+            ("exact", true),
+            ("host+allow", true),
+            ("exact+whitelist", true),
+            ("Exact", false),
+            ("strict", false),
+        ] {
+            let r = run_app(&format!(r#"redirectLimit="{value}""#), "");
+            crate::testutil::assert_outcome(&r, "XML-049", passed);
+        }
+        crate::testutil::assert_absent(&run_app("", ""), "XML-049");
+    }
+
+    #[test]
+    fn authn_context_comparison_values() {
+        let class = r#"authnContextClassRef="urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport""#;
+        let r = run_app("", &format!(r#"{class} authnContextComparison="exact""#));
+        crate::testutil::assert_outcome(&r, "XML-050", true);
+        let r = run_app("", &format!(r#"{class} authnContextComparison="roughly""#));
+        crate::testutil::assert_outcome(&r, "XML-050", false);
+        let r = run_app("", r#"authnContextComparison="exact""#);
+        crate::testutil::assert_outcome(&r, "XML-050", false);
+        crate::testutil::assert_absent(&run_app("", ""), "XML-050");
+    }
+
+    #[test]
+    fn mdq_provider_needs_base_url_not_a_path() {
+        let provider = |attrs: &str| {
+            let xml = crate::testutil::sp3_app(
+                "",
+                &format!(r#"<Sessions><SSO>SAML2</SSO></Sessions><MetadataProvider {attrs}/>"#),
+            );
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+        };
+        crate::testutil::assert_outcome(
+            &provider(r#"type="MDQ" baseUrl="https://mdq.example.org/""#),
+            "XML-029",
+            true,
+        );
+        crate::testutil::assert_outcome(&provider(r#"type="MDQ""#), "XML-029", false);
+        // Dynamic providers name their sources in child elements
+        crate::testutil::assert_absent(&provider(r#"type="Dynamic""#), "XML-029");
+        crate::testutil::assert_outcome(&provider(r#"type="XML""#), "XML-029", false);
+    }
 }
