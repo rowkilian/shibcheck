@@ -162,7 +162,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-036 | `attribute-map` entries have matching `attribute-policy` rules | Info |
 | REF-037 | Persistent NameID source uses a scoped attribute | Warning |
 
-### Security (SEC-001 to SEC-126)
+### Security (SEC-001 to SEC-127)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -182,7 +182,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-014 | No plaintext HTTP metadata URLs | Warning |
 | SEC-015 | Status handler ACL configured | Info |
 | SEC-016 | Private key file not world-readable (Unix) | Warning |
-| SEC-017 | `cookieProps` includes `SameSite` attribute | Info |
+| SEC-017 | `cookieProps` does not set `SameSite` (the SP adds it itself) | Warning |
 | SEC-018 | `entityID` uses HTTPS | Info |
 | SEC-019 | `Sessions` `lifetime` is reasonable | Info |
 | SEC-020 | `Sessions` `timeout` is reasonable | Info |
@@ -291,6 +291,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-124 | `Notify` endpoint does not loop back to SP handler | Warning |
 | SEC-125 | `ApplicationOverride` `entityID` differs from parent | Info |
 | SEC-126 | Certificate / key file parses as valid PEM (surfaces silent parse failures) | Warning |
+| SEC-127 | `sameSiteSession` is `Lax` (not `None`, `Strict` or unrecognized) | Warning |
 
 ### Operational (OPS-001 to OPS-078)
 

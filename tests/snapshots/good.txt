@@ -102,7 +102,7 @@ SEC-014 pass shibboleth2.xml:28
 SEC-015 pass shibboleth2.xml:49
 SEC-016 pass shibboleth2.xml:37
 SEC-016 pass shibboleth2.xml:37
-SEC-017 fail shibboleth2.xml:13
+SEC-017 pass shibboleth2.xml:13
 SEC-018 pass shibboleth2.xml:7
 SEC-019 pass shibboleth2.xml:13
 SEC-020 pass shibboleth2.xml:13

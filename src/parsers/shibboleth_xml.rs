@@ -192,6 +192,7 @@ fn process_element(
                     idp_history_days: get_attr(e, "idpHistoryDays"),
                     check_address: get_attr(e, "checkAddress"),
                     same_site_fallback: get_attr(e, "sameSiteFallback"),
+                    same_site_session: get_attr(e, "sameSiteSession"),
                     post_data: get_attr(e, "postData"),
                     logout_outgoing_bindings: None,
                     max_time_since_authn: get_attr(e, "maxTimeSinceAuthn"),

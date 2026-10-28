@@ -93,7 +93,7 @@ pub struct Cli {
     #[arg(long, default_value = "error", value_name = "LEVEL")]
     pub severity: SeverityArg,
 
-    /// Auto-fix safe issues (SEC-001, SEC-002, SEC-003, SEC-017)
+    /// Auto-fix safe issues (SEC-001, SEC-002, SEC-003)
     #[arg(long)]
     pub fix: bool,
 

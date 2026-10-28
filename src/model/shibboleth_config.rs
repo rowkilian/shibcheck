@@ -76,6 +76,7 @@ pub struct SessionsConfig {
     pub idp_history_days: Option<String>,
     pub check_address: Option<String>,
     pub same_site_fallback: Option<String>,
+    pub same_site_session: Option<String>,
     pub post_data: Option<String>,
     pub logout_outgoing_bindings: Option<String>,
     pub max_time_since_authn: Option<String>,

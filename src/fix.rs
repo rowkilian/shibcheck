@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::result::CheckResult;
 
 /// Fixable check codes and their descriptions.
-const FIXABLE: &[&str] = &["SEC-001", "SEC-002", "SEC-003", "SEC-017"];
+const FIXABLE: &[&str] = &["SEC-001", "SEC-002", "SEC-003"];
 
 /// Returns true if any of the failed results are auto-fixable.
 pub fn has_fixable(results: &[CheckResult]) -> bool {
@@ -61,24 +61,19 @@ pub fn apply_fixes(results: &[CheckResult], shibboleth_xml: &Path) -> Vec<String
         }
     }
 
-    // SEC-002/003/017: Fix cookieProps on <Sessions>
+    // SEC-002/003: Fix cookieProps on <Sessions>
     // These are related — we handle them together
     let needs_secure = failed_codes.contains(&"SEC-002");
     let needs_httponly = failed_codes.contains(&"SEC-003");
-    let needs_samesite = failed_codes.contains(&"SEC-017");
 
-    if needs_secure || needs_httponly || needs_samesite {
-        if let Some(new) = fix_cookie_props(&content, needs_secure, needs_httponly, needs_samesite)
-        {
+    if needs_secure || needs_httponly {
+        if let Some(new) = fix_cookie_props(&content, needs_secure, needs_httponly) {
             content = new;
             if needs_secure {
                 applied.push("SEC-002: Added 'secure' to cookieProps".to_string());
             }
             if needs_httponly {
                 applied.push("SEC-003: Added 'httpOnly' to cookieProps".to_string());
-            }
-            if needs_samesite {
-                applied.push("SEC-017: Added 'SameSite=None' to cookieProps".to_string());
             }
         }
     }
@@ -119,13 +114,8 @@ fn fix_handler_ssl(content: &str) -> Option<String> {
 }
 
 /// Add or fix cookieProps on the <Sessions> element.
-fn fix_cookie_props(
-    content: &str,
-    need_secure: bool,
-    need_httponly: bool,
-    need_samesite: bool,
-) -> Option<String> {
-    // Build desired value: "secure; httpOnly; SameSite=None"
+fn fix_cookie_props(content: &str, need_secure: bool, need_httponly: bool) -> Option<String> {
+    // Build desired value: "secure; httpOnly"
     // If cookieProps already exists, append missing parts
     if let Some(start) = content.find("cookieProps=\"") {
         let attr_start = start + "cookieProps=\"".len();
@@ -139,9 +129,6 @@ fn fix_cookie_props(
         }
         if need_httponly && !lower.contains("httponly") {
             parts.push("httpOnly");
-        }
-        if need_samesite && !lower.contains("samesite") {
-            parts.push("SameSite=None");
         }
 
         if parts.is_empty() {
@@ -167,9 +154,6 @@ fn fix_cookie_props(
         }
         if need_httponly {
             value_parts.push("httpOnly");
-        }
-        if need_samesite {
-            value_parts.push("SameSite=None");
         }
         let value = value_parts.join("; ");
 

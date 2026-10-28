@@ -50,7 +50,7 @@ SEC-006 fail shibboleth2.xml:2
 SEC-007 fail shibboleth2.xml:2
 SEC-015 pass shibboleth2.xml
 SEC-016 fail shibboleth2.xml:6
-SEC-017 fail shibboleth2.xml:3
+SEC-017 pass shibboleth2.xml:3
 SEC-018 pass shibboleth2.xml:2
 SEC-025 pass shibboleth2.xml:4
 SEC-028 fail shibboleth2.xml:2

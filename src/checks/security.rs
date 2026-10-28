@@ -25,6 +25,9 @@ const DOC_APP_DEFAULTS: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695997/ApplicationDefaults";
 const DOC_SSO: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334348/SSO";
 
+const DOC_SAMESITE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2093318581/SameSite";
+
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
 const CODE_CERT_PARSE_ERROR: &str = "SEC-126";
@@ -607,53 +610,72 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         ));
     }
 
-    // SEC-017: cookieProps includes SameSite
+    // SEC-017: cookieProps does not set SameSite. Supported SP versions add the right
+    // SameSite value to each cookie themselves; the SameSite and Sessions topics say
+    // not to put it in cookieProps (use sameSiteSession for the session cookie).
     if let Some(ref sessions) = sc.sessions {
-        if let Some(ref cookie_props) = sessions.cookie_props {
-            let lower = cookie_props.to_lowercase();
-            // "https" shorthand does NOT imply SameSite in Shibboleth
-            if lower.contains("samesite") {
-                results.push(
-                    CheckResult::pass(
-                        "SEC-017",
-                        CAT,
-                        Severity::Info,
-                        "cookieProps includes SameSite attribute",
-                    )
-                    .at_element("Sessions"),
-                );
-            } else {
-                let suggestion = if v == SpVersion::V2 {
-                    "SP2 does not support SameSite in cookieProps; set it via web server headers or upgrade to SP3"
-                } else {
-                    "Add 'SameSite=None' to cookieProps for cross-site SSO in modern browsers"
-                };
+        if v != SpVersion::V2 {
+            let sets_samesite = sessions
+                .cookie_props
+                .as_deref()
+                .is_some_and(|p| p.to_lowercase().contains("samesite"));
+            if sets_samesite {
                 results.push(
                     CheckResult::fail(
                         "SEC-017",
                         CAT,
-                        Severity::Info,
-                        "cookieProps does not include SameSite attribute",
-                        Some(suggestion),
+                        Severity::Warning,
+                        "cookieProps sets a SameSite attribute",
+                        Some("Remove SameSite from cookieProps: the SP adds the value each cookie needs. To change the session cookie, use sameSiteSession"),
                     )
                     .at_element("Sessions")
-                    .with_doc(doc_for(DOC_SESSIONS, v)),
+                    .with_doc(DOC_SAMESITE),
+                );
+            } else {
+                results.push(
+                    CheckResult::pass(
+                        "SEC-017",
+                        CAT,
+                        Severity::Warning,
+                        "cookieProps leaves SameSite to the SP",
+                    )
+                    .at_element("Sessions"),
                 );
             }
-        } else {
-            results.push(
-                CheckResult::fail(
-                    "SEC-017",
-                    CAT,
+        }
+    }
+
+    // SEC-127: sameSiteSession value (SP 3.1+)
+    if let Some(ref sessions) = sc.sessions {
+        if let Some(ref value) = sessions.same_site_session {
+            let (passed, severity, message, suggestion) = match value.as_str() {
+                "Lax" => (true, Severity::Info, "sameSiteSession is Lax".to_string(), ""),
+                "None" => (
+                    false,
+                    Severity::Warning,
+                    "sameSiteSession=\"None\" makes the session cookie available cross-site".to_string(),
+                    "Remove sameSiteSession unless an application really needs the SP session in cross-site requests. The SP itself does not need it",
+                ),
+                "Strict" => (
+                    false,
                     Severity::Info,
-                    "cookieProps not set on Sessions",
-                    Some(
-                        "Set cookieProps with SameSite attribute for modern browser compatibility",
-                    ),
-                )
-                .at_element("Sessions")
-                .with_doc(doc_for(DOC_SESSIONS, v)),
-            );
+                    "sameSiteSession=\"Strict\" will generally not work".to_string(),
+                    "Session cookies are set during the cross-site POST from the IdP, so Strict is usually non-functional. Use Lax or remove the setting",
+                ),
+                other => (
+                    false,
+                    Severity::Warning,
+                    format!("sameSiteSession has unrecognized value '{}'", other),
+                    "Use one of \"None\", \"Lax\" or \"Strict\" (case-sensitive), or remove the setting",
+                ),
+            };
+            let result = if passed {
+                CheckResult::pass("SEC-127", CAT, severity, &message)
+            } else {
+                CheckResult::fail("SEC-127", CAT, severity, &message, Some(suggestion))
+                    .with_doc(DOC_SAMESITE)
+            };
+            results.push(result.at_element("Sessions"));
         }
     }
 
@@ -3980,6 +4002,44 @@ mod tests {
         let r = results.iter().find(|r| r.code == "SEC-001").unwrap();
         assert!(r.suggestion.is_some());
         assert!(r.doc_url.is_some());
+    }
+
+    #[test]
+    fn samesite_in_cookie_props_is_flagged_on_sp3() {
+        let results = run_sessions(r#"cookieProps="https; SameSite=None""#);
+        assert_outcome(&results, "SEC-017", false);
+    }
+
+    #[test]
+    fn cookie_props_without_samesite_pass_on_sp3() {
+        assert_outcome(&run_sessions(r#"cookieProps="https""#), "SEC-017", true);
+        assert_outcome(&run_sessions(""), "SEC-017", true);
+    }
+
+    #[test]
+    fn samesite_check_is_skipped_on_sp2() {
+        let xml = sp3_with_sessions(r#"cookieProps="; SameSite=None""#)
+            .replace("shibboleth:3.0:", "shibboleth:2.0:");
+        let (_dir, config) = config_from_xml(&xml);
+        assert_absent(&run(&config), "SEC-017");
+    }
+
+    #[test]
+    fn same_site_session_values() {
+        for (value, passed) in [
+            ("Lax", true),
+            ("None", false),
+            ("Strict", false),
+            ("lax", false),
+        ] {
+            let results = run_sessions(&format!(r#"sameSiteSession="{value}""#));
+            assert_outcome(&results, "SEC-127", passed);
+        }
+    }
+
+    #[test]
+    fn same_site_session_unset_yields_no_result() {
+        assert_absent(&run_sessions(""), "SEC-127");
     }
 
     #[test]
