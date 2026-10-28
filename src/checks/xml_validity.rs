@@ -411,19 +411,22 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-020: SP version detection
         match v {
             SpVersion::V3 => {
-                results.push(CheckResult::pass(
-                    "XML-020",
-                    CAT,
-                    Severity::Info,
-                    "Shibboleth SP3 configuration detected",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "XML-020",
+                        CAT,
+                        Severity::Info,
+                        "Shibboleth SP3 configuration detected",
+                    )
+                    .at_element("SPConfig"),
+                );
             }
             SpVersion::V2 => {
                 results.push(CheckResult::fail(
                     "XML-020", CAT, Severity::Info,
                     "Shibboleth SP2 configuration detected",
                     Some("SP2 is end-of-life; consider upgrading to SP3"),
-                ).with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335062/Upgrading"));
+                ).at_element("SPConfig").with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335062/Upgrading"));
             }
             SpVersion::Unknown => {
                 results.push(
@@ -434,6 +437,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SP version could not be determined from SPConfig xmlns",
                         Some("Ensure <SPConfig> has a valid xmlns attribute"),
                     )
+                    .at_element("SPConfig")
                     .with_doc(DOC_SPCONFIG),
                 );
             }
@@ -442,18 +446,21 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-021: REMOTE_USER attribute set
         if let Some(ref app) = sc.application_defaults {
             if app.remote_user.is_some() {
-                results.push(CheckResult::pass(
-                    "XML-021",
-                    CAT,
-                    Severity::Warning,
-                    "REMOTE_USER attribute is set on ApplicationDefaults",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "XML-021",
+                        CAT,
+                        Severity::Warning,
+                        "REMOTE_USER attribute is set on ApplicationDefaults",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             } else {
                 results.push(CheckResult::fail(
                     "XML-021", CAT, Severity::Warning,
                     "REMOTE_USER not set on ApplicationDefaults",
                     Some("Set REMOTE_USER on <ApplicationDefaults> (e.g., REMOTE_USER=\"eppn\") so applications can identify users"),
-                ).with_doc(doc_for(DOC_APP_DEFAULTS, v)));
+                ).at_element("ApplicationDefaults").with_doc(doc_for(DOC_APP_DEFAULTS, v)));
             }
         }
 

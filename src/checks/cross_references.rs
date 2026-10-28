@@ -1676,3 +1676,25 @@ fn check_metadata_valid_until(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_outcome, TestDir};
+
+    const SHIB_WITH_EXTRACTOR: &str = r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <AttributeExtractor type="XML" validate="true" path="attribute-map.xml"/>
+  </ApplicationDefaults>
+</SPConfig>"#;
+
+    #[test]
+    fn attribute_extractor_path_must_exist() {
+        let dir = TestDir::new();
+        dir.write("shibboleth2.xml", SHIB_WITH_EXTRACTOR);
+        assert_outcome(&run(&dir.discover(), false), "REF-005", false);
+
+        dir.write("attribute-map.xml", "<Attributes/>");
+        assert_outcome(&run(&dir.discover(), false), "REF-005", true);
+    }
+}

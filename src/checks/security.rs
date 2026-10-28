@@ -50,26 +50,29 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         match sessions.handler_ssl.as_deref() {
             Some("true") => {
-                results.push(CheckResult::pass(
-                    "SEC-001",
-                    CAT,
-                    Severity::Warning,
-                    "handlerSSL is set to true",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-001",
+                        CAT,
+                        Severity::Warning,
+                        "handlerSSL is set to true",
+                    )
+                    .at_element("Sessions"),
+                );
             }
             Some("false") => {
                 results.push(CheckResult::fail(
                     "SEC-001", CAT, Severity::Warning,
                     "handlerSSL is set to false",
                     Some("Set handlerSSL=\"true\" on <Sessions> to require HTTPS for handler endpoints"),
-                ).with_doc(doc_for(DOC_SESSIONS, v)));
+                ).at_element("Sessions").with_doc(doc_for(DOC_SESSIONS, v)));
             }
             _ => {
                 results.push(CheckResult::fail(
                     "SEC-001", CAT, Severity::Warning,
                     "handlerSSL is not explicitly set",
                     Some("Set handlerSSL=\"true\" on <Sessions> to require HTTPS for handler endpoints"),
-                ).with_doc(doc_for(DOC_SESSIONS, v)));
+                ).at_element("Sessions").with_doc(doc_for(DOC_SESSIONS, v)));
             }
         }
     }
@@ -80,12 +83,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             let lower = cookie_props.to_lowercase();
             let https_shorthand = lower == "https" && v == SpVersion::V3;
             if lower.contains("secure") || https_shorthand {
-                results.push(CheckResult::pass(
-                    "SEC-002",
-                    CAT,
-                    Severity::Warning,
-                    "cookieProps includes secure flag",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-002",
+                        CAT,
+                        Severity::Warning,
+                        "cookieProps includes secure flag",
+                    )
+                    .at_element("Sessions"),
+                );
             } else {
                 let suggestion = if v == SpVersion::V2 {
                     "Add '; secure' to cookieProps (the \"https\" shorthand only works in SP3)"
@@ -100,6 +106,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "cookieProps does not include 'secure'",
                         Some(suggestion),
                     )
+                    .at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             }
@@ -112,6 +119,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "cookieProps not set on Sessions",
                     Some("Set cookieProps=\"https\" on <Sessions> for secure cookies"),
                 )
+                .at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -124,12 +132,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             // "https" shorthand implies httpOnly only in SP3
             let https_shorthand = lower == "https" && v == SpVersion::V3;
             if lower.contains("httponly") || https_shorthand {
-                results.push(CheckResult::pass(
-                    "SEC-003",
-                    CAT,
-                    Severity::Warning,
-                    "cookieProps includes httpOnly flag",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-003",
+                        CAT,
+                        Severity::Warning,
+                        "cookieProps includes httpOnly flag",
+                    )
+                    .at_element("Sessions"),
+                );
             } else {
                 let suggestion = if v == SpVersion::V2 {
                     "Add '; HttpOnly' to cookieProps (the \"https\" shorthand only works in SP3)"
@@ -144,6 +155,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "cookieProps does not include 'httpOnly'",
                         Some(suggestion),
                     )
+                    .at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             }
@@ -156,6 +168,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "cookieProps not set on Sessions",
                     Some("Set cookieProps=\"https\" on <Sessions> for httpOnly cookies"),
                 )
+                .at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -216,12 +229,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref app) = sc.application_defaults {
         if let Some(ref signing) = app.signing {
             if signing == "true" || signing == "front" || signing == "back" {
-                results.push(CheckResult::pass(
-                    "SEC-006",
-                    CAT,
-                    Severity::Info,
-                    "signing attribute set on ApplicationDefaults",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-006",
+                        CAT,
+                        Severity::Info,
+                        "signing attribute set on ApplicationDefaults",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -234,6 +250,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         ),
                         Some("Set signing=\"true\" or signing=\"front\" on <ApplicationDefaults>"),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
                 );
             }
@@ -246,6 +263,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "signing attribute not set on ApplicationDefaults",
                     Some("Set signing=\"true\" on <ApplicationDefaults> to sign SAML messages"),
                 )
+                .at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
             );
         }
@@ -255,12 +273,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref app) = sc.application_defaults {
         if let Some(ref encryption) = app.encryption {
             if encryption == "true" || encryption == "front" || encryption == "back" {
-                results.push(CheckResult::pass(
-                    "SEC-007",
-                    CAT,
-                    Severity::Info,
-                    "encryption attribute set on ApplicationDefaults",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-007",
+                        CAT,
+                        Severity::Info,
+                        "encryption attribute set on ApplicationDefaults",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -270,6 +291,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("encryption attribute is '{}' (consider 'true')", encryption),
                         Some("Set encryption=\"true\" on <ApplicationDefaults>"),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
                 );
             }
@@ -278,7 +300,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "SEC-007", CAT, Severity::Info,
                 "encryption attribute not set on ApplicationDefaults",
                 Some("Set encryption=\"true\" on <ApplicationDefaults> to request encrypted assertions"),
-            ).with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)));
+            ).at_element("ApplicationDefaults").with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)));
         }
     }
 
@@ -591,12 +613,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             let lower = cookie_props.to_lowercase();
             // "https" shorthand does NOT imply SameSite in Shibboleth
             if lower.contains("samesite") {
-                results.push(CheckResult::pass(
-                    "SEC-017",
-                    CAT,
-                    Severity::Info,
-                    "cookieProps includes SameSite attribute",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-017",
+                        CAT,
+                        Severity::Info,
+                        "cookieProps includes SameSite attribute",
+                    )
+                    .at_element("Sessions"),
+                );
             } else {
                 let suggestion = if v == SpVersion::V2 {
                     "SP2 does not support SameSite in cookieProps; set it via web server headers or upgrade to SP3"
@@ -611,6 +636,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "cookieProps does not include SameSite attribute",
                         Some(suggestion),
                     )
+                    .at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             }
@@ -625,6 +651,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "Set cookieProps with SameSite attribute for modern browser compatibility",
                     ),
                 )
+                .at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -633,12 +660,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // SEC-018: entityID uses HTTPS (prefer over HTTP)
     if let Some(ref entity_id) = sc.entity_id {
         if entity_id.starts_with("https://") || entity_id.starts_with("urn:") {
-            results.push(CheckResult::pass(
-                "SEC-018",
-                CAT,
-                Severity::Info,
-                "entityID uses HTTPS or URN scheme",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-018",
+                    CAT,
+                    Severity::Info,
+                    "entityID uses HTTPS or URN scheme",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         } else if entity_id.starts_with("http://") {
             results.push(
                 CheckResult::fail(
@@ -650,6 +680,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "Consider using an HTTPS entityID for consistency with TLS best practices",
                     ),
                 )
+                .at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         }
@@ -668,6 +699,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Sessions lifetime is 0 (sessions never expire by time)",
                             Some("Set a reasonable session lifetime (e.g., 28800 for 8 hours)"),
                         )
+                        .at_element("Sessions")
                         .with_doc(doc_for(DOC_SESSIONS, v)),
                     );
                 } else if lifetime > 86400 {
@@ -675,18 +707,21 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-019", CAT, Severity::Info,
                         &format!("Sessions lifetime is {} seconds ({:.1} days)", lifetime, lifetime as f64 / 86400.0),
                         Some("Consider a shorter session lifetime (default is 28800 seconds / 8 hours)"),
-                    ).with_doc(doc_for(DOC_SESSIONS, v)));
+                    ).at_element("Sessions").with_doc(doc_for(DOC_SESSIONS, v)));
                 } else {
-                    results.push(CheckResult::pass(
-                        "SEC-019",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "Sessions lifetime is {} seconds ({:.1} hours)",
-                            lifetime,
-                            lifetime as f64 / 3600.0
-                        ),
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "SEC-019",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "Sessions lifetime is {} seconds ({:.1} hours)",
+                                lifetime,
+                                lifetime as f64 / 3600.0
+                            ),
+                        )
+                        .at_element("Sessions"),
+                    );
                 }
             }
         }
@@ -705,6 +740,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Sessions timeout is 0 (sessions never expire by inactivity)",
                             Some("Set a reasonable idle timeout (e.g., 3600 for 1 hour)"),
                         )
+                        .at_element("Sessions")
                         .with_doc(doc_for(DOC_SESSIONS, v)),
                     );
                 } else if timeout > 28800 {
@@ -712,18 +748,21 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SEC-020", CAT, Severity::Info,
                         &format!("Sessions timeout is {} seconds ({:.1} hours)", timeout, timeout as f64 / 3600.0),
                         Some("Consider a shorter idle timeout (default is 3600 seconds / 1 hour)"),
-                    ).with_doc(doc_for(DOC_SESSIONS, v)));
+                    ).at_element("Sessions").with_doc(doc_for(DOC_SESSIONS, v)));
                 } else {
-                    results.push(CheckResult::pass(
-                        "SEC-020",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "Sessions timeout is {} seconds ({:.1} hours)",
-                            timeout,
-                            timeout as f64 / 3600.0
-                        ),
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "SEC-020",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "Sessions timeout is {} seconds ({:.1} hours)",
+                                timeout,
+                                timeout as f64 / 3600.0
+                            ),
+                        )
+                        .at_element("Sessions"),
+                    );
                 }
             }
         }
@@ -741,16 +780,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Warning,
                         "Sessions redirectLimit is set to 'none' (open redirect vulnerability)",
                         Some("Set redirectLimit to 'exact' or 'host' to prevent open redirect attacks"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-022",
-                    CAT,
-                    Severity::Warning,
-                    &format!("Sessions redirectLimit is set to '{}'", redirect_limit),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-022",
+                        CAT,
+                        Severity::Warning,
+                        &format!("Sessions redirectLimit is set to '{}'", redirect_limit),
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -766,16 +808,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "Sessions consistentAddress is explicitly false",
                         Some("consistentAddress=\"true\" binds sessions to the client IP for additional security"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-023",
-                    CAT,
-                    Severity::Info,
-                    "Sessions consistentAddress is not disabled",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-023",
+                        CAT,
+                        Severity::Info,
+                        "Sessions consistentAddress is not disabled",
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -795,15 +840,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         ),
                         Some("Set clockSkew to 180 or less; large values weaken replay protection"),
                     )
+                    .at_element("SPConfig")
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-024",
-                    CAT,
-                    Severity::Warning,
-                    &format!("clockSkew is {}s (within safe range)", skew),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-024",
+                        CAT,
+                        Severity::Warning,
+                        &format!("clockSkew is {}s (within safe range)", skew),
+                    )
+                    .at_element("SPConfig"),
+                );
             }
         }
     }
@@ -820,15 +869,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SSO protocols include SAML1 (deprecated and less secure)",
                         Some("Remove SAML1 from <SSO> and use only SAML2 unless SAML1 is required"),
                     )
+                    .at_element("SSO")
                     .with_doc(doc_for(DOC_SSO, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-025",
-                    CAT,
-                    Severity::Info,
-                    "SSO protocols do not include SAML1",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-025",
+                        CAT,
+                        Severity::Info,
+                        "SSO protocols do not include SAML1",
+                    )
+                    .at_element("SSO"),
+                );
             }
         }
     }
@@ -946,15 +999,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     &format!("entityID appears to be a placeholder: {}", entity_id),
                     Some("Set entityID to your actual SP entity ID"),
                 )
+                .at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         } else {
-            results.push(CheckResult::pass(
-                "SEC-028",
-                CAT,
-                Severity::Warning,
-                "entityID is not a placeholder value",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-028",
+                    CAT,
+                    Severity::Warning,
+                    "entityID is not a placeholder value",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         }
     }
 
@@ -962,12 +1019,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref discovery_url) = sessions.sso_discovery_url {
             if discovery_url.starts_with("https://") {
-                results.push(CheckResult::pass(
-                    "SEC-029",
-                    CAT,
-                    Severity::Warning,
-                    "SSO discoveryURL uses HTTPS",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-029",
+                        CAT,
+                        Severity::Warning,
+                        "SSO discoveryURL uses HTTPS",
+                    )
+                    .at_element("SSO"),
+                );
             } else if discovery_url.starts_with("http://") {
                 results.push(
                     CheckResult::fail(
@@ -977,6 +1037,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("SSO discoveryURL uses HTTP: {}", discovery_url),
                         Some("Use HTTPS for the discovery service URL"),
                     )
+                    .at_element("SSO")
                     .with_doc(doc_for(DOC_SSO, v)),
                 );
             }
@@ -1033,12 +1094,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref relay_state) = sessions.relay_state {
             if relay_state.starts_with("ss:") {
-                results.push(CheckResult::pass(
-                    "SEC-031",
-                    CAT,
-                    Severity::Info,
-                    "Sessions relayState uses server-side storage (ss: prefix)",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-031",
+                        CAT,
+                        Severity::Info,
+                        "Sessions relayState uses server-side storage (ss: prefix)",
+                    )
+                    .at_element("Sessions"),
+                );
             } else if relay_state.starts_with("cookie:") || relay_state == "cookie" {
                 results.push(
                     CheckResult::fail(
@@ -1048,15 +1112,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "Sessions relayState uses cookie storage",
                         Some("Consider using ss: prefix for server-side relay state storage"),
                     )
+                    .at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-031",
-                    CAT,
-                    Severity::Info,
-                    &format!("Sessions relayState is set to '{}'", relay_state),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-031",
+                        CAT,
+                        Severity::Info,
+                        &format!("Sessions relayState is set to '{}'", relay_state),
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -1174,12 +1242,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 .copied()
                 .collect();
             if found_weak.is_empty() {
-                results.push(CheckResult::pass(
-                    "SEC-035",
-                    CAT,
-                    Severity::Warning,
-                    "cipherSuites does not contain known weak ciphers",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-035",
+                        CAT,
+                        Severity::Warning,
+                        "cipherSuites does not contain known weak ciphers",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1194,6 +1265,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Remove weak cipher suites (RC4, DES, NULL, EXPORT) from cipherSuites",
                         ),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
                 );
             }
@@ -1236,6 +1308,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Sessions postLimit is 0 (no limit on POST data)",
                             Some("Set a reasonable postLimit (e.g., 1048576 for 1MB)"),
                         )
+                        .at_element("Sessions")
                         .with_doc(doc_for(DOC_SESSIONS, v)),
                     );
                 } else if limit > 10_485_760 {
@@ -1247,15 +1320,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             &format!("Sessions postLimit is {} bytes (> 10MB)", limit),
                             Some("Consider a smaller postLimit to prevent abuse"),
                         )
+                        .at_element("Sessions")
                         .with_doc(doc_for(DOC_SESSIONS, v)),
                     );
                 } else {
-                    results.push(CheckResult::pass(
-                        "SEC-038",
-                        CAT,
-                        Severity::Info,
-                        &format!("Sessions postLimit is {} bytes", limit),
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "SEC-038",
+                            CAT,
+                            Severity::Info,
+                            &format!("Sessions postLimit is {} bytes", limit),
+                        )
+                        .at_element("Sessions"),
+                    );
                 }
             }
         }
@@ -1268,12 +1345,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             .as_deref()
             .is_some_and(|v| v == "true")
         {
-            results.push(CheckResult::pass(
-                "SEC-039",
-                CAT,
-                Severity::Info,
-                "SecurityPolicyProvider has validate=\"true\"",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-039",
+                    CAT,
+                    Severity::Info,
+                    "SecurityPolicyProvider has validate=\"true\"",
+                )
+                .at_element("SecurityPolicyProvider"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1282,7 +1362,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "SecurityPolicyProvider missing validate=\"true\"",
                     Some("Add validate=\"true\" to SecurityPolicyProvider to validate the policy file on load"),
-                )
+                ).at_element("SecurityPolicyProvider")
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         }
@@ -1332,18 +1412,22 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("Notify endpoint uses plaintext HTTP: {}", endpoint),
                         Some("Use HTTPS for Notify endpoints to protect logout notifications"),
                     )
+                    .at_element("Notify")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
                 has_http = true;
             }
         }
         if !has_http && !sc.notify_endpoints.is_empty() {
-            results.push(CheckResult::pass(
-                "SEC-041",
-                CAT,
-                Severity::Warning,
-                "All Notify endpoints use HTTPS",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-041",
+                    CAT,
+                    Severity::Warning,
+                    "All Notify endpoints use HTTPS",
+                )
+                .at_element("Notify"),
+            );
         }
     }
 
@@ -1359,15 +1443,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("handlerURL uses plaintext HTTP: {}", handler_url),
                         Some("Use a relative path or HTTPS URL for handlerURL"),
                     )
+                    .at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-042",
-                    CAT,
-                    Severity::Warning,
-                    "handlerURL does not use plaintext HTTP",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-042",
+                        CAT,
+                        Severity::Warning,
+                        "handlerURL does not use plaintext HTTP",
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -1427,12 +1515,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref addr) = sc.tcp_listener_address {
         let lower = addr.to_lowercase();
         if lower == "127.0.0.1" || lower == "::1" || lower == "localhost" {
-            results.push(CheckResult::pass(
-                "SEC-044",
-                CAT,
-                Severity::Warning,
-                &format!("TCPListener binds to localhost: {}", addr),
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-044",
+                    CAT,
+                    Severity::Warning,
+                    &format!("TCPListener binds to localhost: {}", addr),
+                )
+                .at_element("TCPListener"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1445,6 +1536,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     ),
                     Some("Set address=\"127.0.0.1\" on <TCPListener> to bind only to localhost"),
                 )
+                .at_element("TCPListener")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -1453,12 +1545,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // SEC-045: redirectLimit not explicitly set on Sessions
     if let Some(ref sessions) = sc.sessions {
         if sessions.redirect_limit.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-045",
-                CAT,
-                Severity::Info,
-                "redirectLimit is explicitly set on Sessions",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-045",
+                    CAT,
+                    Severity::Info,
+                    "redirectLimit is explicitly set on Sessions",
+                )
+                .at_element("Sessions"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1468,6 +1563,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "redirectLimit not explicitly set on Sessions (defaults vary by SP version)",
                     Some("Set redirectLimit on <Sessions> to explicitly control redirect behavior"),
                 )
+                .at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -1531,12 +1627,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // SEC-048: No SecurityPolicyProvider configured
     if sc.security_policy_provider_path.is_some() {
-        results.push(CheckResult::pass(
-            "SEC-048",
-            CAT,
-            Severity::Warning,
-            "SecurityPolicyProvider is configured",
-        ));
+        results.push(
+            CheckResult::pass(
+                "SEC-048",
+                CAT,
+                Severity::Warning,
+                "SecurityPolicyProvider is configured",
+            )
+            .at_element("SecurityPolicyProvider"),
+        );
     } else {
         results.push(
             CheckResult::fail(
@@ -1546,6 +1645,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "No SecurityPolicyProvider configured",
                 Some("Add a <SecurityPolicyProvider> element to define security policies"),
             )
+            .at_element("SecurityPolicyProvider")
             .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
         );
     }
@@ -1563,6 +1663,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("homeURL uses plain HTTP: {}", home_url),
                         Some("Use HTTPS for homeURL"),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
                 );
             } else if lower.contains("example.org")
@@ -1577,15 +1678,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("homeURL appears to be a placeholder: {}", home_url),
                         Some("Set homeURL to your actual application URL"),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-049",
-                    CAT,
-                    Severity::Info,
-                    &format!("homeURL is set: {}", home_url),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-049",
+                        CAT,
+                        Severity::Info,
+                        &format!("homeURL is set: {}", home_url),
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -1656,15 +1761,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Use a stronger algorithm like rsa-sha256 or ecdsa-sha256 for signing",
                         ),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-052",
-                    CAT,
-                    Severity::Warning,
-                    &format!("signingAlg does not use SHA-1: {}", alg),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-052",
+                        CAT,
+                        Severity::Warning,
+                        &format!("signingAlg does not use SHA-1: {}", alg),
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -1682,15 +1791,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("digestAlg uses SHA-1: {}", alg),
                         Some("Use a stronger digest algorithm like sha256 or sha384"),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-053",
-                    CAT,
-                    Severity::Warning,
-                    &format!("digestAlg does not use SHA-1: {}", alg),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-053",
+                        CAT,
+                        Severity::Warning,
+                        &format!("digestAlg does not use SHA-1: {}", alg),
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -1767,16 +1880,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Warning,
                     "requireTransportAuth=\"false\" disables TLS certificate validation on back-channel",
                     Some("Remove requireTransportAuth=\"false\" or set to \"true\" to validate TLS certificates"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         } else if app.require_transport_auth.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-056",
-                CAT,
-                Severity::Warning,
-                "requireTransportAuth is not disabled",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-056",
+                    CAT,
+                    Severity::Warning,
+                    "requireTransportAuth is not disabled",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         }
     }
 
@@ -1790,16 +1906,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Warning,
                     "requireConfidentiality=\"false\" allows unencrypted back-channel communication",
                     Some("Remove requireConfidentiality=\"false\" or set to \"true\" to require encrypted back-channel"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         } else if app.require_confidentiality.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-057",
-                CAT,
-                Severity::Warning,
-                "requireConfidentiality is not disabled",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-057",
+                    CAT,
+                    Severity::Warning,
+                    "requireConfidentiality is not disabled",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         }
     }
 
@@ -1819,16 +1938,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Warning,
                         &format!("exportACL extends beyond localhost: {}", acl),
                         Some("Restrict exportACL to \"127.0.0.1 ::1\" to limit assertion export access"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-058",
-                    CAT,
-                    Severity::Warning,
-                    "exportACL is restricted to localhost",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-058",
+                        CAT,
+                        Severity::Warning,
+                        "exportACL is restricted to localhost",
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -1847,15 +1969,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 })
                 .unwrap_or(false);
             if acl_safe {
-                results.push(CheckResult::pass(
-                    "SEC-059",
-                    CAT,
-                    Severity::Info,
-                    &format!(
-                        "exportLocation is set ({}) with localhost-only exportACL",
-                        loc
-                    ),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-059",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "exportLocation is set ({}) with localhost-only exportACL",
+                            loc
+                        ),
+                    )
+                    .at_element("Sessions"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1867,7 +1992,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             loc
                         ),
                         Some("Set exportACL=\"127.0.0.1 ::1\" when using exportLocation to restrict access"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             }
@@ -1885,18 +2010,22 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "LogoutInitiator has no 'signing' attribute (logout requests may be unsigned)",
                     Some("Set signing=\"true\" on LogoutInitiator to sign logout requests"),
                 )
+                .at_element("Logout")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         } else {
-            results.push(CheckResult::pass(
-                "SEC-060",
-                CAT,
-                Severity::Warning,
-                &format!(
-                    "LogoutInitiator signing is set: {}",
-                    li.signing.as_deref().unwrap_or("?")
-                ),
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-060",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "LogoutInitiator signing is set: {}",
+                        li.signing.as_deref().unwrap_or("?")
+                    ),
+                )
+                .at_element("Logout"),
+            );
         }
     }
 
@@ -1914,16 +2043,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             limit
                         ),
                         Some("Set redirectAllow on <Sessions> with allowed redirect URLs"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else if limit.contains("allow") {
-                results.push(CheckResult::pass(
-                    "SEC-061",
-                    CAT,
-                    Severity::Warning,
-                    "redirectLimit allow-list has redirectAllow configured",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-061",
+                        CAT,
+                        Severity::Warning,
+                        "redirectLimit allow-list has redirectAllow configured",
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -2110,28 +2242,29 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         days_info
                     ),
                     Some("Disable idpHistory or set idpHistoryDays to a low value to reduce tracking exposure"),
-                )
+                ).at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         } else if sessions.idp_history.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-066",
-                CAT,
-                Severity::Info,
-                "idpHistory is not enabled",
-            ));
+            results.push(
+                CheckResult::pass("SEC-066", CAT, Severity::Info, "idpHistory is not enabled")
+                    .at_element("Sessions"),
+            );
         }
     }
 
     // SEC-067: maxTimeSinceAuthn not set (stale authentications accepted)
     if let Some(ref sessions) = sc.sessions {
         if sessions.max_time_since_authn.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-067",
-                CAT,
-                Severity::Info,
-                "maxTimeSinceAuthn is set on Sessions",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-067",
+                    CAT,
+                    Severity::Info,
+                    "maxTimeSinceAuthn is set on Sessions",
+                )
+                .at_element("Sessions"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -2140,7 +2273,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "maxTimeSinceAuthn not set on Sessions (IdP may reuse old authentications)",
                     Some("Set maxTimeSinceAuthn on <Sessions> to limit how old an IdP authentication can be"),
-                )
+                ).at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -2165,16 +2298,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                                 cookie_secs, session_secs
                             ),
                             Some("Set cookieLifetime <= session lifetime to avoid stale session cookies"),
-                        )
+                        ).at_element("Sessions")
                         .with_doc(doc_for(DOC_SESSIONS, v)),
                     );
                 } else {
-                    results.push(CheckResult::pass(
-                        "SEC-068",
-                        CAT,
-                        Severity::Info,
-                        "cookieLifetime does not exceed session lifetime",
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "SEC-068",
+                            CAT,
+                            Severity::Info,
+                            "cookieLifetime does not exceed session lifetime",
+                        )
+                        .at_element("Sessions"),
+                    );
                 }
             }
         }
@@ -2240,16 +2376,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "checkAddress is explicitly set to \"false\" (source IP consistency checking disabled)",
                     Some("Consider enabling checkAddress to detect session hijacking via IP change"),
-                )
+                ).at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         } else if sessions.check_address.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-071",
-                CAT,
-                Severity::Info,
-                "checkAddress is not disabled",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-071",
+                    CAT,
+                    Severity::Info,
+                    "checkAddress is not disabled",
+                )
+                .at_element("Sessions"),
+            );
         }
     }
 
@@ -2375,6 +2514,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SessionInitiator uses SAML1 protocol (obsolete and less secure)",
                         Some("Migrate to SAML2 SessionInitiator for better security features"),
                     )
+                    .at_element("SessionInitiator")
                     .with_doc(doc_for(DOC_SSO, v)),
                 );
             }
@@ -2447,16 +2587,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                                 d
                             ),
                             Some("Reduce idpHistoryDays to limit how long IdP visit history is retained in cookies"),
-                        )
+                        ).at_element("Sessions")
                         .with_doc(doc_for(DOC_SESSIONS, v)),
                     );
                 } else {
-                    results.push(CheckResult::pass(
-                        "SEC-078",
-                        CAT,
-                        Severity::Info,
-                        &format!("idpHistoryDays is {} (reasonable retention)", d),
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "SEC-078",
+                            CAT,
+                            Severity::Info,
+                            &format!("idpHistoryDays is {} (reasonable retention)", d),
+                        )
+                        .at_element("Sessions"),
+                    );
                 }
             }
         }
@@ -2472,16 +2615,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "sameSiteFallback is enabled (sends additional fallback cookies for legacy browsers)",
                     Some("Disable sameSiteFallback if all users are on modern browsers to reduce cookie surface area"),
-                )
+                ).at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         } else if sessions.same_site_fallback.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-079",
-                CAT,
-                Severity::Info,
-                "sameSiteFallback is not enabled",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-079",
+                    CAT,
+                    Severity::Info,
+                    "sameSiteFallback is not enabled",
+                )
+                .at_element("Sessions"),
+            );
         }
     }
 
@@ -2499,16 +2645,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             contact
                         ),
                         Some("Consider using a support page URL instead of a direct email to reduce spam/phishing risk"),
-                    )
+                    ).at_element("Errors")
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-080",
-                    CAT,
-                    Severity::Info,
-                    "Errors supportContact does not expose a direct email address",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-080",
+                        CAT,
+                        Severity::Info,
+                        "Errors supportContact does not expose a direct email address",
+                    )
+                    .at_element("Errors"),
+                );
             }
         }
     }
@@ -2518,12 +2667,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         if content.contains("<UnixListener") {
             if !content.contains("stackSize=") {
                 // UnixListener is present; check for address attribute for socket path
-                results.push(CheckResult::pass(
-                    "SEC-081",
-                    CAT,
-                    Severity::Info,
-                    "UnixListener is configured (uses Unix domain socket)",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-081",
+                        CAT,
+                        Severity::Info,
+                        "UnixListener is configured (uses Unix domain socket)",
+                    )
+                    .at_element("TCPListener"),
+                );
             }
         } else if content.contains("<TCPListener") && sc.tcp_listener_address.is_none() {
             results.push(
@@ -2533,7 +2685,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "TCPListener used without explicit address (may bind to all interfaces)",
                     Some("Set address=\"127.0.0.1\" on <TCPListener> or switch to <UnixListener> for local-only communication"),
-                )
+                ).at_element("TCPListener")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -2551,16 +2703,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Warning,
                         &format!("SSO protocols include SAML1: {}", protocols),
                         Some("Remove SAML1 from SSO protocols — SAML 1.x is obsolete and lacks modern security features"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SSO, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-082",
-                    CAT,
-                    Severity::Warning,
-                    "SSO protocols do not include SAML1",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-082",
+                        CAT,
+                        Severity::Warning,
+                        "SSO protocols do not include SAML1",
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -2579,16 +2734,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             bindings
                         ),
                         Some("Prefer SOAP or HTTP-POST bindings for logout to keep tokens out of URLs"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-083",
-                    CAT,
-                    Severity::Info,
-                    "Logout outgoing bindings do not use GET/Redirect",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-083",
+                        CAT,
+                        Severity::Info,
+                        "Logout outgoing bindings do not use GET/Redirect",
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -2605,15 +2763,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("relayState uses plain HTTP: {}", rs),
                         Some("Use HTTPS for relayState URLs to protect the post-login redirect"),
                     )
+                    .at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-084",
-                    CAT,
-                    Severity::Warning,
-                    "relayState does not use plain HTTP",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-084",
+                        CAT,
+                        Severity::Warning,
+                        "relayState does not use plain HTTP",
+                    )
+                    .at_element("Sessions"),
+                );
             }
         }
     }
@@ -2738,16 +2900,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Warning,
                     "signing is explicitly set to \"false\" on ApplicationDefaults (SAML messages will not be signed)",
                     Some("Set signing=\"true\" to sign SAML requests for integrity and authenticity"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
             );
         } else if app.signing.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-088",
-                CAT,
-                Severity::Warning,
-                "signing is not explicitly disabled on ApplicationDefaults",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-088",
+                    CAT,
+                    Severity::Warning,
+                    "signing is not explicitly disabled on ApplicationDefaults",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         }
     }
 
@@ -2761,16 +2926,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Warning,
                     "encryption is explicitly set to \"false\" on ApplicationDefaults (assertions will not be encrypted)",
                     Some("Set encryption=\"true\" to request encrypted assertions from IdPs"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
             );
         } else if app.encryption.is_some() {
-            results.push(CheckResult::pass(
-                "SEC-089",
-                CAT,
-                Severity::Warning,
-                "encryption is not explicitly disabled on ApplicationDefaults",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-089",
+                    CAT,
+                    Severity::Warning,
+                    "encryption is not explicitly disabled on ApplicationDefaults",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         }
     }
 
@@ -2824,7 +2992,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "Sessions uses deprecated 'redirectWhitelist' attribute",
                     Some("Migrate to 'redirectAllow' attribute (redirectWhitelist is deprecated in SP3)"),
-                )
+                ).at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -2913,7 +3081,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "LogoutInitiator is asynchronous with signing disabled (logout notifications may be rejected)",
                     Some("Enable signing on asynchronous LogoutInitiators to ensure logout notifications are accepted"),
-                )
+                ).at_element("Logout")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -2941,16 +3109,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             found_weak.join(", ")
                         ),
                         Some("Remove weak cipher suites (RC4, DES, 3DES, MD5, NULL, EXPORT, ANON) from cipherSuites"),
-                    )
+                    ).at_element("ApplicationDefaults")
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-097",
-                    CAT,
-                    Severity::Warning,
-                    "cipherSuites does not contain known weak algorithms",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-097",
+                        CAT,
+                        Severity::Warning,
+                        "cipherSuites does not contain known weak algorithms",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -3060,7 +3231,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         nw
                     ),
                     Some("Ensure all services are notified on logout to prevent dangling sessions"),
-                )
+                ).at_element("Logout")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         }
@@ -3077,16 +3248,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         &format!("Errors helpLocation uses plain HTTP: {}", help),
                         Some("Use HTTPS for helpLocation to avoid mixed content and protect user navigation"),
-                    )
+                    ).at_element("Errors")
                     .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-104",
-                    CAT,
-                    Severity::Info,
-                    "Errors helpLocation does not use plain HTTP",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-104",
+                        CAT,
+                        Severity::Info,
+                        "Errors helpLocation does not use plain HTTP",
+                    )
+                    .at_element("Errors"),
+                );
             }
         }
     }
@@ -3103,7 +3277,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     sc.notify_endpoints.len()
                 ),
                 Some("Review Notify endpoints to ensure only necessary services receive logout notifications"),
-            )
+            ).at_element("Notify")
             .with_doc(doc_for(DOC_SESSIONS, v)),
         );
     }
@@ -3111,12 +3285,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // SEC-106: No attributePrefix set (header name collision risk with environment variables)
     if let Some(ref content) = config.shibboleth_xml_content {
         if content.contains("attributePrefix=") {
-            results.push(CheckResult::pass(
-                "SEC-106",
-                CAT,
-                Severity::Info,
-                "attributePrefix is set (reduces header name collision risk)",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-106",
+                    CAT,
+                    Severity::Info,
+                    "attributePrefix is set (reduces header name collision risk)",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -3125,7 +3302,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "No attributePrefix set — attribute headers may collide with other environment variables",
                     Some("Set attributePrefix on <ApplicationDefaults> to namespace attribute headers (e.g., \"AJP_\")"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         }
@@ -3475,16 +3652,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "SSO discoveryProtocol is WAYF (outdated protocol)",
                         Some("Migrate to SAMLDS discovery protocol for better security and standards compliance"),
-                    )
+                    ).at_element("SSO")
                     .with_doc(doc_for(DOC_SSO, v)),
                 );
             } else {
-                results.push(CheckResult::pass(
-                    "SEC-117",
-                    CAT,
-                    Severity::Info,
-                    &format!("SSO discoveryProtocol is {} (not WAYF)", proto),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "SEC-117",
+                        CAT,
+                        Severity::Info,
+                        &format!("SSO discoveryProtocol is {} (not WAYF)", proto),
+                    )
+                    .at_element("SSO"),
+                );
             }
         }
     }
@@ -3507,16 +3687,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         default_count
                     ),
                     Some("Only one SessionInitiator should have isDefault=\"true\""),
-                )
+                ).at_element("SessionInitiator")
                 .with_doc(doc_for(DOC_SSO, v)),
             );
         } else if default_count == 1 {
-            results.push(CheckResult::pass(
-                "SEC-118",
-                CAT,
-                Severity::Warning,
-                "Only one SessionInitiator is the default",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "SEC-118",
+                    CAT,
+                    Severity::Warning,
+                    "Only one SessionInitiator is the default",
+                )
+                .at_element("SessionInitiator"),
+            );
         }
     }
 
@@ -3573,7 +3756,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             si.id.as_deref().unwrap_or("(unnamed)")
                         ),
                         Some("Migrate to SAML2 SessionInitiator type for modern security features"),
-                    )
+                    ).at_element("SessionInitiator")
                     .with_doc(doc_for(DOC_SSO, v)),
                 );
             }
@@ -3656,7 +3839,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                                 endpoint
                             ),
                             Some("Notify endpoints should point to application endpoints, not the SP handler itself"),
-                        )
+                        ).at_element("Notify")
                         .with_doc(doc_for(DOC_SESSIONS, v)),
                     );
                 }
@@ -3722,4 +3905,89 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_absent, assert_outcome, config_from_xml, sp3_with_sessions};
+
+    fn run_sessions(attrs: &str) -> Vec<CheckResult> {
+        let (_dir, config) = config_from_xml(&sp3_with_sessions(attrs));
+        run(&config)
+    }
+
+    #[test]
+    fn no_config_yields_no_results() {
+        let dir = crate::testutil::TestDir::new();
+        assert!(run(&dir.discover()).is_empty());
+    }
+
+    #[test]
+    fn handler_ssl_true_passes() {
+        assert_outcome(&run_sessions(r#"handlerSSL="true""#), "SEC-001", true);
+    }
+
+    #[test]
+    fn handler_ssl_false_fails() {
+        assert_outcome(&run_sessions(r#"handlerSSL="false""#), "SEC-001", false);
+    }
+
+    #[test]
+    fn handler_ssl_unset_fails() {
+        assert_outcome(&run_sessions(""), "SEC-001", false);
+    }
+
+    #[test]
+    fn https_shorthand_satisfies_secure_and_httponly_on_sp3() {
+        let results = run_sessions(r#"cookieProps="https""#);
+        assert_outcome(&results, "SEC-002", true);
+        assert_outcome(&results, "SEC-003", true);
+    }
+
+    #[test]
+    fn https_shorthand_does_not_count_on_sp2() {
+        let xml = sp3_with_sessions(r#"cookieProps="https""#)
+            .replace("shibboleth:3.0:", "shibboleth:2.0:");
+        let (_dir, config) = config_from_xml(&xml);
+        let results = run(&config);
+        assert_outcome(&results, "SEC-002", false);
+        assert_outcome(&results, "SEC-003", false);
+    }
+
+    #[test]
+    fn explicit_flags_are_matched_case_insensitively() {
+        let results = run_sessions(r#"cookieProps="; path=/; Secure; HTTPONLY""#);
+        assert_outcome(&results, "SEC-002", true);
+        assert_outcome(&results, "SEC-003", true);
+    }
+
+    #[test]
+    fn plain_cookie_props_fail_both_flag_checks() {
+        let results = run_sessions(r#"cookieProps="http""#);
+        assert_outcome(&results, "SEC-002", false);
+        assert_outcome(&results, "SEC-003", false);
+    }
+
+    #[test]
+    fn missing_cookie_props_fails_secure_check() {
+        assert_outcome(&run_sessions(""), "SEC-002", false);
+    }
+
+    #[test]
+    fn failures_carry_a_suggestion_and_doc_link() {
+        let results = run_sessions(r#"handlerSSL="false""#);
+        let r = results.iter().find(|r| r.code == "SEC-001").unwrap();
+        assert!(r.suggestion.is_some());
+        assert!(r.doc_url.is_some());
+    }
+
+    #[test]
+    fn sessions_checks_are_skipped_without_sessions_element() {
+        let xml = r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth"/>
+</SPConfig>"#;
+        let (_dir, config) = config_from_xml(xml);
+        assert_absent(&run(&config), "SEC-001");
+    }
 }

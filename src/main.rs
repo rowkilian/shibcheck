@@ -12,6 +12,8 @@ mod output;
 mod parsers;
 mod rc_config;
 mod result;
+#[cfg(test)]
+mod testutil;
 mod watch;
 
 use std::path::PathBuf;
@@ -89,24 +91,24 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
     let include = cli.check.clone().or_else(|| rc.check.clone());
     let exclude = cli.skip.clone().or_else(|| rc.skip.clone());
 
-    let discovered = match config::discover(base_dir) {
-        Ok(config) => config,
+    let (discovered, results) = match discover_and_check(base_dir, check_remote, &include, &exclude)
+    {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("Error discovering configuration: {}", e);
             return 2;
         }
     };
 
-    let results = checks::run_all(&discovered, check_remote);
-    let results = filter::apply_filters(results, include.as_deref(), exclude.as_deref());
-
-    // Optional auto-fix
-    if do_fix && fix::has_fixable(&results) {
+    // Optional auto-fix, then re-run so the report reflects the fixed files
+    let (discovered, results) = if do_fix && fix::has_fixable(&results) {
         let fixes = fix::apply_fixes(&results, &discovered.shibboleth_xml_path);
-        for f in &fixes {
-            eprintln!("Fixed: {}", f);
-        }
-        if !fixes.is_empty() {
+        if fixes.is_empty() {
+            (discovered, results)
+        } else {
+            for f in &fixes {
+                eprintln!("Fixed: {}", f);
+            }
             eprintln!(
                 "Backup saved to {}",
                 discovered
@@ -114,29 +116,17 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
                     .with_extension("xml.bak")
                     .display()
             );
-            // Re-run checks after fixes
-            let rediscovered = match config::discover(base_dir) {
-                Ok(c) => c,
+            match discover_and_check(base_dir, check_remote, &include, &exclude) {
+                Ok(r) => r,
                 Err(e) => {
                     eprintln!("Error re-discovering after fix: {}", e);
                     return 2;
                 }
-            };
-            let new_results = checks::run_all(&rediscovered, check_remote);
-            let new_results =
-                filter::apply_filters(new_results, include.as_deref(), exclude.as_deref());
-            let summary = CheckSummary::from_results(&new_results);
-            if let Err(e) = output::print_results(&new_results, verbose, format, &rediscovered) {
-                eprintln!("Error: {:#}", e);
-                return 2;
             }
-            return if summary.has_failures_at_severity(severity_threshold) {
-                1
-            } else {
-                0
-            };
         }
-    }
+    } else {
+        (discovered, results)
+    };
 
     let summary = CheckSummary::from_results(&results);
     if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
@@ -144,11 +134,20 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
         return 2;
     }
 
-    if summary.has_failures_at_severity(severity_threshold) {
-        1
-    } else {
-        0
-    }
+    i32::from(summary.has_failures_at_severity(severity_threshold))
+}
+
+/// Discover the config in `base_dir`, run all checks, and apply the include/exclude filters.
+fn discover_and_check(
+    base_dir: &std::path::Path,
+    check_remote: bool,
+    include: &Option<Vec<String>>,
+    exclude: &Option<Vec<String>>,
+) -> anyhow::Result<(config::DiscoveredConfig, Vec<result::CheckResult>)> {
+    let discovered = config::discover(base_dir)?;
+    let results = checks::run_all(&discovered, check_remote);
+    let results = filter::apply_filters(results, include.as_deref(), exclude.as_deref());
+    Ok((discovered, results))
 }
 
 fn run_watch(cli: &Cli) {
@@ -197,17 +196,15 @@ fn run_multi(cli: &Cli, dirs: &[PathBuf]) {
         let include = cli.check.clone().or(rc.check);
         let exclude = cli.skip.clone().or(rc.skip);
 
-        let discovered = match config::discover(&base_dir) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error discovering {}: {}", base_dir.display(), e);
-                any_failed = true;
-                continue;
-            }
-        };
-
-        let results = checks::run_all(&discovered, check_remote);
-        let results = filter::apply_filters(results, include.as_deref(), exclude.as_deref());
+        let (discovered, results) =
+            match discover_and_check(&base_dir, check_remote, &include, &exclude) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Error discovering {}: {}", base_dir.display(), e);
+                    any_failed = true;
+                    continue;
+                }
+            };
         let summary = CheckSummary::from_results(&results);
         if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
             eprintln!("Error rendering output for {}: {:#}", base_dir.display(), e);

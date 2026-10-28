@@ -1092,12 +1092,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref app) = sc.application_defaults {
         if let Some(ref home_url) = app.home_url {
             if !home_url.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-036",
-                    CAT,
-                    Severity::Info,
-                    &format!("homeURL is set: {}", home_url),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-036",
+                        CAT,
+                        Severity::Info,
+                        &format!("homeURL is set: {}", home_url),
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1106,7 +1109,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "homeURL is set but empty on ApplicationDefaults",
                         Some("Set homeURL to a valid URL so the SP has a fallback landing page for error recovery"),
-                    )
+                    ).at_element("ApplicationDefaults")
                     .with_doc(DOC_APP_DEFAULTS),
                 );
             }
@@ -1118,7 +1121,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "homeURL not set on ApplicationDefaults (no fallback landing page for error recovery)",
                     Some("Set homeURL on <ApplicationDefaults> to provide a landing page when the SP has no better redirect target"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(DOC_APP_DEFAULTS),
             );
         }
@@ -1140,15 +1143,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("homeURL appears to be a placeholder: {}", home_url),
                         Some("Set homeURL to a real URL for your application"),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(DOC_APP_DEFAULTS),
                 );
             } else if !home_url.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-037",
-                    CAT,
-                    Severity::Warning,
-                    "homeURL is not a placeholder",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-037",
+                        CAT,
+                        Severity::Warning,
+                        "homeURL is not a placeholder",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -1162,12 +1169,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             || errors.local_logout.is_some()
             || errors.global_logout.is_some();
         if has_custom_pages {
-            results.push(CheckResult::pass(
-                "OPS-038",
-                CAT,
-                Severity::Info,
-                "Custom error page(s) configured in <Errors>",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-038",
+                    CAT,
+                    Severity::Info,
+                    "Custom error page(s) configured in <Errors>",
+                )
+                .at_element("Errors"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1176,7 +1186,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "No custom error pages configured in <Errors> (users see default SP error pages)",
                     Some("Add session, access, ssl, metadata, localLogout, or globalLogout attributes to <Errors> for user-friendly error pages"),
-                )
+                ).at_element("Errors")
                 .with_doc(DOC_ERRORS),
             );
         }
@@ -1186,12 +1196,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref errors) = sc.errors {
         if let Some(ref help) = errors.help_location {
             if !help.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-039",
-                    CAT,
-                    Severity::Info,
-                    &format!("helpLocation is set on Errors: {}", help),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-039",
+                        CAT,
+                        Severity::Info,
+                        &format!("helpLocation is set on Errors: {}", help),
+                    )
+                    .at_element("Errors"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1203,6 +1216,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Set helpLocation to a URL where users can find help or documentation",
                         ),
                     )
+                    .at_element("Errors")
                     .with_doc(DOC_ERRORS),
                 );
             }
@@ -1214,7 +1228,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "helpLocation not set on <Errors> (error pages have no link to help documentation)",
                     Some("Set helpLocation on <Errors> to provide a support/documentation URL on error pages"),
-                )
+                ).at_element("Errors")
                 .with_doc(DOC_ERRORS),
             );
         }
@@ -1223,15 +1237,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // OPS-040: Session lifetime not explicitly set (no absolute session cap)
     if let Some(ref sessions) = sc.sessions {
         if sessions.lifetime.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-040",
-                CAT,
-                Severity::Info,
-                &format!(
-                    "Session lifetime is explicitly set: {}s",
-                    sessions.lifetime.as_deref().unwrap_or("?")
-                ),
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-040",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Session lifetime is explicitly set: {}s",
+                        sessions.lifetime.as_deref().unwrap_or("?")
+                    ),
+                )
+                .at_element("Sessions"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1243,6 +1260,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "Set lifetime on <Sessions> to explicitly control maximum session duration",
                     ),
                 )
+                .at_element("Sessions")
                 .with_doc(DOC_SESSIONS),
             );
         }
@@ -1251,15 +1269,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // OPS-041: Session timeout not explicitly set (no idle timeout)
     if let Some(ref sessions) = sc.sessions {
         if sessions.timeout.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-041",
-                CAT,
-                Severity::Info,
-                &format!(
-                    "Session timeout is explicitly set: {}s",
-                    sessions.timeout.as_deref().unwrap_or("?")
-                ),
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-041",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Session timeout is explicitly set: {}s",
+                        sessions.timeout.as_deref().unwrap_or("?")
+                    ),
+                )
+                .at_element("Sessions"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1269,6 +1290,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "Session timeout not explicitly set (defaults to 3600s / 1 hour)",
                     Some("Set timeout on <Sessions> to explicitly control idle session expiration"),
                 )
+                .at_element("Sessions")
                 .with_doc(DOC_SESSIONS),
             );
         }
@@ -1320,12 +1342,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref errors) = sc.errors {
         if let Some(ref ss) = errors.style_sheet {
             if !ss.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-043",
-                    CAT,
-                    Severity::Info,
-                    &format!("Errors styleSheet is set: {}", ss),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-043",
+                        CAT,
+                        Severity::Info,
+                        &format!("Errors styleSheet is set: {}", ss),
+                    )
+                    .at_element("Errors"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1337,6 +1362,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Set styleSheet on <Errors> to a CSS file path for branded error pages",
                         ),
                     )
+                    .at_element("Errors")
                     .with_doc(DOC_ERRORS),
                 );
             }
@@ -1348,7 +1374,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "Errors styleSheet not set (error pages will use default unstyled appearance)",
                     Some("Set styleSheet on <Errors> to a CSS file path for branded, user-friendly error pages"),
-                )
+                ).at_element("Errors")
                 .with_doc(DOC_ERRORS),
             );
         }
@@ -1412,15 +1438,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         if sessions.sso_discovery_url.is_some() {
             if sessions.sso_discovery_protocol.is_some() {
-                results.push(CheckResult::pass(
-                    "OPS-046",
-                    CAT,
-                    Severity::Info,
-                    &format!(
-                        "discoveryProtocol is explicitly set: {}",
-                        sessions.sso_discovery_protocol.as_deref().unwrap_or("?")
-                    ),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-046",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "discoveryProtocol is explicitly set: {}",
+                            sessions.sso_discovery_protocol.as_deref().unwrap_or("?")
+                        ),
+                    )
+                    .at_element("SSO"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1429,7 +1458,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "discoveryURL is set but discoveryProtocol is not explicitly specified (defaults to SAMLDS)",
                         Some("Set discoveryProtocol on <SSO> to make the discovery protocol explicit (e.g., \"SAMLDS\")"),
-                    )
+                    ).at_element("SSO")
                     .with_doc(DOC_SESSIONS),
                 );
             }
@@ -1500,7 +1529,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     app.signing_alg.as_deref().unwrap_or("?"),
                     app.digest_alg.as_deref().unwrap_or("?")
                 ),
-            ));
+            ).at_element("ApplicationDefaults"));
         } else {
             let mut missing = Vec::new();
             if !has_signing_alg {
@@ -1519,7 +1548,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         missing.join(" and ")
                     ),
                     Some("Set signingAlg and digestAlg on <ApplicationDefaults> to explicitly control signature algorithms (e.g., signingAlg=\"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256\")"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(DOC_APP_DEFAULTS),
             );
         }
@@ -1816,15 +1845,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         if sessions.has_logout {
             if let Some(ref protocols) = sessions.logout_protocols {
                 if !protocols.trim().is_empty() {
-                    results.push(CheckResult::pass(
-                        "OPS-058",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "Logout protocols explicitly specified: {}",
-                            protocols.trim()
-                        ),
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "OPS-058",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "Logout protocols explicitly specified: {}",
+                                protocols.trim()
+                            ),
+                        )
+                        .at_element("Logout"),
+                    );
                 } else {
                     results.push(
                         CheckResult::fail(
@@ -1833,7 +1865,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             Severity::Info,
                             "Logout element has no protocol content (all supported logout protocols will be enabled)",
                             Some("Specify protocols in <Logout> element text (e.g., \"SAML2 Local\") to control logout behavior"),
-                        )
+                        ).at_element("Logout")
                         .with_doc(DOC_SESSIONS),
                     );
                 }
@@ -1845,7 +1877,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "Logout element has no protocol content (all supported logout protocols will be enabled)",
                         Some("Specify protocols in <Logout> element text (e.g., \"SAML2 Local\") to control logout behavior"),
-                    )
+                    ).at_element("Logout")
                     .with_doc(DOC_SESSIONS),
                 );
             }
@@ -1882,15 +1914,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // OPS-060: consistentAddress not explicitly set on Sessions
     if let Some(ref sessions) = sc.sessions {
         if sessions.consistent_address.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-060",
-                CAT,
-                Severity::Info,
-                &format!(
-                    "consistentAddress is explicitly set: {}",
-                    sessions.consistent_address.as_deref().unwrap_or("?")
-                ),
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-060",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "consistentAddress is explicitly set: {}",
+                        sessions.consistent_address.as_deref().unwrap_or("?")
+                    ),
+                )
+                .at_element("Sessions"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1899,7 +1934,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "consistentAddress not explicitly set on Sessions (defaults to false; sessions valid from any IP)",
                     Some("Set consistentAddress on <Sessions> to control IP address binding behavior for sessions"),
-                )
+                ).at_element("Sessions")
                 .with_doc(DOC_SESSIONS),
             );
         }
@@ -1909,12 +1944,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref handler_url) = sessions.handler_url {
             if handler_url == "/Shibboleth.sso" {
-                results.push(CheckResult::pass(
-                    "OPS-061",
-                    CAT,
-                    Severity::Info,
-                    "handlerURL uses standard /Shibboleth.sso path",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-061",
+                        CAT,
+                        Severity::Info,
+                        "handlerURL uses standard /Shibboleth.sso path",
+                    )
+                    .at_element("Sessions"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1926,7 +1964,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             handler_url
                         ),
                         Some("Non-standard handlerURL paths require matching web server configuration to route requests to the SP"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(DOC_SESSIONS),
                 );
             }
@@ -2068,16 +2106,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         sc.session_initiators.len()
                     ),
                     Some("Add id attributes to SessionInitiators so they can be referenced individually in login links"),
-                )
+                ).at_element("SessionInitiator")
                 .with_doc(DOC_SESSIONS),
             );
         } else if sc.session_initiators.len() > 1 {
-            results.push(CheckResult::pass(
-                "OPS-066",
-                CAT,
-                Severity::Info,
-                "All SessionInitiators have id attributes",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-066",
+                    CAT,
+                    Severity::Info,
+                    "All SessionInitiators have id attributes",
+                )
+                .at_element("SessionInitiator"),
+            );
         }
     }
 
@@ -2111,12 +2152,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 let has_logout_pages =
                     errors.local_logout.is_some() || errors.global_logout.is_some();
                 if has_logout_pages {
-                    results.push(CheckResult::pass(
-                        "OPS-068",
-                        CAT,
-                        Severity::Info,
-                        "Logout error page(s) configured for logout-enabled SP",
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "OPS-068",
+                            CAT,
+                            Severity::Info,
+                            "Logout error page(s) configured for logout-enabled SP",
+                        )
+                        .at_element("Errors"),
+                    );
                 } else {
                     results.push(
                         CheckResult::fail(
@@ -2125,7 +2169,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             Severity::Info,
                             "Logout is enabled but no localLogout or globalLogout error pages configured in <Errors>",
                             Some("Set localLogout and/or globalLogout on <Errors> to show a user-friendly page after logout"),
-                        )
+                        ).at_element("Errors")
                         .with_doc(DOC_ERRORS),
                     );
                 }
@@ -2135,15 +2179,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-069: authnContextClassRef not set (no explicit authentication strength requirement)
     if sc.sso_authn_context_class_ref.is_some() {
-        results.push(CheckResult::pass(
-            "OPS-069",
-            CAT,
-            Severity::Info,
-            &format!(
-                "authnContextClassRef is set on SSO: {}",
-                sc.sso_authn_context_class_ref.as_deref().unwrap_or("?")
-            ),
-        ));
+        results.push(
+            CheckResult::pass(
+                "OPS-069",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "authnContextClassRef is set on SSO: {}",
+                    sc.sso_authn_context_class_ref.as_deref().unwrap_or("?")
+                ),
+            )
+            .at_element("SSO"),
+        );
     } else if sc.sessions.as_ref().is_some_and(|s| s.has_sso) {
         results.push(
             CheckResult::fail(
@@ -2152,7 +2199,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 Severity::Info,
                 "authnContextClassRef not set on SSO (no explicit authentication strength requirement)",
                 Some("Set authnContextClassRef on <SSO> to request a specific authentication method (e.g., urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport)"),
-            )
+            ).at_element("SSO")
             .with_doc(DOC_SESSIONS),
         );
     }
@@ -2190,12 +2237,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // OPS-071: No cipherSuites set on ApplicationDefaults (TLS defaults depend on system OpenSSL)
     if let Some(ref app) = sc.application_defaults {
         if app.cipher_suites.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-071",
-                CAT,
-                Severity::Info,
-                "cipherSuites is explicitly configured on ApplicationDefaults",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-071",
+                    CAT,
+                    Severity::Info,
+                    "cipherSuites is explicitly configured on ApplicationDefaults",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -2204,7 +2254,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "cipherSuites not set on ApplicationDefaults (outbound TLS uses system defaults)",
                     Some("Set cipherSuites on <ApplicationDefaults> to control TLS ciphers for outbound connections to IdPs and metadata sources"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(DOC_APP_DEFAULTS),
             );
         }
@@ -2228,16 +2278,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             home_url
                         ),
                         Some("homeURL should be an absolute path (e.g., '/') or full URL (e.g., 'https://sp.example.org/')"),
-                    )
+                    ).at_element("ApplicationDefaults")
                     .with_doc(DOC_APP_DEFAULTS),
                 );
             } else if !home_url.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-072",
-                    CAT,
-                    Severity::Warning,
-                    "homeURL has a valid path or URL format",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-072",
+                        CAT,
+                        Severity::Warning,
+                        "homeURL has a valid path or URL format",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -2633,4 +2686,36 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_outcome, config_from_xml};
+
+    fn run_with_errors(attrs: &str) -> Vec<CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <Errors {attrs}/>
+  </ApplicationDefaults>
+</SPConfig>"#
+        );
+        let (_dir, config) = config_from_xml(&xml);
+        run(&config)
+    }
+
+    #[test]
+    fn placeholder_support_contact_fails() {
+        for contact in ["admin@localhost", "help@example.org", "help@EXAMPLE.com"] {
+            let results = run_with_errors(&format!(r#"supportContact="{contact}""#));
+            assert_outcome(&results, "OPS-001", false);
+        }
+    }
+
+    #[test]
+    fn real_support_contact_passes() {
+        let results = run_with_errors(r#"supportContact="help@university.edu""#);
+        assert_outcome(&results, "OPS-001", true);
+    }
 }

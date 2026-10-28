@@ -1,0 +1,5 @@
+XML-001 pass shibboleth2.xml:1
+XML-002 fail shibboleth2.xml:1
+XML-003 fail shibboleth2.xml:1
+XML-005 fail shibboleth2.xml:1
+XML-015 pass shibboleth2.xml

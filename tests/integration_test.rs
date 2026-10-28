@@ -475,3 +475,27 @@ fn ref_001_attaches_location_at_check_site() {
         "Expected a line number for the CredentialResolver referencing the cert"
     );
 }
+
+// ── --fix ──
+
+#[test]
+fn fix_rewrites_config_and_keeps_a_backup() {
+    let dir = std::env::temp_dir().join(format!("shibcheck-fix-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = std::fs::read_to_string("tests/fixtures/insecure/shibboleth2.xml").unwrap();
+    std::fs::write(dir.join("shibboleth2.xml"), &original).unwrap();
+
+    shibcheck()
+        .arg("--fix")
+        .arg(&dir)
+        .assert()
+        .stderr(predicates::str::contains("Fixed: SEC-001"))
+        .stderr(predicates::str::contains("Backup saved to"));
+
+    let fixed = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    let backup = std::fs::read_to_string(dir.join("shibboleth2.xml.bak")).unwrap();
+    assert_ne!(fixed, original);
+    assert_eq!(backup, original);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -69,6 +69,10 @@ pub struct CheckResult {
     pub doc_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub location: Option<SourceLocation>,
+    /// XML element in shibboleth2.xml that this check inspects. Used to fill in
+    /// `location` after the checks run, unless the check set one itself.
+    #[serde(skip)]
+    pub element_hint: Option<&'static str>,
 }
 
 impl CheckResult {
@@ -82,6 +86,7 @@ impl CheckResult {
             suggestion: None,
             doc_url: None,
             location: None,
+            element_hint: None,
         }
     }
 
@@ -101,12 +106,19 @@ impl CheckResult {
             suggestion: suggestion.map(|s| s.to_string()),
             doc_url: None,
             location: None,
+            element_hint: None,
         }
     }
 
     /// Attach a documentation URL to this check result.
     pub fn with_doc(mut self, url: &str) -> Self {
         self.doc_url = Some(url.to_string());
+        self
+    }
+
+    /// Point this result at the first `<element>` in shibboleth2.xml.
+    pub fn at_element(mut self, element: &'static str) -> Self {
+        self.element_hint = Some(element);
         self
     }
 
