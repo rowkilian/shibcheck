@@ -69,7 +69,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-053)
+### XML Validity (XML-001 to XML-054)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -126,8 +126,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-051 | Every `Handler` has `type` and `Location` | Error |
 | XML-052 | File `CredentialResolver` `use` is `signing`, `TLS` or `encryption` | Warning |
 | XML-053 | `signing` / `encryption` on `ApplicationDefaults` is a recognized value | Warning |
+| XML-054 | `SessionCache` `unreliableNetworks` lists valid CIDR masks | Error |
 
-### Cross-file References (REF-001 to REF-039)
+### Cross-file References (REF-001 to REF-040)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -169,8 +170,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-037 | Persistent NameID source uses a scoped attribute | Warning |
 | REF-038 | `postData` / `relayState` `ss:<id>` names a defined `StorageService` | Error |
 | REF-039 | `SessionCache` / `ReplayCache` / `ArtifactMap` `StorageService` names a defined service | Error |
+| REF-040 | `SessionCache` `persistedAttributes` has a `DataSealer` to encrypt the recovery cookie | Error |
 
-### Security (SEC-001 to SEC-138)
+### Security (SEC-001 to SEC-139)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -311,8 +313,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-136 | `TCPListener` `acl` is limited to loopback | Warning |
 | SEC-137 | No `NullSecurity` policy rule | Error |
 | SEC-138 | No policy rule sets `checkReplay="false"` | Warning |
+| SEC-139 | `SessionCache` does not enable session recovery (`persistedAttributes`), which skips the timeout and survives logout | Warning |
 
-### Operational (OPS-001 to OPS-080)
+### Operational (OPS-001 to OPS-082)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -396,6 +399,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-078 | `NameIDFormat` prefers transient over persistent/unspecified | Info |
 | OPS-079 | `postData` has a `postTemplate` | Info |
 | OPS-080 | `Cookie` `SessionInitiator` has `idpHistory` enabled | Warning |
+| OPS-081 | `SessionCache` keeps the reverse index when logout is configured | Warning |
+| OPS-082 | `SessionCache` `unreliableNetworks` is not set while `consistentAddress` is `false` | Info |
 
 ### Migration (MIG-001 to MIG-024)
 

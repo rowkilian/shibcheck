@@ -171,6 +171,13 @@ fn process_element(
                 "ReplayCache" => "ReplayCache",
                 _ => "ArtifactMap",
             };
+            if name == "SessionCache" {
+                config.session_cache = Some(crate::model::shibboleth_config::SessionCacheInfo {
+                    persisted_attributes: get_attr(e, "persistedAttributes"),
+                    maintain_reverse_index: get_attr(e, "maintainReverseIndex"),
+                    unreliable_networks: get_attr(e, "unreliableNetworks"),
+                });
+            }
             for attribute in ["StorageService", "StorageServiceLite"] {
                 if let Some(id) = get_attr(e, attribute) {
                     config

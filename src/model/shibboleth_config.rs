@@ -42,6 +42,7 @@ pub struct ShibbolethConfig {
     /// `id` of every <StorageService> element
     pub storage_service_ids: Vec<String>,
     pub data_sealers: Vec<DataSealerInfo>,
+    pub session_cache: Option<SessionCacheInfo>,
     pub security_policy_provider_validate: Option<String>,
     pub tcp_listener_address: Option<String>,
     pub request_map_application_ids: Vec<String>,
@@ -227,6 +228,13 @@ pub struct StorageReference {
     pub element: &'static str,
     pub attribute: &'static str,
     pub id: String,
+}
+
+#[derive(Debug)]
+pub struct SessionCacheInfo {
+    pub persisted_attributes: Option<String>,
+    pub maintain_reverse_index: Option<String>,
+    pub unreliable_networks: Option<String>,
 }
 
 #[derive(Debug)]

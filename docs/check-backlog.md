@@ -17,7 +17,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 | `SPConfig` `allowedSchemes` adding `javascript`, `data`, `file` | SPConfig (2063695926) | The page does not list risky schemes; keep severity low. |
 | `PKIX` / `StaticPKIX` trust engine in use, or no explicit trust engine | ReleaseNotes (2065335693), TrustEngine (2063695951) | Needs application-level `TrustEngine` parsing. |
 | `MetadataGenerator` handler signing with SHA-1 defaults | Metadata Generation Handler (2065334858) | Needs handler attributes. |
-| `persistedAttributes` (session recovery) bypasses timeout and logout | SessionCache (2065334650) | Needs `SessionCache` parsing. |
 | `authnContextClassRef` requested but not enforced by an access rule | Requiring Multi-Factor Authentication (2114781453) | The Apache or IIS config is outside the XML, so keep it Info. |
 
 ## XML validity
@@ -46,7 +45,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 
 | Idea | Page (id) | Notes |
 |------|-----------|-------|
-| `persistedAttributes` without a `DataSealer` | SessionCache (2065334650) | Needs `SessionCache` parsing. |
 | `Rule` `require` names an attribute that is not in `attribute-map.xml` | Rule (2065335141), RuleRegex (2065335144) | Needs access-rule parsing. |
 | `requireSessionWith` names a `SessionInitiator` id that does not exist | ContentSettings (2065334723) | Needs a content-setting field. |
 | Plugin used without its extension library (`ODBC`, `memcache`, `GSSAPI`, `ADFS`) | ODBCStorageService (2065334638), ADFS (2065335656) | Needs `Extensions` / `Library` parsing. |
@@ -62,8 +60,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 | `exportAssertion` without `exportLocation`, `exportACL` or `cacheAssertions` | AssertionExport (2065335032) | Needs content-setting parsing. |
 | `acsByIndex="true"` | SAML2 SessionInitiator (2065334736) | Doc: not advisable. |
 | Explicit initiator at the shorthand's `/Login` or `/Logout` location | SSO (2065334348) | Needs initiator `Location`. |
-| `maintainReverseIndex="false"` while SAML2 logout is on | SessionCache (2065334650) | Needs `SessionCache` parsing. |
-| `unreliableNetworks` with `consistentAddress="false"` | SessionCache (2065334650) | Needs parsing. |
 | `OutOfProcess` without `tranLogFormat`; `InProcess` `catchAll` | OutOfProcess (2065334599), InProcess (2063696243) | Extends SEC-121. |
 | `Metadata` / `KeyDescriptor` extractor without `metadataAttributePrefix` | MetadataAttributeExtractor (2065334447) | Needs extractor type. |
 | IIS `Site` hygiene (missing `Site`, extra `port` / `scheme`) | Site (2063696262), Upgrading Older ISAPI Configuration (2060615835) | Needs parsing. |

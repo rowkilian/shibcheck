@@ -1296,9 +1296,62 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     check_handler_attributes(config, &mut results);
     check_credential_use(config, &mut results);
     check_signing_encryption_values(config, &mut results);
+    check_unreliable_networks(config, &mut results);
 
     results
 }
+/// True for an IPv4 or IPv6 address with an optional `/prefix` that fits the address family.
+fn is_valid_cidr(value: &str) -> bool {
+    let (addr, prefix) = match value.split_once('/') {
+        Some((a, p)) => (a, Some(p)),
+        None => (value, None),
+    };
+    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    let max = if ip.is_ipv4() { 32 } else { 128 };
+    prefix.is_none_or(|p| p.parse::<u8>().is_ok_and(|n| n <= max))
+}
+
+/// XML-054: `unreliableNetworks` on SessionCache is a list of CIDR masks.
+fn check_unreliable_networks(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(networks) = config
+        .shibboleth_config
+        .as_ref()
+        .and_then(|sc| sc.session_cache.as_ref())
+        .and_then(|c| c.unreliable_networks.as_deref())
+    else {
+        return;
+    };
+    let bad: Vec<&str> = networks
+        .split_whitespace()
+        .filter(|n| !is_valid_cidr(n))
+        .collect();
+    if bad.is_empty() {
+        results.push(
+            CheckResult::pass(
+                "XML-054",
+                CAT,
+                Severity::Error,
+                "SessionCache unreliableNetworks lists valid CIDR masks",
+            )
+            .at_element("SessionCache"),
+        );
+    } else {
+        results.push(
+            CheckResult::fail(
+                "XML-054",
+                CAT,
+                Severity::Error,
+                &format!("SessionCache unreliableNetworks has invalid CIDR masks: {}", bad.join(", ")),
+                Some("Use whitespace-separated addresses with an optional prefix length, such as 10.0.0.0/8"),
+            )
+            .at_element("SessionCache")
+            .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+        );
+    }
+}
+
 /// XML-048: each <Notify> needs Channel="front"|"back" and an absolute Location.
 fn check_notify(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
     let Some(sc) = config.shibboleth_config.as_ref() else {
@@ -1723,5 +1776,26 @@ mod tests {
         let r = run_app2(r#"signing="always""#, "");
         crate::testutil::assert_outcome(&r, "XML-053", false);
         crate::testutil::assert_absent(&run_app2("", ""), "XML-053");
+    }
+
+    #[test]
+    fn unreliable_networks_must_be_cidr() {
+        use crate::testutil::{assert_absent, assert_outcome, config_from_xml, sp3_app};
+        let run_nets = |value: &str| {
+            let cache =
+                format!(r#"<SessionCache type="StorageService" unreliableNetworks="{value}"/>"#);
+            let (_dir, config) = config_from_xml(&sp3_app("", &cache));
+            run(&config)
+        };
+        assert_outcome(
+            &run_nets("10.0.0.0/8 192.168.1.1 2001:db8::/32"),
+            "XML-054",
+            true,
+        );
+        assert_outcome(&run_nets("10.0.0.0/33"), "XML-054", false);
+        assert_outcome(&run_nets("10.0.0/8"), "XML-054", false);
+        assert_outcome(&run_nets("office"), "XML-054", false);
+        let (_dir, config) = config_from_xml(&sp3_app("", ""));
+        assert_absent(&run(&config), "XML-054");
     }
 }

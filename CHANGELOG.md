@@ -28,6 +28,11 @@ All notable changes to shibcheck are documented in this file.
 - **XML-051**: `Handler` without `type` or `Location`.
 - **XML-052** / **XML-053**: `use` on a File `CredentialResolver`, and `signing` / `encryption` on `ApplicationDefaults`, must be documented values.
 - **REF-039**: `StorageService` / `StorageServiceLite` references from `SessionCache`, `ReplayCache` and `ArtifactMap` must name a defined service.
+- **SEC-139**: `SessionCache` `persistedAttributes` (session recovery) skips the inactivity timeout and survives logout.
+- **REF-040**: `persistedAttributes` needs a `DataSealer`.
+- **OPS-081**: `maintainReverseIndex="false"` while logout is configured.
+- **OPS-082**: `unreliableNetworks` has no effect when `consistentAddress` is `false`.
+- **XML-054**: `unreliableNetworks` must be valid CIDR masks.
 - **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
 
 ### Changed

@@ -2682,6 +2682,56 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    // OPS-081 / OPS-082: SessionCache settings that conflict with other configuration
+    if let Some(ref cache) = sc.session_cache {
+        let reverse_index_off = cache.maintain_reverse_index.as_deref() == Some("false");
+        let logout = sc.sessions.as_ref().is_some_and(|s| s.has_logout);
+        if reverse_index_off && logout {
+            results.push(
+                CheckResult::fail(
+                    "OPS-081",
+                    CAT,
+                    Severity::Warning,
+                    "SessionCache maintainReverseIndex is false but logout is configured",
+                    Some("SAML logout needs the reverse index to map a Name Identifier to its sessions. Remove the setting or set it to true"),
+                )
+                .at_element("SessionCache")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+            );
+        } else if reverse_index_off {
+            results.push(
+                CheckResult::pass(
+                    "OPS-081",
+                    CAT,
+                    Severity::Warning,
+                    "SessionCache reverse index is disabled and no logout is configured",
+                )
+                .at_element("SessionCache"),
+            );
+        }
+        let has_networks = cache
+            .unreliable_networks
+            .as_deref()
+            .is_some_and(|n| !n.trim().is_empty());
+        let address_check_off = sc
+            .sessions
+            .as_ref()
+            .is_some_and(|s| s.consistent_address.as_deref() == Some("false"));
+        if has_networks && address_check_off {
+            results.push(
+                CheckResult::fail(
+                    "OPS-082",
+                    CAT,
+                    Severity::Info,
+                    "SessionCache unreliableNetworks has no effect because consistentAddress is false",
+                    Some("Remove unreliableNetworks, or set consistentAddress=\"true\" on <Sessions> if you want the address check"),
+                )
+                .at_element("SessionCache")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+            );
+        }
+    }
+
     // OPS-080: Cookie SessionInitiator reads the IdP history cookie, which needs idpHistory
     if sc
         .session_initiators
@@ -2819,5 +2869,29 @@ mod tests {
             true,
         );
         assert_absent(&run_sessions("", ""), "OPS-080");
+    }
+
+    #[test]
+    fn session_cache_conflicts() {
+        use crate::testutil::{assert_absent, assert_outcome, sp3_app};
+        let run_with = |sessions: &str, cache: &str| {
+            let (_dir, config) =
+                config_from_xml(&sp3_app("", &format!("<Sessions {sessions}/>{cache}")));
+            run(&config)
+        };
+        let off = r#"<SessionCache type="StorageService" maintainReverseIndex="false"/>"#;
+        let nets = r#"<SessionCache type="StorageService" unreliableNetworks="10.0.0.0/8"/>"#;
+        let logout = r#"<Sessions><LogoutInitiator type="Local" Location="/Logout"/></Sessions>"#;
+        let (_dir, config) = config_from_xml(&sp3_app("", &format!("{logout}{off}")));
+        assert_outcome(&run(&config), "OPS-081", false);
+        assert_outcome(&run_with("", off), "OPS-081", true);
+        assert_absent(&run_with("", ""), "OPS-081");
+        assert_outcome(
+            &run_with(r#"consistentAddress="false""#, nets),
+            "OPS-082",
+            false,
+        );
+        assert_absent(&run_with("", nets), "OPS-082");
+        assert_absent(&run_with(r#"consistentAddress="false""#, ""), "OPS-082");
     }
 }

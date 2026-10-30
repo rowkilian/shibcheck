@@ -3930,6 +3930,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     check_redirect_allow_prefixes(sc, v, &mut results);
     check_web_server_settings(sc, &mut results);
     check_policy_rules(config, sc, &mut results);
+    check_session_recovery(sc, &mut results);
 
     results
 }
@@ -3975,6 +3976,41 @@ fn acl_is_loopback_only(acl: &str) -> bool {
         let host = a.split('/').next().unwrap_or(a);
         host == "::1" || host == "localhost" || host.starts_with("127.")
     })
+}
+
+/// SEC-139: `persistedAttributes` turns on session recovery. A recovered session counts as
+/// freshly used, so the client can bypass the timeout, and logout cannot revoke it.
+fn check_session_recovery(sc: &ShibbolethConfig, results: &mut Vec<CheckResult>) {
+    let Some(ref cache) = sc.session_cache else {
+        return;
+    };
+    let persisted = cache
+        .persisted_attributes
+        .as_deref()
+        .is_some_and(|a| !a.trim().is_empty());
+    if !persisted {
+        results.push(
+            CheckResult::pass(
+                "SEC-139",
+                CAT,
+                Severity::Warning,
+                "Session recovery (persistedAttributes) is not enabled",
+            )
+            .at_element("SessionCache"),
+        );
+        return;
+    }
+    results.push(
+        CheckResult::fail(
+            "SEC-139",
+            CAT,
+            Severity::Warning,
+            "SessionCache persistedAttributes enables session recovery: a recovered session skips the inactivity timeout and survives logout",
+            Some("Use a shared StorageService instead unless you accept these limits. Keep the attribute list short and protect the DataSealer keys"),
+        )
+        .at_element("SessionCache")
+        .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+    );
 }
 
 /// SEC-128: the ExternalAuth and AttributeResolver handlers have no security beyond
@@ -4482,6 +4518,21 @@ mod tests {
         );
         assert_outcome(&r, "SEC-114", true);
         assert_absent(&run_app("", ""), "SEC-114");
+    }
+
+    #[test]
+    fn session_recovery_is_flagged() {
+        let sealer = r#"<DataSealer type="Versioned" path="sealer.keys"/>"#;
+        let with = |attrs: &str| {
+            run_app(
+                "",
+                &format!(r#"{sealer}<SessionCache type="StorageService" {attrs}/>"#),
+            )
+        };
+        assert_outcome(&with(r#"persistedAttributes="uid mail""#), "SEC-139", false);
+        assert_outcome(&with(""), "SEC-139", true);
+        assert_outcome(&with(r#"persistedAttributes=" ""#), "SEC-139", true);
+        assert_absent(&run_app("", ""), "SEC-139");
     }
 
     #[test]

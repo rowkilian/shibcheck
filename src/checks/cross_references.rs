@@ -216,6 +216,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
 
     check_storage_references(sc, v, &mut results);
     check_plugin_storage_references(sc, v, &mut results);
+    check_session_recovery_sealer(sc, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
     for mp in &sc.metadata_providers {
@@ -1486,6 +1487,44 @@ fn check_plugin_storage_references(
     }
 }
 
+/// REF-040: session recovery (`persistedAttributes`) encrypts its cookie with the DataSealer.
+fn check_session_recovery_sealer(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    results: &mut Vec<CheckResult>,
+) {
+    let persisted = sc
+        .session_cache
+        .as_ref()
+        .and_then(|c| c.persisted_attributes.as_deref())
+        .is_some_and(|a| !a.trim().is_empty());
+    if !persisted {
+        return;
+    }
+    if sc.data_sealers.is_empty() {
+        results.push(
+            CheckResult::fail(
+                "REF-040",
+                CAT,
+                Severity::Error,
+                "SessionCache persistedAttributes is set but no <DataSealer> is defined",
+                Some("Add a <DataSealer> to supply the keys that encrypt the recovery cookie, or remove persistedAttributes"),
+            )
+            .at_element("SessionCache")
+            .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+        );
+    } else {
+        results.push(
+            CheckResult::pass(
+                "REF-040",
+                CAT,
+                Severity::Error,
+                "SessionCache persistedAttributes has a DataSealer to encrypt the recovery cookie",
+            )
+            .at_element("SessionCache"),
+        );
+    }
+}
+
 /// REF-038: `postData` and `relayState` of the form `ss:<id>` must name a configured
 /// StorageService. SP3 provides an in-memory one, id "mem", when none is configured.
 fn check_storage_references(
@@ -1868,6 +1907,22 @@ mod tests {
         );
         let (_dir, config) = crate::testutil::config_from_xml(&xml);
         run(&config, false)
+    }
+
+    #[test]
+    fn session_recovery_needs_data_sealer() {
+        let cache = r#"<SessionCache type="StorageService" persistedAttributes="uid"/>"#;
+        let sealer = r#"<DataSealer type="Versioned" path="sealer.keys"/>"#;
+        assert_outcome(&run_storage("", cache), "REF-040", false);
+        assert_outcome(
+            &run_storage("", &format!("{sealer}{cache}")),
+            "REF-040",
+            true,
+        );
+        crate::testutil::assert_absent(
+            &run_storage("", r#"<SessionCache type="StorageService"/>"#),
+            "REF-040",
+        );
     }
 
     #[test]
