@@ -168,7 +168,6 @@ fn locate_check<'a>(
         "SEC-050" => (Some(shib_file), find_line(xml, "exportAssertion=\"true\"")),
         "SEC-072" => (Some(shib_file), find_line(xml, "-----BEGIN")),
         "SEC-107" => (Some(shib_file), find_line(xml, "<!--")),
-        "SEC-121" => (Some(shib_file), find_line(xml, "catchAll=\"true\"")),
         "OPS-054" => (Some(shib_file), find_line(xml, "StorageService")),
         "OPS-055" => (
             Some(shib_file),

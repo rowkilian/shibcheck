@@ -264,7 +264,11 @@ pub(super) fn run(
                             "MetadataProvider type='{}'{} has ignoreTransport=\"true\" without a Signature filter",
                             mp.provider_type, mp.label()
                         ),
-                        Some("Add a SignatureMetadataFilter or remove ignoreTransport=\"true\" to validate transport security"),
+                        Some(if matches!(mp.provider_type.as_str(), "MDQ" | "Dynamic") {
+                            "Add a Signature filter, or add a <TrustEngine> for the server certificate and remove ignoreTransport"
+                        } else {
+                            "Add a SignatureMetadataFilter or remove ignoreTransport=\"true\" to validate transport security"
+                        }),
                     )
                     .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
                 );

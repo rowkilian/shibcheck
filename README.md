@@ -212,7 +212,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-067 | Elements the docs allow once (`Extensions`, `OutOfProcess`, `InProcess`, `DataSealer`, `SessionCache`, `ReplayCache`, `ArtifactMap`, `RequestMapper`, `Sessions`, `Errors` and others) appear once | Warning |
 | XML-068 | A `Chaining` session initiator has at least one child initiator | Error |
 | XML-069 | An `AttributeChecker` handler sets `template` | Error |
-| XML-070 | A `KeyDescriptor` attribute extractor sets `signingId`, `encryptionId` or `hashId` | Error |
+| XML-070 | A `KeyDescriptor` attribute extractor sets `signingId`, `encryptionId` or `hashId`, otherwise it extracts nothing | Warning |
 | XML-071 | `TrustEngine` `checkRevocation` is `off`, `entityOnly` or `fullChain` | Error |
 | XML-072 | A `Dynamic` metadata provider has exactly one `Subst` or `Regex` child | Error |
 | XML-073 | Metadata providers do not share a `cacheDirectory` | Warning |

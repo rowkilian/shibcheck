@@ -329,6 +329,7 @@ fn process_element(
                     has_sso: false,
                     has_session_initiator: false,
                     has_logout: false,
+                has_sso_shorthand: false,
                 has_logout_shorthand: false,
                     sso_entity_id: None,
                     redirect_limit: get_attr(e, "redirectLimit"),
@@ -358,6 +359,9 @@ fn process_element(
         "SSO" => {
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_sso = true;
+                if !in_override(stack) {
+                    sessions.has_sso_shorthand = true;
+                }
                 if sessions.sso_entity_id.is_none() {
                     sessions.sso_entity_id = get_attr(e, "entityID");
                 }
@@ -392,6 +396,7 @@ fn process_element(
                     template: get_attr(e, "template"),
                     entity_id: get_attr(e, "entityID"),
                     location: get_attr(e, "Location"),
+                    in_override: in_override(stack),
                     depth: stack.len(),
                     children: 0,
                 });
@@ -411,7 +416,7 @@ fn process_element(
         "Logout" | "LogoutInitiator" => {
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_logout = true;
-                if name == "Logout" {
+                if name == "Logout" && !in_override(stack) {
                     sessions.has_logout_shorthand = true;
                 }
                 if sessions.logout_outgoing_bindings.is_none() {
@@ -423,6 +428,7 @@ fn process_element(
                 .push(crate::model::shibboleth_config::LogoutInitiatorInfo {
                     initiator_type: get_attr(e, "type"),
                     location: get_attr(e, "Location"),
+                    in_override: in_override(stack),
                     signing: get_attr(e, "signing"),
                     asynchronous: get_attr(e, "asynchronous"),
                     notify_without: get_attr(e, "notifyWithout"),
@@ -673,6 +679,11 @@ pub(crate) const SPCONFIG_SINGLETONS: [&str; 11] = [
 
 /// Children of `<ApplicationDefaults>` the docs allow at most once.
 pub(crate) const DEFAULTS_SINGLETONS: [&str; 2] = ["Sessions", "Errors"];
+
+/// True inside an `<ApplicationOverride>`.
+fn in_override(stack: &[String]) -> bool {
+    stack.iter().any(|s| s == "ApplicationOverride")
+}
 
 fn parent_is(stack: &[String], name: &str) -> bool {
     stack.last().is_some_and(|s| s == name)

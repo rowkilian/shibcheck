@@ -64,7 +64,7 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
     }
 
     // XML-076: Sessions comes before Errors.
-    if sc.errors_before_sessions {
+    if sc.errors_before_sessions && sc.singleton_counts.get("Sessions").copied().unwrap_or(0) > 0 {
         results.push(
             CheckResult::fail(
                 "XML-076",
@@ -144,9 +144,9 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
             CheckResult::fail(
                 "XML-070",
                 CAT,
-                Severity::Error,
-                "AttributeExtractor type=\"KeyDescriptor\" sets none of signingId, encryptionId or hashId",
-                Some("Set at least one of signingId, encryptionId or hashId to the attribute name for the keys"),
+                Severity::Warning,
+                "AttributeExtractor type=\"KeyDescriptor\" sets none of signingId, encryptionId or hashId, so it extracts nothing",
+                Some("Set at least one of signingId, encryptionId or hashId to the attribute name for the keys, or remove the extractor"),
             )
             .at_element("AttributeExtractor")
             .with_doc(DOC_KEY_DESCRIPTOR),
@@ -210,7 +210,7 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
         .iter()
         .filter(|mp| matches!(mp.provider_type.as_str(), "MDQ" | "Dynamic"))
     {
-        if !mp.has_trust_engine && mp.ignore_transport.as_deref() != Some("true") {
+        if !mp.has_trust_engine && mp.ignore_transport.as_deref().map(str::trim) != Some("true") {
             results.push(
                 CheckResult::fail(
                     "XML-074",
@@ -221,7 +221,7 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
                         mp.provider_type,
                         mp.label()
                     ),
-                    Some("Add a <TrustEngine> (such as StaticPKIX with the CA certificate) to verify the metadata server's TLS certificate"),
+                    Some("Add a <TrustEngine> (such as StaticPKIX with the CA certificate) to verify the metadata server's TLS certificate. ignoreTransport=\"true\" also clears this error, but then the metadata needs a Signature filter"),
                 )
                 .at_element("MetadataProvider")
                 .with_doc(DOC_NETWORK_CHILDREN),
@@ -272,8 +272,9 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
                     CAT,
                     Severity::Warning,
                     &format!(
-                        "cacheDirectory \"{dir}\" is shared by several metadata providers ({first} and {})",
-                        mp.provider_type
+                        "cacheDirectory \"{dir}\" is shared by several metadata providers ({first} and {}{})",
+                        mp.provider_type,
+                        mp.label()
                     ),
                     Some("Give each metadata provider its own cacheDirectory"),
                 )
@@ -354,11 +355,12 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
     const OPS: CheckCategory = CheckCategory::Operational;
 
     if let Some(sessions) = sc.sessions.as_ref() {
-        let login_clash = sessions.has_sso
+        // Only the ApplicationDefaults <Sessions> is compared; an override has its own handlers.
+        let login_clash = sessions.has_sso_shorthand
             && sc
                 .session_initiators
                 .iter()
-                .any(|i| i.location.as_deref().map(str::trim) == Some("/Login"));
+                .any(|i| !i.in_override && i.location.as_deref().map(str::trim) == Some("/Login"));
         if login_clash {
             results.push(
                 CheckResult::fail(
@@ -376,14 +378,14 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
             && sc
                 .logout_initiators
                 .iter()
-                .any(|i| i.location.as_deref().map(str::trim) == Some("/Logout"));
+                .any(|i| !i.in_override && i.location.as_deref().map(str::trim) == Some("/Logout"));
         if logout_clash {
             results.push(
                 CheckResult::fail(
                     "OPS-087",
                     OPS,
                     Severity::Warning,
-                    "An explicit <LogoutInitiator> sits at /Logout, the location the <Logout> shorthand already uses",
+                    "An explicit <LogoutInitiator> and the <Logout> shorthand both install a handler at /Logout",
                     Some("Give the explicit initiator another Location, or remove the <Logout> element and configure the chain yourself"),
                 )
                 .at_element("LogoutInitiator")
@@ -652,6 +654,11 @@ mod tests {
     #[test]
     fn sessions_come_before_errors() {
         assert_outcome(&run("", "<Errors/><Sessions/>"), "XML-076", false);
+        // Without <Sessions> there is no order to break; XML-010 reports the missing element.
+        assert_absent(
+            &run("", r#"<Errors supportContact="root@example.org"/>"#),
+            "XML-076",
+        );
         assert_absent(&run("", "<Sessions/><Errors/>"), "XML-076");
         assert_absent(
             &run(
@@ -688,9 +695,15 @@ mod tests {
         assert_eq!(crate::testutil::with_code(&results, "REF-044").len(), 2);
         let both = r#"<OutOfProcess><Extensions><Library path="adfs.so"/></Extensions></OutOfProcess><InProcess><Extensions><Library path="adfs-lite.so"/></Extensions></InProcess>"#;
         let results = sp_config(both, adfs);
-        assert!(crate::testutil::with_code(&results, "REF-044")
-            .iter()
-            .all(|r| r.passed));
+        let adfs_results = crate::testutil::with_code(&results, "REF-044");
+        assert_eq!(adfs_results.len(), 2);
+        assert!(adfs_results.iter().all(|r| r.passed));
+        // type="ADFS" on an initiator also counts as using the plugin.
+        let typed = r#"<Sessions><SessionInitiator type="ADFS" Location="/ADFS"/></Sessions>"#;
+        assert_eq!(
+            crate::testutil::with_code(&sp_config("", typed), "REF-044").len(),
+            2
+        );
 
         assert_absent(
             &sp_config("", r#"<Sessions><SSO>SAML2</SSO></Sessions>"#),
@@ -728,6 +741,20 @@ mod tests {
             &run(r#"<LogoutInitiator type="SAML2" Location="/Logout"/>"#),
             "OPS-087",
         );
+
+        // An override's shorthand does not clash with the defaults' explicit initiators.
+        let (_dir, c) = config_from_xml(&sp3_app(
+            "",
+            r#"<Sessions><SessionInitiator type="SAML2" Location="/Login"/><LogoutInitiator type="SAML2" Location="/Logout"/></Sessions>
+<ApplicationOverride id="other"><Sessions><SSO entityID="https://idp2.example.org/idp">SAML2</SSO><Logout>SAML2 Local</Logout></Sessions></ApplicationOverride>"#,
+        ));
+        assert_absent(&operational::run(&c), "OPS-087");
+        let (_dir, c) = config_from_xml(&sp3_app(
+            "",
+            r#"<Sessions><SSO>SAML2</SSO></Sessions>
+<ApplicationOverride id="other"><Sessions><SessionInitiator type="SAML2" Location="/Login"/></Sessions></ApplicationOverride>"#,
+        ));
+        assert_absent(&operational::run(&c), "OPS-087");
     }
 
     #[test]
@@ -749,6 +776,73 @@ mod tests {
             true,
         );
         assert_absent(&run(""), "OPS-088");
+    }
+
+    #[test]
+    fn dynamic_provider_also_needs_a_trust_engine() {
+        assert_outcome(
+            &run(
+                "",
+                r#"<MetadataProvider type="Dynamic"><Subst>https://mdq.example.org/$entityID</Subst></MetadataProvider>"#,
+            ),
+            "XML-074",
+            false,
+        );
+        assert_outcome(
+            &run(
+                "",
+                r#"<MetadataProvider type="XML" path="m.xml"><MetadataFilter type="EntityRoleWhiteList"/></MetadataProvider>"#,
+            ),
+            "XML-075",
+            false,
+        );
+    }
+
+    #[test]
+    fn stock_layout_raises_none_of_the_structure_checks() {
+        let xml = r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+<OutOfProcess tranLogFormat="%u|%s|%IDP"><Extensions><Library path="plugins.so" fatal="true"/></Extensions></OutOfProcess>
+<InProcess checkSpoofing="true"><ISAPI/></InProcess>
+<SessionCache type="StorageService"/>
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth" REMOTE_USER="eppn">
+  <Sessions lifetime="28800" timeout="3600" handlerSSL="true" cookieProps="https">
+    <SSO entityID="https://idp.example.org/idp">SAML2</SSO>
+    <Logout>SAML2 Local</Logout>
+    <Handler type="MetadataGenerator" Location="/Metadata"/>
+    <Handler type="Status" Location="/Status" acl="127.0.0.1 ::1"/>
+    <Handler type="Session" Location="/Session"/>
+  </Sessions>
+  <Errors supportContact="root@example.org" helpLocation="/about.html"/>
+  <MetadataProvider type="XML" validate="true" url="https://md.example.org/m.xml" backingFilePath="m.xml" maxRefreshDelay="7200">
+    <MetadataFilter type="RequireValidUntil" maxValidityInterval="2419200"/>
+    <MetadataFilter type="Signature" certificate="fedsigner.pem" verifyBackup="false"/>
+    <MetadataFilter type="EntityRole"><RetainedRole>md:IDPSSODescriptor</RetainedRole></MetadataFilter>
+  </MetadataProvider>
+  <AttributeExtractor type="XML" validate="true" reloadChanges="false" path="attribute-map.xml"/>
+  <AttributeFilter type="XML" validate="true" path="attribute-policy.xml"/>
+  <CredentialResolver type="File" use="signing" key="sp-signing-key.pem" certificate="sp-signing-cert.pem"/>
+  <ApplicationOverride id="admin" entityID="https://admin.example.org/shibboleth">
+    <Sessions lifetime="28800" timeout="3600" handlerSSL="true" cookieProps="https"><SSO entityID="https://idp2.example.org/idp">SAML2</SSO></Sessions>
+  </ApplicationOverride>
+</ApplicationDefaults>
+<SecurityPolicyProvider type="XML" validate="true" path="security-policy.xml"/>
+<ProtocolProvider type="XML" validate="true" reloadChanges="false" path="protocols.xml"/>
+</SPConfig>"#;
+        let (_dir, c) = config_from_xml(xml);
+        let results: Vec<_> = xml_validity::run(&c)
+            .into_iter()
+            .chain(crate::checks::operational::run(&c))
+            .chain(crate::checks::cross_references::run(&c, false))
+            .collect();
+        for code in [
+            "XML-066", "XML-067", "XML-068", "XML-069", "XML-070", "XML-071", "XML-072", "XML-073",
+            "XML-074", "XML-075", "XML-076", "REF-044", "OPS-087",
+        ] {
+            assert!(
+                !results.iter().any(|r| r.code == code && !r.passed),
+                "{code} fired on the stock layout"
+            );
+        }
     }
 
     #[test]

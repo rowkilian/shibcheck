@@ -112,7 +112,9 @@ pub struct SessionsConfig {
     pub has_sso: bool,
     pub has_session_initiator: bool,
     pub has_logout: bool,
-    /// The `<Logout>` shorthand is present (not an explicit `<LogoutInitiator>`).
+    /// `<SSO>` is present in the ApplicationDefaults `<Sessions>` (overrides excluded).
+    pub has_sso_shorthand: bool,
+    /// `<Logout>` is present in the ApplicationDefaults `<Sessions>` (overrides excluded).
     pub has_logout_shorthand: bool,
     pub sso_entity_id: Option<String>,
     pub redirect_limit: Option<String>,
@@ -177,6 +179,9 @@ impl MetadataProvider {
         }
         if let Some(ref url) = self.url {
             return format!(" (url: {})", url);
+        }
+        if let Some(ref base_url) = self.base_url {
+            return format!(" (baseUrl: {})", base_url);
         }
         if let Some(ref path) = self.path {
             return format!(" (path: {})", path);
@@ -273,6 +278,8 @@ pub struct SessionInitiatorInfo {
     pub template: Option<String>,
     pub entity_id: Option<String>,
     pub location: Option<String>,
+    /// Declared inside an `<ApplicationOverride>`.
+    pub in_override: bool,
     /// Number of ancestor elements, to pair nested initiators with their parent.
     pub depth: usize,
     /// Number of `<SessionInitiator>` elements directly inside this one.
@@ -341,6 +348,8 @@ pub struct NotifyInfo {
 pub struct LogoutInitiatorInfo {
     pub initiator_type: Option<String>,
     pub location: Option<String>,
+    /// Declared inside an `<ApplicationOverride>`.
+    pub in_override: bool,
     pub signing: Option<String>,
     pub asynchronous: Option<String>,
     pub notify_without: Option<String>,

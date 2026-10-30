@@ -318,6 +318,31 @@ mod tests {
     }
 
     #[test]
+    fn catch_all_is_reported_for_both_processes() {
+        let run_top = |top: &str| {
+            let xml = format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}<ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#
+            );
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+        };
+        assert_outcome(
+            &run_top(r#"<OutOfProcess catchAll="true"/>"#),
+            "SEC-121",
+            false,
+        );
+        assert_outcome(
+            &run_top(r#"<InProcess catchAll="true"/>"#),
+            "SEC-121",
+            false,
+        );
+        assert_absent(
+            &run_top(r#"<OutOfProcess catchAll="false"/><InProcess/>"#),
+            "SEC-121",
+        );
+    }
+
+    #[test]
     fn errors_external_parameters() {
         let r = run_app("", r#"<Errors externalParameters="true"/>"#);
         assert_outcome(&r, "SEC-131", false);
