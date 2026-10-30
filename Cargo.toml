@@ -2,6 +2,8 @@
 name = "shibcheck"
 version = "0.8.0"
 edition = "2021"
+rust-version = "1.88"
+license = "0BSD"
 description = "Shibboleth SP Configuration Checker"
 repository = "https://github.com/rowkilian/shibcheck"
 readme = "README.md"

@@ -696,7 +696,7 @@ This uploads results to the **Security** tab in your repository, showing finding
 
 ## Building from Source
 
-Requires Rust 1.70+.
+Requires Rust 1.88+ (the minimum that the dependencies declare).
 
 ```bash
 git clone https://github.com/rowkilian/shibcheck.git
@@ -709,3 +709,9 @@ Run tests:
 ```bash
 cargo test
 ```
+
+## License
+
+shibcheck is released under the [BSD Zero Clause License](LICENSE) (0BSD). It places no conditions on use, copying, modification or distribution.
+
+The dependencies keep their own licenses (MIT, Apache-2.0, ISC, BSD, Zlib, Unlicense, CC0-1.0, and MPL-2.0 for `colored`). If you distribute a binary, include their notices. `cargo deny check licenses` lists them and the CI job enforces an allowlist.

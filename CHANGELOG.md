@@ -36,6 +36,7 @@ All notable changes to shibcheck are documented in this file.
 - **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
 
 ### Changed
+- Licensed under 0BSD (`LICENSE`). Added `rust-version = "1.88"`, the highest minimum declared by a dependency, and a `deny.toml` with a license allowlist plus a CI job that checks it.
 - **`fix` is now a subcommand** (`shibcheck fix [PATH]`). The `--fix` flag and the `fix` key in `.shibcheckrc` are gone. New options: `--dry-run` (prints a diff), `--only`, `--skip`, `--no-backup`, `--list`.
 - **Fix engine**: edits now go through a start-tag scanner instead of string search, so a match inside a comment, or an attribute on another element, no longer misleads it. Backups no longer overwrite an earlier `.bak`, and the file is replaced atomically.
 - **Fix of SEC-002 / SEC-003 on SP3** now sets `cookieProps="https"` or appends the missing flag. It used to turn `http` into `http; secure; httpOnly`, which is not a valid value.
