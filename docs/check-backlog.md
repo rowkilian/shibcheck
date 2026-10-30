@@ -21,8 +21,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 | Idea | Page (id) | Notes |
 |------|-----------|-------|
 | `AttributeChecker` handler without `template` | Attribute Checker Handler (2065334881) | Needs handler attributes. |
-| `SAMLDS` / `WAYF` initiator without `URL`; `Form` initiator without `template` | SAMLDS (2065334744), WAYF (2065334755), Form (2065334762) | Needs initiator attributes. |
-| Discovery-type initiator with a fixed `entityID` | Same pages | Doc: the handler silently ignores the request. |
 | Explicit `AssertionConsumerService`, `SingleLogoutService`, `ArtifactResolutionService`: missing `Location` / `Binding`, unknown binding, duplicate `index` | ACSCommonAttributes (2067399700), SingleLogoutCommonAttributes (2067399796) | These elements are not parsed. |
 | Duplicate singleton elements (`Extensions`, `OutOfProcess`, `InProcess`, `DataSealer`, `SessionCache`, `RequestMapper`, a second `Sessions` or `Errors`) | SPConfig (2063695926), ApplicationDefaults (2063695997) | Needs element counts. |
 | `ApplicationDefaults` `id` must be `default`; `Sessions` then `Errors` must come first | ApplicationDefaults (2063695997) | Needs element order. |
@@ -33,7 +31,7 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 | `Dynamic` provider needs exactly one `Subst` or `Regex` child; `MDQ` / `Dynamic` without `TrustEngine` and without `ignoreTransport` | DynamicMetadataProvider (2060616138), MetadataProviderNetworkChildElements (2067399851) | Needs child names. |
 | Metadata filters missing required children (`EntityRole` without `RetainedRole`, `UIInfo` without `Entity`) | EntityRoleMetadataFilter (2063696218), UIInfoMetadataFilter (2107539866) | Needs filter children. |
 | `KeyDescriptor` extractor with none of `signingId`, `encryptionId`, `hashId` | KeyDescriptorAttributeExtractor (2065334438) | Needs extractor attributes. |
-| Content setting values: `redirectToSSL` range, `encoding`, boolean values | ContentSettings (2065334723) | Needs parsing. |
+| Content setting values: `encoding` and boolean values | ContentSettings (2065334723) | Needs parsing. |
 
 ## Cross-file references
 
@@ -48,8 +46,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 
 | Idea | Page (id) | Notes |
 |------|-----------|-------|
-| `exportAssertion` without `exportLocation`, `exportACL` or `cacheAssertions` | AssertionExport (2065335032) | Needs content-setting parsing. |
-| `acsByIndex="true"` | SAML2 SessionInitiator (2065334736) | Doc: not advisable. |
 | Explicit initiator at the shorthand's `/Login` or `/Logout` location | SSO (2065334348) | Needs initiator `Location`. |
 | `OutOfProcess` without `tranLogFormat`; `InProcess` `catchAll` | OutOfProcess (2065334599), InProcess (2063696243) | Extends SEC-121. |
 | `Metadata` / `KeyDescriptor` extractor without `metadataAttributePrefix` | MetadataAttributeExtractor (2065334447) | Needs extractor type. |

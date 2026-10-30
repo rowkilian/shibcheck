@@ -171,6 +171,9 @@ fn process_element(
     if let Some(id) = get_attr(e, "policyId") {
         config.policy_ids_used.push(id);
     }
+    if get_attr(e, "acsByIndex").is_some_and(|v| v.trim() == "true") {
+        config.acs_by_index.push(name.to_string());
+    }
     if name == "Policy" {
         if let Some(id) = get_attr(e, "id") {
             config.policy_ids_defined.push(id);
@@ -336,6 +339,9 @@ fn process_element(
                     initiator_type: get_attr(e, "type"),
                     id: get_attr(e, "id"),
                     is_default: get_attr(e, "isDefault"),
+                    url: get_attr(e, "URL"),
+                    template: get_attr(e, "template"),
+                    entity_id: get_attr(e, "entityID"),
                 });
         }
         "Logout" | "LogoutInitiator" => {
@@ -545,6 +551,7 @@ fn process_element(
                         force_authn: get_attr(e, "forceAuthn"),
                         redirect_to_ssl: get_attr(e, "redirectToSSL"),
                         require_session_with: get_attr(e, "requireSessionWith"),
+                        export_assertion: get_attr(e, "exportAssertion"),
                     },
                 );
             }

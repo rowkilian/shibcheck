@@ -4,6 +4,7 @@ pub mod migration;
 pub mod operational;
 mod relying_party;
 pub mod security;
+mod settings;
 pub mod xml_validity;
 
 use crate::config::DiscoveredConfig;

@@ -5,6 +5,11 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **XML-062**: `redirectToSSL` must be a port number.
+- **XML-063** / **XML-064**: `SAMLDS` and `WAYF` initiators need `URL`, and `Form` needs `template`.
+- **XML-065**: a discovery initiator with a fixed `entityID` ignores requests.
+- **OPS-084**: `acsByIndex="true"` on `SSO` or `SessionInitiator`, which the docs call not advisable.
+- **OPS-085**: `exportAssertion` needs `exportLocation` and `exportACL` on `Sessions` and an enabled `cacheAssertions`.
 - `shibcheck migrate` moves an SP2 configuration to the SP3 format: the namespace in `shibboleth2.xml` and `security-policy.xml`, `file`/`uri` to `path`/`url` on `MetadataProvider`, the 3.2 names for `redirectWhitelist`, `redirectLimit` values and metadata filter types, and `cacheAssertions="true"` on `SessionCache` to keep the SP2 default. It supports `--dry-run`, `--output DIR`, `--no-backup` and `--keep-namespace`, and lists the migration findings that need a person.
 - **MIG-027**: a `SessionCache` that leaves `cacheAssertions` unset, whose default changes from true to false with the 3.0 namespace.
 - **REF-043**: a `policyId` must name a `<Policy>` in `security-policy.xml` or written inline.

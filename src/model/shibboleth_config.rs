@@ -46,6 +46,8 @@ pub struct ShibbolethConfig {
     pub data_sealers: Vec<DataSealerInfo>,
     /// Every `policyId` attribute value, and every `<Policy id>` written inline.
     pub policy_ids_used: Vec<String>,
+    /// Names of elements that set `acsByIndex="true"`.
+    pub acs_by_index: Vec<String>,
     pub policy_ids_defined: Vec<String>,
     /// An ODBC `ConnectionString` embeds a password (the password itself is never stored).
     pub odbc_connection_has_password: bool,
@@ -233,6 +235,9 @@ pub struct SessionInitiatorInfo {
     pub initiator_type: Option<String>,
     pub id: Option<String>,
     pub is_default: Option<String>,
+    pub url: Option<String>,
+    pub template: Option<String>,
+    pub entity_id: Option<String>,
 }
 
 /// A reference from a plugin element to a <StorageService> id.
@@ -304,4 +309,5 @@ pub struct ContentSetting {
     pub force_authn: Option<String>,
     pub redirect_to_ssl: Option<String>,
     pub require_session_with: Option<String>,
+    pub export_assertion: Option<String>,
 }

@@ -139,7 +139,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-061)
+### XML Validity (XML-001 to XML-065)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -204,6 +204,10 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-059 | Static `DataSealer` `key` is base64 that decodes to 16, 24 or 32 bytes | Error |
 | XML-060 | `refreshDelayFactor` is a decimal between 0 and 1, exclusive | Error |
 | XML-061 | `minRefreshDelay` / `minCacheDuration` does not exceed its maximum | Warning |
+| XML-062 | `redirectToSSL` is a port number from 1 to 65535 | Error |
+| XML-063 | `SAMLDS` and `WAYF` session initiators set `URL` | Error |
+| XML-064 | `Form` session initiator sets `template` | Error |
+| XML-065 | Discovery session initiators do not set `entityID` (the handler would ignore requests) | Warning |
 
 ### Cross-file References (REF-001 to REF-043)
 
@@ -403,7 +407,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-146 | `MDQ` / `Dynamic` providers do not set `verifyHost="false"` | Warning |
 | SEC-147 | ODBC `ConnectionString` does not carry a password | Info |
 
-### Operational (OPS-001 to OPS-083)
+### Operational (OPS-001 to OPS-085)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -490,6 +494,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-081 | `SessionCache` keeps the reverse index when logout is configured | Warning |
 | OPS-082 | `SessionCache` `unreliableNetworks` is not set while `consistentAddress` is `false` | Info |
 | OPS-083 | No access rule uses the deprecated `authnContextDeclRef` alias | Warning |
+| OPS-084 | `acsByIndex` is not `true` | Info |
+| OPS-085 | `exportAssertion` has `exportLocation`, `exportACL` and an enabled `cacheAssertions` | Warning |
 
 ### Migration (MIG-001 to MIG-027)
 
