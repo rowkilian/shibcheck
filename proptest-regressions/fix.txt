@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5fb7920d6ee6a4bd3ee2837507630ed830fe5bc2780b43e1033df5e1df3ada7d # shrinks to before = ["<!-- a > <Sessions/> -->"], after = [], v = V2
+cc fcd88e9b6326e8e0a7642ada5b4d9d4fa1a10222f58adcaf81ac06da4072cc0e # shrinks to before = ["<![CDATA[ a > <Sessions/> ]]>"], after = [], v = V2
+cc 07e10725d35ad519d9432fd3cbd1139469e0cb8e90f107a862ea3e31712d3395 # shrinks to before = ["<?pi a > <Sessions/> ?>"], after = [], v = V2

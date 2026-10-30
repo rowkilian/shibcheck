@@ -43,6 +43,7 @@ All notable changes to shibcheck are documented in this file.
 - **Baselines**: `shibcheck baseline` records today's findings and `--baseline FILE` (or `baseline` in `.shibcheckrc`) reports only new ones. Stale entries are reported.
 
 ### Changed
+- Property tests (`proptest`) cover the `fix` tag scanner, the `shibcheck-ignore` parser and the main parser. They check that edits stay inside one start tag, that decoys in comments, CDATA and processing instructions are never edited, that fixing twice changes nothing, and that arbitrary text never panics.
 - Security checks now live in `src/checks/security/` (seven topic modules instead of one 4,700-line file). Security results are listed in code order.
 - Licensed under 0BSD (`LICENSE`). Added `rust-version = "1.88"`, the highest minimum declared by a dependency, and a `deny.toml` with a license allowlist plus a CI job that checks it.
 - **`fix` is now a subcommand** (`shibcheck fix [PATH]`). The `--fix` flag and the `fix` key in `.shibcheckrc` are gone. New options: `--dry-run` (prints a diff), `--only`, `--skip`, `--no-backup`, `--list`.

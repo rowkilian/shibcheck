@@ -665,4 +665,106 @@ mod tests {
         assert!(!dir.join("shibboleth2.xml.shibcheck-tmp").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// Property tests for the hand-written tag scanner: it must never panic, and its edits
+    /// must stay inside one start tag, whatever text it is given.
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Pieces that look like the awkward parts of a real config.
+        fn piece() -> impl Strategy<Value = String> {
+            prop_oneof![
+                Just("<!-- <Sessions handlerSSL=\"false\"> -->".to_string()),
+                Just("<![CDATA[ <Sessions/> ]]>".to_string()),
+                Just("<?pi <Sessions/> ?>".to_string()),
+                Just("<SessionInitiator handlerSSL=\"false\"/>".to_string()),
+                Just("\n".to_string()),
+                Just("<Sessions/>".to_string()),
+                Just("<Sessions handlerSSL=\"false\" cookieProps=\"http\">".to_string()),
+                Just("<Sessions note='a>b' cookieProps=\"; path=/\"/>".to_string()),
+                Just("<Errors externalParameters=\"true\"/>".to_string()),
+                Just("<InProcess checkSpoofing=\"false\"/>".to_string()),
+                Just("<ISAPI normalizeRequest=\"false\">".to_string()),
+                "[a-zA-Z0-9 <>/=\"'!?\\[\\]-]{0,12}",
+                "\\PC{0,8}",
+            ]
+        }
+
+        /// Text that contains `<Sessions` but is not an element.
+        fn decoy() -> impl Strategy<Value = String> {
+            prop_oneof![
+                Just("<!-- <Sessions handlerSSL=\"false\"/> -->".to_string()),
+                Just("<!--\n<Sessions note=\"a>b\"/>\n-->".to_string()),
+                Just("<![CDATA[ <Sessions/> ]]>".to_string()),
+                Just("<!-- a > <Sessions/> -->".to_string()),
+                Just("<![CDATA[ a > <Sessions/> ]]>".to_string()),
+                Just("<?pi a > <Sessions/> ?>".to_string()),
+                Just("<?pi <Sessions/> ?>".to_string()),
+                Just("<SessionInitiator handlerSSL=\"false\"/>".to_string()),
+                Just("<Other note=\"<Sessions/>\"/>".to_string()),
+                Just("\n  ".to_string()),
+            ]
+        }
+
+        fn document() -> impl Strategy<Value = String> {
+            prop::collection::vec(piece(), 0..12).prop_map(|p| p.concat())
+        }
+
+        fn version() -> impl Strategy<Value = SpVersion> {
+            prop_oneof![Just(SpVersion::V2), Just(SpVersion::V3)]
+        }
+
+        proptest! {
+            #[test]
+            fn planning_never_panics(doc in document(), v in version()) {
+                let _ = plan(&doc, ALL, v);
+                let _ = render_diff(&plan(&doc, ALL, v));
+            }
+
+            #[test]
+            fn each_edit_replaces_exactly_one_start_tag(doc in document(), v in version()) {
+                for code in ALL {
+                    let p = plan(&doc, &[code], v);
+                    prop_assert!(p.applied.len() <= 1);
+                    if let [edit] = p.applied.as_slice() {
+                        let old = &doc[edit.start..edit.end];
+                        prop_assert!(old.starts_with('<') && old.ends_with('>'));
+                        prop_assert!(!old.starts_with("<!") && !old.starts_with("<?"));
+                        let spliced = format!("{}{}{}", &doc[..edit.start], edit.new_text, &doc[edit.end..]);
+                        prop_assert_eq!(&spliced, &p.fixed);
+                        // an edit never adds or removes a line
+                        prop_assert_eq!(doc.matches('\n').count(), p.fixed.matches('\n').count());
+                    } else {
+                        prop_assert_eq!(&p.fixed, &doc);
+                    }
+                }
+            }
+
+            /// Decoys that hold a `<Sessions` tag inside a comment, CDATA or a processing
+            /// instruction must never be edited; the one real tag is.
+            #[test]
+            fn only_the_real_tag_is_edited(
+                before in prop::collection::vec(decoy(), 0..6),
+                after in prop::collection::vec(decoy(), 0..6),
+                v in version(),
+            ) {
+                let real = r#"<Sessions id="REAL" handlerSSL="false"/>"#;
+                let doc = format!("{}{}{}", before.concat(), real, after.concat());
+                let at = doc.find(real).unwrap();
+                let p = plan(&doc, &["SEC-001"], v);
+                prop_assert_eq!(p.applied.len(), 1);
+                prop_assert_eq!(p.applied[0].start, at);
+                prop_assert_eq!(p.applied[0].end, at + real.len());
+            }
+
+            #[test]
+            fn fixing_twice_changes_nothing(doc in document(), v in version()) {
+                let first = plan(&doc, ALL, v);
+                let second = plan(&first.fixed, ALL, v);
+                prop_assert!(second.applied.is_empty(), "second pass edited: {:?}", second.applied);
+                prop_assert_eq!(second.fixed, first.fixed);
+            }
+        }
+    }
 }

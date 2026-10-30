@@ -1244,4 +1244,19 @@ mod tests {
         let config = parse_str(xml).unwrap();
         assert_eq!(config.request_map_root_app_id.as_deref(), Some("custom"));
     }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// A malformed config must come back as an error or a partial config, never a panic.
+            #[test]
+            fn parsing_arbitrary_text_never_panics(
+                doc in "(<SPConfig|<Sessions|<ApplicationDefaults|</|/>|>|\"|'|=| |\n|[a-zA-Z]|&amp;|&#x?[0-9]*;|<!--|-->|\\PC){0,60}"
+            ) {
+                let _ = parse_str(&doc);
+            }
+        }
+    }
 }

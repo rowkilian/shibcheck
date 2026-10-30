@@ -234,4 +234,21 @@ mod tests {
         assert_eq!(kept.len(), 3);
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn directive_parsing_never_panics(doc in "(\\PC|<|!|-|>|\n){0,80}") {
+                let d = parse_directives(&doc);
+                let last_line = doc.matches('\n').count() + 1;
+                for (line, codes) in &d.by_line {
+                    prop_assert!(*line >= 1 && *line <= last_line);
+                    prop_assert!(!codes.is_empty());
+                }
+            }
+        }
+    }
 }
