@@ -1,5 +1,6 @@
 //! Shibboleth SP configuration checker. The `shibcheck` binary is a thin CLI over these modules.
 
+pub mod baseline;
 pub mod checks;
 pub mod cli;
 pub mod config;
@@ -14,6 +15,7 @@ pub mod output;
 pub mod parsers;
 pub mod rc_config;
 pub mod result;
+pub mod suppress;
 #[cfg(test)]
 mod testutil;
 pub mod watch;

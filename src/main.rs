@@ -8,7 +8,9 @@ use colored::control;
 use shibcheck::cli::{Cli, Command, SeverityArg};
 use shibcheck::output::{self, OutputFormat};
 use shibcheck::result::{self, CheckSummary, Severity};
-use shibcheck::{checks, config, diff, filter, fix, init_test_idp, rc_config, watch};
+use shibcheck::{
+    baseline, checks, config, diff, filter, fix, init_test_idp, rc_config, suppress, watch,
+};
 
 fn main() {
     let cli = Cli::parse();
@@ -42,6 +44,9 @@ fn main() {
                 run_fix(&resolve_dir(path), &opts)
             };
             process::exit(code);
+        }
+        Some(Command::Baseline { path, output }) => {
+            process::exit(run_baseline(&resolve_dir(path), output.as_deref()));
         }
         Some(Command::Completions { shell }) => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
@@ -103,6 +108,17 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
             return 2;
         }
     };
+    let baseline = cli
+        .baseline
+        .clone()
+        .or_else(|| rc.baseline.as_ref().map(|b| base_dir.join(b)));
+    let results = match hide_accepted(results, &discovered, baseline.as_deref(), cli.no_ignore) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error: {:#}", e);
+            return 2;
+        }
+    };
 
     let summary = CheckSummary::from_results(&results);
     if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
@@ -111,6 +127,82 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
     }
 
     i32::from(summary.has_failures_at_severity(severity_threshold))
+}
+
+/// Drop findings the user has accepted: `shibcheck-ignore` comments, then the baseline.
+/// Says on stderr how many were hidden, so nothing disappears silently.
+fn hide_accepted(
+    results: Vec<result::CheckResult>,
+    discovered: &config::DiscoveredConfig,
+    baseline: Option<&std::path::Path>,
+    no_ignore: bool,
+) -> anyhow::Result<Vec<result::CheckResult>> {
+    if no_ignore {
+        return Ok(results);
+    }
+    let (results, ignored) = suppress::apply_directives(
+        results,
+        &discovered.base_dir,
+        &discovered.shibboleth_xml_path,
+    );
+    if ignored > 0 {
+        eprintln!(
+            "{} hidden by shibcheck-ignore comments (use --no-ignore to see them)",
+            pluralize(ignored, "finding")
+        );
+    }
+    let Some(path) = baseline else {
+        return Ok(results);
+    };
+    let loaded = baseline::load(path)?;
+    let (results, applied) = baseline::apply(results, &loaded);
+    if applied.hidden > 0 {
+        eprintln!(
+            "{} hidden by baseline {}",
+            pluralize(applied.hidden, "finding"),
+            path.display()
+        );
+    }
+    if applied.stale > 0 {
+        eprintln!(
+            "{} in the baseline no longer match. Run `shibcheck baseline` to refresh it",
+            pluralize(applied.stale, "entry")
+        );
+    }
+    Ok(results)
+}
+
+/// `shibcheck baseline`: write today's failed findings to a baseline file.
+fn run_baseline(base_dir: &std::path::Path, output: Option<&std::path::Path>) -> i32 {
+    if !base_dir.is_dir() {
+        eprintln!("Error: '{}' is not a directory", base_dir.display());
+        return 2;
+    }
+    let (discovered, results) = match discover_and_check(base_dir, false, &None, &None) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error discovering configuration: {}", e);
+            return 2;
+        }
+    };
+    // Findings you already ignore inline do not belong in the baseline.
+    let (results, _) = suppress::apply_directives(
+        results,
+        &discovered.base_dir,
+        &discovered.shibboleth_xml_path,
+    );
+    let target = output.map_or_else(|| base_dir.join(baseline::DEFAULT_FILE), PathBuf::from);
+    let recorded = baseline::create(&results);
+    if let Err(e) = baseline::save(&recorded, &target) {
+        eprintln!("Error: {:#}", e);
+        return 2;
+    }
+    println!(
+        "Recorded {} in {}",
+        pluralize(recorded.entries.len(), "finding"),
+        target.display()
+    );
+    0
 }
 
 struct FixOptions<'a> {
@@ -311,6 +403,16 @@ fn run_multi(cli: &Cli, dirs: &[PathBuf]) {
                     continue;
                 }
             };
+        let baseline = rc.baseline.as_ref().map(|b| base_dir.join(b));
+        let results = match hide_accepted(results, &discovered, baseline.as_deref(), cli.no_ignore)
+        {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Error in {}: {:#}", base_dir.display(), e);
+                any_failed = true;
+                continue;
+            }
+        };
         let summary = CheckSummary::from_results(&results);
         if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
             eprintln!("Error rendering output for {}: {:#}", base_dir.display(), e);

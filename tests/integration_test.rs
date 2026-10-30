@@ -574,3 +574,82 @@ fn old_fix_flag_is_gone() {
         .assert()
         .code(2);
 }
+
+// ── suppressions and baseline ──
+
+fn json_failures(args: &[&str]) -> Vec<String> {
+    let out = shibcheck().args(args).arg("--json").output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["passed"] == false)
+        .map(|r| r["code"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn ignore_file_comment_hides_a_finding_and_no_ignore_shows_it() {
+    let (dir, original) = insecure_copy("ignore");
+    let d = dir.to_str().unwrap();
+    assert!(json_failures(&[d]).contains(&"SEC-001".to_string()));
+
+    let marked = original.replacen(
+        "<SPConfig",
+        "<!-- shibcheck-ignore-file SEC-001: accepted for the test rig -->\n<SPConfig",
+        1,
+    );
+    assert_ne!(marked, original);
+    std::fs::write(dir.join("shibboleth2.xml"), marked).unwrap();
+
+    assert!(!json_failures(&[d]).contains(&"SEC-001".to_string()));
+    assert!(json_failures(&[d, "--no-ignore"]).contains(&"SEC-001".to_string()));
+    shibcheck()
+        .arg(d)
+        .assert()
+        .stderr(predicates::str::contains("hidden by shibcheck-ignore"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn baseline_hides_old_findings_and_reports_new_ones() {
+    let (dir, original) = insecure_copy("baseline");
+    let d = dir.to_str().unwrap();
+
+    shibcheck()
+        .args(["baseline", d])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Recorded"));
+    let file = dir.join(".shibcheck-baseline.json");
+    assert!(file.exists());
+    let bl = file.to_str().unwrap();
+
+    // Everything is accepted, so the run is clean.
+    shibcheck().args(["--baseline", bl, d]).assert().success();
+    assert!(json_failures(&["--baseline", bl, d]).is_empty());
+
+    // Break something new: it must show up.
+    let worse = original.replacen(
+        "</SPConfig>",
+        "<InProcess checkSpoofing=\"false\"/></SPConfig>",
+        1,
+    );
+    std::fs::write(dir.join("shibboleth2.xml"), worse).unwrap();
+    let after = json_failures(&["--baseline", bl, d]);
+    assert_eq!(after, vec!["SEC-133".to_string()]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn bad_baseline_file_is_a_tool_error() {
+    let (dir, _) = insecure_copy("badbaseline");
+    let bad = dir.join("bl.json");
+    std::fs::write(&bad, "not json").unwrap();
+    shibcheck()
+        .args(["--baseline", bad.to_str().unwrap(), dir.to_str().unwrap()])
+        .assert()
+        .code(2);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

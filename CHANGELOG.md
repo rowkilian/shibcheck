@@ -35,7 +35,12 @@ All notable changes to shibcheck are documented in this file.
 - **XML-054**: `unreliableNetworks` must be valid CIDR masks.
 - **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
 
+### Added (suppression)
+- **`shibcheck-ignore` / `shibcheck-ignore-file` XML comments** hide reviewed findings, with a reason. `--no-ignore` shows everything.
+- **Baselines**: `shibcheck baseline` records today's findings and `--baseline FILE` (or `baseline` in `.shibcheckrc`) reports only new ones. Stale entries are reported.
+
 ### Changed
+- Security checks now live in `src/checks/security/` (seven topic modules instead of one 4,700-line file). Security results are listed in code order.
 - Licensed under 0BSD (`LICENSE`). Added `rust-version = "1.88"`, the highest minimum declared by a dependency, and a `deny.toml` with a license allowlist plus a CI job that checks it.
 - **`fix` is now a subcommand** (`shibcheck fix [PATH]`). The `--fix` flag and the `fix` key in `.shibcheckrc` are gone. New options: `--dry-run` (prints a diff), `--only`, `--skip`, `--no-backup`, `--list`.
 - **Fix engine**: edits now go through a start-tag scanner instead of string search, so a match inside a comment, or an attribute on another element, no longer misleads it. Backups no longer overwrite an earlier `.bak`, and the file is replaced atomically.

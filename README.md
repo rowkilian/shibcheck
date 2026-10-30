@@ -66,6 +66,30 @@ shibcheck fix --list                      # list what can be fixed
 
 Each run keeps the original as `shibboleth2.xml.bak`, then `.bak.1`, `.bak.2` and so on, so it never overwrites an earlier backup. Only the first `<Sessions>`, `<Errors>`, `<InProcess>` and `<ISAPI>` are edited, which are the ones the checks read. The config file is replaced in one rename, so a failed write cannot leave it half-written. Review the result before you deploy it, since a config file can hold key paths and passwords.
 
+### Accepting known findings
+
+Two ways to keep a reviewed finding out of the report. Both print how many findings they hid, and `--no-ignore` shows everything again.
+
+**Inline comments** in the XML:
+
+```xml
+<!-- shibcheck-ignore SEC-133: load balancer health checks send odd headers -->
+<InProcess checkSpoofing="false"/>
+
+<!-- shibcheck-ignore-file SEC-017: legacy cookie settings, tracked in TICKET -->
+```
+
+`shibcheck-ignore` hides the listed checks for the next element. `shibcheck-ignore-file` hides them for the whole configuration. Codes can be prefixes (`SEC`, `OPS-0`). Write the reason after the colon so the next reader knows why.
+
+**A baseline** for a config with many existing findings, so CI fails only on new ones:
+
+```bash
+shibcheck baseline /etc/shibboleth          # writes .shibcheck-baseline.json
+shibcheck --baseline /etc/shibboleth/.shibcheck-baseline.json /etc/shibboleth
+```
+
+Entries match on check code, file and message, not line number, so unrelated edits do not break them. Fix a finding and the run reports the entry as stale: run `shibcheck baseline` again to refresh it. A message with a changing value, such as days until a certificate expires, counts as a new finding when the value changes. You can set `baseline = ".shibcheck-baseline.json"` in `.shibcheckrc` (relative to the checked directory).
+
 ### Test IdP Setup
 
 Use `init-test-idp` to set up [mocksaml.com](https://mocksaml.com) as a test Identity Provider:
@@ -597,6 +621,9 @@ severity = "error"
 
 # Watch for file changes and re-run checks
 watch = false
+
+# Baseline file of accepted findings, relative to the checked directory
+# baseline = ".shibcheck-baseline.json"
 ```
 
 All fields are optional. A minimal `.shibcheckrc` might look like:

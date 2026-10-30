@@ -25,6 +25,9 @@ EXAMPLES:
   shibcheck fix /etc/shibboleth          Auto-fix safe issues (see fix --help)
   shibcheck fix --dry-run                Show what fix would change
   shibcheck --watch /etc/shibboleth      Re-run on file changes
+  shibcheck baseline /etc/shibboleth     Record current findings as accepted
+  shibcheck --baseline .shibcheck-baseline.json /etc/shibboleth
+                                         Report only findings not in the baseline
   shibcheck --no-color | less            Pipe output without ANSI codes
   shibcheck completions bash             Generate shell completions
   shibcheck diff /etc/shib-old /etc/shib Diff two SP configs
@@ -97,6 +100,14 @@ pub struct Cli {
     /// Watch for file changes and re-run checks
     #[arg(long)]
     pub watch: bool,
+
+    /// Hide findings listed in this baseline file (create one with `shibcheck baseline`)
+    #[arg(long, value_name = "FILE")]
+    pub baseline: Option<PathBuf>,
+
+    /// Show every finding: ignore `shibcheck-ignore` comments and the baseline
+    #[arg(long)]
+    pub no_ignore: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -155,6 +166,22 @@ EXAMPLES:
         /// List the checks that fix can handle and exit
         #[arg(long)]
         list: bool,
+    },
+
+    /// Record today's findings in a baseline file, so later runs report only new ones
+    #[command(after_help = "\
+Run the checks, then write the failed ones to a file (default: .shibcheck-baseline.json
+in PATH). Check it in and run `shibcheck --baseline FILE PATH` in CI. Entries match on
+check code, file and message, not line number. Edit the config to fix a finding and the
+baseline notes the entry as stale; run this command again to refresh it.")]
+    Baseline {
+        /// Directory containing Shibboleth SP config files
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+
+        /// Where to write the baseline
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
     },
 
     /// Generate shell completions

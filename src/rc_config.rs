@@ -20,6 +20,8 @@ pub struct RcConfig {
     pub skip: Option<Vec<String>>,
     pub severity: Option<String>,
     pub watch: Option<bool>,
+    /// Baseline file, relative to the checked directory
+    pub baseline: Option<String>,
 }
 
 impl RcConfig {
