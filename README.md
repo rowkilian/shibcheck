@@ -220,8 +220,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-037 | Persistent NameID source uses a scoped attribute | Warning |
 | REF-038 | `postData` / `relayState` `ss:<id>` names a defined `StorageService` | Error |
 | REF-039 | `SessionCache` / `ReplayCache` / `ArtifactMap` `StorageService` names a defined service | Error |
-| REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
 | REF-040 | `SessionCache` `persistedAttributes` has a `DataSealer` to encrypt the recovery cookie | Error |
+| REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
 
 ### Security (SEC-001 to SEC-139)
 
