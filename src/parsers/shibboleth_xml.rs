@@ -53,6 +53,9 @@ impl ParseState {
     }
 
     fn set_protocols(&mut self, target: &str, text: String) {
+        if text.split_whitespace().any(|p| p == "ADFS") {
+            self.config.uses_adfs = true;
+        }
         if let Some(ref mut sessions) = self.config.sessions {
             match target {
                 "SSO" => sessions.sso_protocols = Some(text),
@@ -171,6 +174,14 @@ fn process_element(
     if let Some(id) = get_attr(e, "policyId") {
         config.policy_ids_used.push(id);
     }
+    if parent_is(stack, "MetadataFilter") {
+        if let Some(filter) = mp_stack.last_mut().and_then(|mp| mp.filters.last_mut()) {
+            filter.child_names.push(name.to_string());
+        }
+    }
+    if get_attr(e, "type").as_deref() == Some("ADFS") {
+        config.uses_adfs = true;
+    }
     if get_attr(e, "metadataAttributePrefix").is_some() {
         config.metadata_attribute_prefix_set = true;
     }
@@ -213,6 +224,26 @@ fn process_element(
             }
         "InProcess" => {
             config.in_process_check_spoofing = get_attr(e, "checkSpoofing");
+            config.in_process_catch_all = get_attr(e, "catchAll");
+        }
+        "OutOfProcess" => {
+            config.has_out_of_process = true;
+            config.out_of_process_tran_log_format = get_attr(e, "tranLogFormat");
+            config.out_of_process_catch_all = get_attr(e, "catchAll");
+        }
+        "Library" => {
+            if let Some(path) = get_attr(e, "path") {
+                let scope = if stack.iter().any(|s| s == "OutOfProcess") {
+                    "OutOfProcess"
+                } else if stack.iter().any(|s| s == "InProcess") {
+                    "InProcess"
+                } else {
+                    "SPConfig"
+                };
+                config
+                    .libraries
+                    .push(crate::model::shibboleth_config::LibraryInfo { path, scope });
+            }
         }
         "ISAPI" => {
             config.isapi_normalize_request = get_attr(e, "normalizeRequest");
@@ -298,6 +329,7 @@ fn process_element(
                     has_sso: false,
                     has_session_initiator: false,
                     has_logout: false,
+                has_logout_shorthand: false,
                     sso_entity_id: None,
                     redirect_limit: get_attr(e, "redirectLimit"),
                     consistent_address: get_attr(e, "consistentAddress"),
@@ -359,6 +391,7 @@ fn process_element(
                     url: get_attr(e, "URL"),
                     template: get_attr(e, "template"),
                     entity_id: get_attr(e, "entityID"),
+                    location: get_attr(e, "Location"),
                     depth: stack.len(),
                     children: 0,
                 });
@@ -378,6 +411,9 @@ fn process_element(
         "Logout" | "LogoutInitiator" => {
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_logout = true;
+                if name == "Logout" {
+                    sessions.has_logout_shorthand = true;
+                }
                 if sessions.logout_outgoing_bindings.is_none() {
                     sessions.logout_outgoing_bindings = get_attr(e, "outgoingBindings");
                 }
@@ -386,6 +422,7 @@ fn process_element(
                 .logout_initiators
                 .push(crate::model::shibboleth_config::LogoutInitiatorInfo {
                     initiator_type: get_attr(e, "type"),
+                    location: get_attr(e, "Location"),
                     signing: get_attr(e, "signing"),
                     asynchronous: get_attr(e, "asynchronous"),
                     notify_without: get_attr(e, "notifyWithout"),
@@ -414,6 +451,7 @@ fn process_element(
                 max_cache_duration: get_attr(e, "maxCacheDuration"),
                 min_refresh_delay: get_attr(e, "minRefreshDelay"),
                 cache_directory: get_attr(e, "cacheDirectory"),
+                has_trust_engine: false,
                 transform_children: 0,
             };
             if is_empty {
@@ -437,6 +475,7 @@ fn process_element(
                 has_trust_engine: false,
                 verify_name: get_attr(e, "verifyName"),
                 verify_backup: get_attr(e, "verifyBackup"),
+                child_names: Vec::new(),
             };
             if let Some(mp) = mp_stack.last_mut() {
                 mp.filters.push(filter);
@@ -447,6 +486,11 @@ fn process_element(
                 config
                     .trust_engine_revocation
                     .push((get_attr(e, "type").unwrap_or_default(), value));
+            }
+            if parent_is(stack, "MetadataProvider") {
+                if let Some(mp) = mp_stack.last_mut() {
+                    mp.has_trust_engine = true;
+                }
             }
             // Inside a MetadataFilter, mark the parent filter as having a TrustEngine
             if parent_is(stack, "MetadataFilter") {
@@ -498,6 +542,11 @@ fn process_element(
                 }
             }
         "Errors" => {
+            if parent_is(stack, "ApplicationDefaults")
+                && config.singleton_counts.get("Sessions").copied().unwrap_or(0) == 0
+            {
+                config.errors_before_sessions = true;
+            }
             config.errors = Some(crate::model::shibboleth_config::ErrorsConfig {
                 support_contact: get_attr(e, "supportContact"),
                 help_location: get_attr(e, "helpLocation"),
@@ -552,6 +601,9 @@ fn process_element(
             if let Some(id) = get_attr(e, "id") {
                 config.storage_service_ids.push(id);
             }
+            config
+                .storage_service_types
+                .push(get_attr(e, "type").unwrap_or_default());
         }
         "DataSealer" => {
             config

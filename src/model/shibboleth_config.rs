@@ -48,6 +48,19 @@ pub struct ShibbolethConfig {
     pub policy_ids_used: Vec<String>,
     /// Names of elements that set `acsByIndex="true"`.
     pub acs_by_index: Vec<String>,
+    /// `<Errors>` came before `<Sessions>` inside `<ApplicationDefaults>`.
+    pub errors_before_sessions: bool,
+    /// Every `<Library>` extension, with the process it loads into.
+    pub libraries: Vec<LibraryInfo>,
+    /// `type` of every `<StorageService>`.
+    pub storage_service_types: Vec<String>,
+    /// `<OutOfProcess>` is present.
+    pub has_out_of_process: bool,
+    pub out_of_process_tran_log_format: Option<String>,
+    pub out_of_process_catch_all: Option<String>,
+    pub in_process_catch_all: Option<String>,
+    /// Some element uses the ADFS plugin (`type="ADFS"`, or ADFS in the SSO/Logout protocols).
+    pub uses_adfs: bool,
     /// Some element sets `metadataAttributePrefix`.
     pub metadata_attribute_prefix_set: bool,
     /// `id` written on `<ApplicationDefaults>`.
@@ -99,6 +112,8 @@ pub struct SessionsConfig {
     pub has_sso: bool,
     pub has_session_initiator: bool,
     pub has_logout: bool,
+    /// The `<Logout>` shorthand is present (not an explicit `<LogoutInitiator>`).
+    pub has_logout_shorthand: bool,
     pub sso_entity_id: Option<String>,
     pub redirect_limit: Option<String>,
     pub consistent_address: Option<String>,
@@ -147,6 +162,8 @@ pub struct MetadataProvider {
     pub max_cache_duration: Option<String>,
     pub min_refresh_delay: Option<String>,
     pub cache_directory: Option<String>,
+    /// A `<TrustEngine>` sits directly inside this provider.
+    pub has_trust_engine: bool,
     /// Number of `<Subst>` and `<Regex>` children (a Dynamic provider needs exactly one).
     pub transform_children: usize,
 }
@@ -187,6 +204,8 @@ pub struct MetadataFilter {
     pub has_trust_engine: bool,
     pub verify_name: Option<String>,
     pub verify_backup: Option<String>,
+    /// Names of the filter's direct child elements.
+    pub child_names: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -253,10 +272,19 @@ pub struct SessionInitiatorInfo {
     pub url: Option<String>,
     pub template: Option<String>,
     pub entity_id: Option<String>,
+    pub location: Option<String>,
     /// Number of ancestor elements, to pair nested initiators with their parent.
     pub depth: usize,
     /// Number of `<SessionInitiator>` elements directly inside this one.
     pub children: usize,
+}
+
+/// A `<Library>` extension.
+#[derive(Debug)]
+pub struct LibraryInfo {
+    pub path: String,
+    /// Where it loads: "OutOfProcess", "InProcess" or "SPConfig" for a top-level `<Extensions>`.
+    pub scope: &'static str,
 }
 
 /// A reference from a plugin element to a <StorageService> id.
@@ -312,6 +340,7 @@ pub struct NotifyInfo {
 #[allow(dead_code)]
 pub struct LogoutInitiatorInfo {
     pub initiator_type: Option<String>,
+    pub location: Option<String>,
     pub signing: Option<String>,
     pub asynchronous: Option<String>,
     pub notify_without: Option<String>,

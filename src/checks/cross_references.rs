@@ -220,6 +220,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     check_require_session_with(sc, &mut results);
     check_policy_ids(config, sc, &mut results);
     super::acl::references(config, &mut results);
+    super::elements::references(config, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
     for mp in &sc.metadata_providers {

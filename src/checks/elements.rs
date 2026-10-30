@@ -21,6 +21,22 @@ const DOC_DYNAMIC: &str =
 const DOC_REMOTE_DYNAMIC: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399842/MetadataProviderRemoteDynamicCommonAttributes";
 const DOC_METADATA_EXTRACTOR: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334447/MetadataAttributeExtractor";
+const DOC_NETWORK_CHILDREN: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399851/MetadataProviderNetworkChildElements";
+const DOC_ENTITY_ROLE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696218/EntityRoleMetadataFilter";
+const DOC_UIINFO: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2107539866/UIInfoMetadataFilter";
+const DOC_SSO: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334348/SSO";
+const DOC_LOGOUT: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334353/Logout";
+const DOC_OUT_OF_PROCESS: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334599/OutOfProcess";
+const DOC_ODBC: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334638/ODBCStorageService";
+const DOC_MEMCACHE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334640/MemcacheStorageService";
+const DOC_GSSAPI: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334451/GSSAPIAttributeExtractor";
+const DOC_ADFS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335656/ADFS";
 const DOC_PKIX: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335188/PKIX+and+StaticPKIX+TrustEngines";
 
@@ -45,6 +61,21 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                 .with_doc(DOC_DEFAULTS),
             );
         }
+    }
+
+    // XML-076: Sessions comes before Errors.
+    if sc.errors_before_sessions {
+        results.push(
+            CheckResult::fail(
+                "XML-076",
+                CAT,
+                Severity::Error,
+                "<Errors> comes before <Sessions> in ApplicationDefaults",
+                Some("Move <Sessions> above <Errors>; the schema fixes the order of these two"),
+            )
+            .at_element("Errors")
+            .with_doc(DOC_DEFAULTS),
+        );
     }
 
     // XML-067: elements the docs allow once.
@@ -172,6 +203,61 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
         }
     }
 
+    // XML-074: an on-demand provider verifies the server certificate with a TrustEngine,
+    // or says explicitly that it won't.
+    for mp in sc
+        .metadata_providers
+        .iter()
+        .filter(|mp| matches!(mp.provider_type.as_str(), "MDQ" | "Dynamic"))
+    {
+        if !mp.has_trust_engine && mp.ignore_transport.as_deref() != Some("true") {
+            results.push(
+                CheckResult::fail(
+                    "XML-074",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "{} MetadataProvider{} has no <TrustEngine> and ignoreTransport is not true; the SP reports a configuration error",
+                        mp.provider_type,
+                        mp.label()
+                    ),
+                    Some("Add a <TrustEngine> (such as StaticPKIX with the CA certificate) to verify the metadata server's TLS certificate"),
+                )
+                .at_element("MetadataProvider")
+                .with_doc(DOC_NETWORK_CHILDREN),
+            );
+        }
+    }
+
+    // XML-075: filters whose child elements the docs mark "one or more".
+    for filter in sc.metadata_providers.iter().flat_map(|mp| &mp.filters) {
+        let (child, doc) = match filter.filter_type.as_str() {
+            "EntityRole" | "EntityRoleWhiteList" => ("RetainedRole", DOC_ENTITY_ROLE),
+            "UIInfo" => ("Entity", DOC_UIINFO),
+            _ => continue,
+        };
+        if !filter.child_names.iter().any(|n| n == child) {
+            results.push(
+                CheckResult::fail(
+                    "XML-075",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "MetadataFilter type=\"{}\" has no <{child}> child",
+                        filter.filter_type
+                    ),
+                    Some(if child == "RetainedRole" {
+                        "List the roles to keep, such as <RetainedRole>md:IDPSSODescriptor</RetainedRole>"
+                    } else {
+                        "Add an <Entity> with the entityID that each <mdui:UIInfo> applies to"
+                    }),
+                )
+                .at_element("MetadataFilter")
+                .with_doc(doc),
+            );
+        }
+    }
+
     // XML-073: each remote dynamic provider caches in its own directory.
     let mut seen: Vec<(&str, &str)> = Vec::new();
     for mp in &sc.metadata_providers {
@@ -200,12 +286,133 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
     }
 }
 
+/// REF-044: plugins that live in an extension library need a matching `<Library>`.
+pub(super) fn references(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    // (what is used, the library file stem, the process it must load into, doc)
+    let mut needs: Vec<(String, &str, &str, &str)> = Vec::new();
+    for kind in &sc.storage_service_types {
+        match kind.as_str() {
+            "ODBC" => needs.push((
+                "StorageService type=\"ODBC\"".into(),
+                "odbc-store",
+                "OutOfProcess",
+                DOC_ODBC,
+            )),
+            "MEMCACHE" => needs.push((
+                "StorageService type=\"MEMCACHE\"".into(),
+                "memcache-store",
+                "OutOfProcess",
+                DOC_MEMCACHE,
+            )),
+            _ => {}
+        }
+    }
+    if sc.attribute_extractor_types.iter().any(|t| t == "GSSAPI") {
+        needs.push((
+            "AttributeExtractor type=\"GSSAPI\"".into(),
+            "plugins",
+            "OutOfProcess",
+            DOC_GSSAPI,
+        ));
+    }
+    if sc.uses_adfs {
+        needs.push(("ADFS".into(), "adfs", "OutOfProcess", DOC_ADFS));
+        needs.push(("ADFS".into(), "adfs-lite", "InProcess", DOC_ADFS));
+    }
+    for (used, stem, scope, doc) in needs {
+        let loaded = sc.libraries.iter().any(|lib| {
+            let file = lib.path.rsplit(['/', '\\']).next().unwrap_or(&lib.path);
+            let file_stem = file.split('.').next().unwrap_or(file);
+            file_stem == stem && (lib.scope == scope || lib.scope == "SPConfig")
+        });
+        let msg = format!("{used} needs the {stem} extension library loaded in <{scope}>");
+        results.push(if loaded {
+            CheckResult::pass("REF-044", CheckCategory::CrossReferences, Severity::Error, &msg)
+        } else {
+            CheckResult::fail(
+                "REF-044",
+                CheckCategory::CrossReferences,
+                Severity::Error,
+                &msg,
+                Some("Add <Extensions><Library path=\"<stem>.so\" fatal=\"true\"/></Extensions> inside that element (a .dll on Windows)"),
+            )
+            .with_doc(doc)
+        });
+    }
+}
+
 /// OPS-086: the Metadata and KeyDescriptor extractors only run when
-/// `metadataAttributePrefix` is set.
+/// `metadataAttributePrefix` is set. OPS-087: explicit initiators at the shorthand
+/// locations. OPS-088: the transaction log format.
 pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
     let Some(sc) = config.shibboleth_config.as_ref() else {
         return;
     };
+    const OPS: CheckCategory = CheckCategory::Operational;
+
+    if let Some(sessions) = sc.sessions.as_ref() {
+        let login_clash = sessions.has_sso
+            && sc
+                .session_initiators
+                .iter()
+                .any(|i| i.location.as_deref().map(str::trim) == Some("/Login"));
+        if login_clash {
+            results.push(
+                CheckResult::fail(
+                    "OPS-087",
+                    OPS,
+                    Severity::Warning,
+                    "An explicit <SessionInitiator> sits at /Login, the location the <SSO> shorthand already uses",
+                    Some("Give the explicit initiator another Location, or remove the <SSO> element and configure the chain yourself"),
+                )
+                .at_element("SessionInitiator")
+                .with_doc(DOC_SSO),
+            );
+        }
+        let logout_clash = sessions.has_logout_shorthand
+            && sc
+                .logout_initiators
+                .iter()
+                .any(|i| i.location.as_deref().map(str::trim) == Some("/Logout"));
+        if logout_clash {
+            results.push(
+                CheckResult::fail(
+                    "OPS-087",
+                    OPS,
+                    Severity::Warning,
+                    "An explicit <LogoutInitiator> sits at /Logout, the location the <Logout> shorthand already uses",
+                    Some("Give the explicit initiator another Location, or remove the <Logout> element and configure the chain yourself"),
+                )
+                .at_element("LogoutInitiator")
+                .with_doc(DOC_LOGOUT),
+            );
+        }
+    }
+
+    if sc.has_out_of_process {
+        results.push(if sc.out_of_process_tran_log_format.is_some() {
+            CheckResult::pass(
+                "OPS-088",
+                OPS,
+                Severity::Info,
+                "OutOfProcess sets tranLogFormat",
+            )
+        } else {
+            CheckResult::fail(
+                "OPS-088",
+                OPS,
+                Severity::Info,
+                "OutOfProcess has no tranLogFormat, so the transaction log uses the old multi-line V2 format",
+                Some("Set tranLogFormat to a single-line format that your log tooling can parse; the Logging page lists the fields"),
+            )
+            .at_element("OutOfProcess")
+            .with_doc(DOC_OUT_OF_PROCESS)
+        });
+    }
+
     if sc.metadata_attribute_prefix_set {
         return;
     }
@@ -362,6 +569,186 @@ mod tests {
             &run("", r#"<AttributeExtractor type="XML" path="a.xml"/>"#),
             "OPS-086",
         );
+    }
+
+    #[test]
+    fn on_demand_providers_need_a_trust_engine() {
+        let mp = |attrs: &str, inner: &str| {
+            format!(
+                r#"<MetadataProvider type="MDQ" baseUrl="https://mdq.example.org/" {attrs}>{inner}</MetadataProvider>"#
+            )
+        };
+        assert_outcome(&run("", &mp("", "")), "XML-074", false);
+        assert_absent(&run("", &mp(r#"ignoreTransport="true""#, "")), "XML-074");
+        assert_absent(
+            &run(
+                "",
+                &mp(
+                    "",
+                    r#"<TrustEngine type="StaticPKIX" certificate="ca.pem"/>"#,
+                ),
+            ),
+            "XML-074",
+        );
+        // A TrustEngine inside a filter does not count for the provider.
+        assert_outcome(
+            &run(
+                "",
+                &mp(
+                    "",
+                    r#"<MetadataFilter type="Signature"><TrustEngine type="ExplicitKey"/></MetadataFilter>"#,
+                ),
+            ),
+            "XML-074",
+            false,
+        );
+        assert_absent(
+            &run(
+                "",
+                r#"<MetadataProvider type="XML" url="https://x.example.org/m.xml"/>"#,
+            ),
+            "XML-074",
+        );
+    }
+
+    #[test]
+    fn filters_need_their_children() {
+        let mp = |filter: &str| {
+            format!(r#"<MetadataProvider type="XML" path="m.xml">{filter}</MetadataProvider>"#)
+        };
+        assert_outcome(
+            &run("", &mp(r#"<MetadataFilter type="EntityRole"/>"#)),
+            "XML-075",
+            false,
+        );
+        assert_absent(
+            &run(
+                "",
+                &mp(
+                    r#"<MetadataFilter type="EntityRole"><RetainedRole>md:IDPSSODescriptor</RetainedRole></MetadataFilter>"#,
+                ),
+            ),
+            "XML-075",
+        );
+        assert_outcome(
+            &run(
+                "",
+                &mp(r#"<MetadataFilter type="UIInfo"><mdui:UIInfo/></MetadataFilter>"#),
+            ),
+            "XML-075",
+            false,
+        );
+        assert_absent(
+            &run(
+                "",
+                &mp(
+                    r#"<MetadataFilter type="UIInfo"><mdui:UIInfo/><Entity>https://idp.example.org/idp</Entity></MetadataFilter>"#,
+                ),
+            ),
+            "XML-075",
+        );
+    }
+
+    #[test]
+    fn sessions_come_before_errors() {
+        assert_outcome(&run("", "<Errors/><Sessions/>"), "XML-076", false);
+        assert_absent(&run("", "<Sessions/><Errors/>"), "XML-076");
+        assert_absent(
+            &run(
+                "",
+                r#"<Sessions/><ApplicationOverride id="a"><Errors/></ApplicationOverride>"#,
+            ),
+            "XML-076",
+        );
+    }
+
+    fn sp_config(top: &str, body: &str) -> Vec<crate::result::CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth">{body}</ApplicationDefaults></SPConfig>"#
+        );
+        let (_dir, c) = config_from_xml(&xml);
+        crate::checks::cross_references::run(&c, false)
+    }
+
+    #[test]
+    fn extension_plugins_need_their_library() {
+        let odbc = r#"<StorageService type="ODBC" id="db"><ConnectionString>DSN=x</ConnectionString></StorageService>"#;
+        assert_outcome(&sp_config(odbc, ""), "REF-044", false);
+        let lib = r#"<OutOfProcess><Extensions><Library path="/usr/lib64/shibboleth/odbc-store.so" fatal="true"/></Extensions></OutOfProcess>"#;
+        assert_outcome(&sp_config(&format!("{lib}{odbc}"), ""), "REF-044", true);
+        // The library must load into shibd, not the web server.
+        let wrong =
+            r#"<InProcess><Extensions><Library path="odbc-store.so"/></Extensions></InProcess>"#;
+        assert_outcome(&sp_config(&format!("{wrong}{odbc}"), ""), "REF-044", false);
+
+        let adfs =
+            r#"<Sessions><SSO entityID="https://idp.example.org/idp">SAML2 ADFS</SSO></Sessions>"#;
+        let results = sp_config("", adfs);
+        assert_eq!(crate::testutil::with_code(&results, "REF-044").len(), 2);
+        let both = r#"<OutOfProcess><Extensions><Library path="adfs.so"/></Extensions></OutOfProcess><InProcess><Extensions><Library path="adfs-lite.so"/></Extensions></InProcess>"#;
+        let results = sp_config(both, adfs);
+        assert!(crate::testutil::with_code(&results, "REF-044")
+            .iter()
+            .all(|r| r.passed));
+
+        assert_absent(
+            &sp_config("", r#"<Sessions><SSO>SAML2</SSO></Sessions>"#),
+            "REF-044",
+        );
+    }
+
+    #[test]
+    fn explicit_initiators_avoid_the_shorthand_locations() {
+        use crate::checks::operational;
+        let run = |sessions: &str| {
+            let (_dir, c) =
+                config_from_xml(&sp3_app("", &format!("<Sessions>{sessions}</Sessions>")));
+            operational::run(&c)
+        };
+        assert_outcome(
+            &run(r#"<SSO>SAML2</SSO><SessionInitiator type="SAML2" Location="/Login"/>"#),
+            "OPS-087",
+            false,
+        );
+        assert_absent(
+            &run(r#"<SSO>SAML2</SSO><SessionInitiator type="SAML2" Location="/Login2"/>"#),
+            "OPS-087",
+        );
+        assert_absent(
+            &run(r#"<SessionInitiator type="SAML2" Location="/Login"/>"#),
+            "OPS-087",
+        );
+        assert_outcome(
+            &run(r#"<Logout>SAML2</Logout><LogoutInitiator type="SAML2" Location="/Logout"/>"#),
+            "OPS-087",
+            false,
+        );
+        assert_absent(
+            &run(r#"<LogoutInitiator type="SAML2" Location="/Logout"/>"#),
+            "OPS-087",
+        );
+    }
+
+    #[test]
+    fn transaction_log_format() {
+        use crate::checks::operational;
+        let run = |top: &str| {
+            let xml = format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}<ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#
+            );
+            let (_dir, c) = config_from_xml(&xml);
+            operational::run(&c)
+        };
+        assert_outcome(&run("<OutOfProcess/>"), "OPS-088", false);
+        assert_outcome(
+            &run(
+                r#"<OutOfProcess tranLogFormat="%u|%s|%IDP|%i|%ac|%t|%attr|%n|%b|%E|%S|%SS|%L|%UA|%a"/>"#,
+            ),
+            "OPS-088",
+            true,
+        );
+        assert_absent(&run(""), "OPS-088");
     }
 
     #[test]

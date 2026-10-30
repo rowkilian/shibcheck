@@ -139,7 +139,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-073)
+### XML Validity (XML-001 to XML-076)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -216,8 +216,11 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-071 | `TrustEngine` `checkRevocation` is `off`, `entityOnly` or `fullChain` | Error |
 | XML-072 | A `Dynamic` metadata provider has exactly one `Subst` or `Regex` child | Error |
 | XML-073 | Metadata providers do not share a `cacheDirectory` | Warning |
+| XML-074 | `MDQ` and `Dynamic` metadata providers have a `TrustEngine` child or `ignoreTransport="true"` | Error |
+| XML-075 | `EntityRole` filters have a `RetainedRole` child and `UIInfo` filters have an `Entity` child | Error |
+| XML-076 | `Sessions` comes before `Errors` in `ApplicationDefaults` | Error |
 
-### Cross-file References (REF-001 to REF-043)
+### Cross-file References (REF-001 to REF-044)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -263,6 +266,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
 | REF-042 | `requireSessionWith` names a `SessionInitiator` `id` | Warning |
 | REF-043 | `policyId` names a `<Policy>` in `security-policy.xml` or inline | Error |
+| REF-044 | Plugins that ship as extensions (`ODBC` and `MEMCACHE` storage, the `GSSAPI` extractor, ADFS) have their `Library` loaded in the right process | Error |
 
 ### Security (SEC-001 to SEC-147)
 
@@ -415,7 +419,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-146 | `MDQ` / `Dynamic` providers do not set `verifyHost="false"` | Warning |
 | SEC-147 | ODBC `ConnectionString` does not carry a password | Info |
 
-### Operational (OPS-001 to OPS-086)
+### Operational (OPS-001 to OPS-088)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -505,6 +509,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-084 | `acsByIndex` is not `true` | Info |
 | OPS-085 | `exportAssertion` has `exportLocation`, `exportACL` and an enabled `cacheAssertions` | Warning |
 | OPS-086 | `Metadata` and `KeyDescriptor` extractors have `metadataAttributePrefix` set, or they never run | Warning |
+| OPS-087 | Explicit initiators do not sit at `/Login` or `/Logout` next to the `SSO` or `Logout` shorthand | Warning |
+| OPS-088 | `OutOfProcess` sets `tranLogFormat` | Info |
 
 ### Migration (MIG-001 to MIG-027)
 

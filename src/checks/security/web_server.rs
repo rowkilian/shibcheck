@@ -136,17 +136,21 @@ pub(super) fn run(
         }
     }
 
-    // SEC-121: catchAll="true" in OutOfProcess (masks errors, may hide security issues)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("catchAll=\"true\"") {
+    // SEC-121: catchAll="true" traps crashes, which hides bugs and can leave the process unstable
+    for (element, value) in [
+        ("OutOfProcess", &sc.out_of_process_catch_all),
+        ("InProcess", &sc.in_process_catch_all),
+    ] {
+        if value.as_deref().map(str::trim) == Some("true") {
             results.push(
                 CheckResult::fail(
                     "SEC-121",
                     CAT,
                     Severity::Info,
-                    "OutOfProcess has catchAll=\"true\" (exception errors silently caught — may mask security issues)",
-                    Some("Remove catchAll=\"true\" in production to surface errors for monitoring"),
+                    &format!("{element} has catchAll=\"true\", so crashes are trapped instead of reported"),
+                    Some("Remove catchAll in production so failures surface in monitoring; the docs say it should generally be left off"),
                 )
+                .at_element(element)
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         }

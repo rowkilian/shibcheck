@@ -42,11 +42,11 @@ EXIT CODES:
 
 CHECKS:
   330+ checks across five categories:
-    XML-001..073   XML validity and required elements
-    REF-001..043   Cross-file reference validation
+    XML-001..076   XML validity and required elements
+    REF-001..044   Cross-file reference validation
     SEC-001..147   Security best practices
     MIG-001..027   SP2 to SP3 migration
-    OPS-001..086   Operational best practices
+    OPS-001..088   Operational best practices
 
   See https://github.com/rowkilian/shibcheck#checks-reference for details."
 )]

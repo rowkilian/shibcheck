@@ -11,6 +11,12 @@ All notable changes to shibcheck are documented in this file.
 - **XML-066** to **XML-071**: `ApplicationDefaults` `id` other than `default`; elements the docs allow once that appear twice; an empty `Chaining` session initiator; an `AttributeChecker` handler without `template`; a `KeyDescriptor` extractor with no `signingId`, `encryptionId` or `hashId`; an invalid `checkRevocation` value.
 - **XML-072** / **XML-073**: a `Dynamic` metadata provider needs exactly one `Subst` or `Regex` child, and providers should not share a `cacheDirectory`.
 - **OPS-086**: `Metadata` and `KeyDescriptor` attribute extractors never run without `metadataAttributePrefix`.
+- **XML-074** to **XML-076**: an `MDQ` or `Dynamic` provider without a `TrustEngine` or `ignoreTransport="true"`; an `EntityRole` filter without `RetainedRole` or a `UIInfo` filter without `Entity`; `Errors` placed before `Sessions`.
+- **REF-044**: `ODBC` and `MEMCACHE` storage, the `GSSAPI` extractor and ADFS need their extension `Library` in `OutOfProcess` (and `adfs-lite` in `InProcess`).
+- **OPS-087** / **OPS-088**: an explicit initiator at the `/Login` or `/Logout` location the shorthand uses, and `OutOfProcess` without `tranLogFormat`.
+
+### Changed
+- **SEC-121** now reads the parsed `catchAll` attribute on both `OutOfProcess` and `InProcess` instead of searching the file text, and names the element.
 - **OPS-084**: `acsByIndex="true"` on `SSO` or `SessionInitiator`, which the docs call not advisable.
 - **OPS-085**: `exportAssertion` needs `exportLocation` and `exportACL` on `Sessions` and an enabled `cacheAssertions`.
 - `shibcheck migrate` moves an SP2 configuration to the SP3 format: the namespace in `shibboleth2.xml` and `security-policy.xml`, `file`/`uri` to `path`/`url` on `MetadataProvider`, the 3.2 names for `redirectWhitelist`, `redirectLimit` values and metadata filter types, and `cacheAssertions="true"` on `SessionCache` to keep the SP2 default. It supports `--dry-run`, `--output DIR`, `--no-backup` and `--keep-namespace`, and lists the migration findings that need a person.
