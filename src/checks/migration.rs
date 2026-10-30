@@ -37,6 +37,8 @@ const REGISTRY: &[(&str, CheckFn)] = &[
     ("MIG-022", mig_022),
     ("MIG-023", mig_023),
     ("MIG-024", mig_024),
+    ("MIG-025", mig_025),
+    ("MIG-026", mig_026),
 ];
 
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
@@ -701,4 +703,127 @@ fn mig_024(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult>
         ));
     }
     results
+}
+
+const DOC_SECURITY_POLICIES: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334425/SecurityPolicies";
+
+/// MIG-025: `security-policy.xml` still uses the SP2 namespace next to an SP3 `shibboleth2.xml`.
+fn mig_025(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
+    use crate::parsers::security_policy::{load_for, SP2_NAMESPACE};
+    if sc.sp_version == SpVersion::V2 {
+        return Vec::new();
+    }
+    let Some(loaded) = load_for(config) else {
+        return Vec::new();
+    };
+    if loaded.policy.namespace.as_deref() == Some(SP2_NAMESPACE) {
+        let line = crate::location::find_line(&loaded.content, SP2_NAMESPACE);
+        vec![fail(
+            "MIG-025",
+            Severity::Warning,
+            &format!("{} still uses the SP2 namespace", loaded.file_name),
+            "Change urn:mace:shibboleth:2.0:native:sp:config to urn:mace:shibboleth:3.0:native:sp:config in the root element, as the upgrade guide describes",
+        )
+        .with_location(&loaded.file_name, line)]
+    } else {
+        vec![pass(
+            "MIG-025",
+            Severity::Warning,
+            &format!("{} does not use the SP2 namespace", loaded.file_name),
+        )]
+    }
+}
+
+/// MIG-026: SP 3.2 renamed the algorithm list elements and `includeDefaultBlacklist`.
+fn mig_026(config: &DiscoveredConfig, _sc: &ShibbolethConfig) -> Vec<CheckResult> {
+    use crate::parsers::security_policy::load_for;
+    let Some(loaded) = load_for(config) else {
+        return Vec::new();
+    };
+    if loaded.policy.deprecated.is_empty() {
+        return vec![pass(
+            "MIG-026",
+            Severity::Info,
+            &format!(
+                "{} uses no deprecated algorithm list names",
+                loaded.file_name
+            ),
+        )];
+    }
+    let first = loaded.policy.deprecated[0];
+    let needle = if first == "includeDefaultBlacklist" {
+        first.to_string()
+    } else {
+        format!("<{first}")
+    };
+    let line = crate::location::find_line(&loaded.content, &needle);
+    vec![CheckResult::fail(
+        "MIG-026",
+        CAT,
+        Severity::Info,
+        &format!(
+            "{} uses names deprecated in SP 3.2: {}",
+            loaded.file_name,
+            loaded.policy.deprecated.join(", ")
+        ),
+        Some("Rename AlgorithmWhitelist to IncludedAlgorithms, AlgorithmBlacklist to ExcludedAlgorithms and includeDefaultBlacklist to excludeDefaults once every SP is on 3.2 or later"),
+    )
+    .with_location(&loaded.file_name, line)
+    .with_doc(DOC_SECURITY_POLICIES)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_absent, assert_outcome, TestDir};
+
+    fn run_with_policy(shib_ns: &str, policy: &str) -> Vec<CheckResult> {
+        let dir = TestDir::new();
+        dir.write(
+            "shibboleth2.xml",
+            &format!(
+                r#"<SPConfig xmlns="{shib_ns}"><ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#
+            ),
+        );
+        dir.write("security-policy.xml", policy);
+        run(&dir.discover())
+    }
+
+    const V3: &str = "urn:mace:shibboleth:3.0:native:sp:config";
+    const V2: &str = "urn:mace:shibboleth:2.0:native:sp:config";
+
+    #[test]
+    fn policy_namespace_must_match_sp3() {
+        let old = run_with_policy(
+            V3,
+            &format!(r#"<SecurityPolicies xmlns="{V2}"><Policy id="default"/></SecurityPolicies>"#),
+        );
+        assert_outcome(&old, "MIG-025", false);
+        let new = run_with_policy(
+            V3,
+            &format!(r#"<SecurityPolicies xmlns="{V3}"><Policy id="default"/></SecurityPolicies>"#),
+        );
+        assert_outcome(&new, "MIG-025", true);
+        let sp2 = run_with_policy(V2, &format!(r#"<SecurityPolicies xmlns="{V2}"/>"#));
+        assert_absent(&sp2, "MIG-025");
+    }
+
+    #[test]
+    fn deprecated_algorithm_names_are_reported() {
+        let old = run_with_policy(
+            V3,
+            &format!(
+                r#"<SecurityPolicies xmlns="{V3}"><Policy id="default"/><AlgorithmBlacklist includeDefaultBlacklist="true">x</AlgorithmBlacklist></SecurityPolicies>"#
+            ),
+        );
+        assert_outcome(&old, "MIG-026", false);
+        let new = run_with_policy(
+            V3,
+            &format!(
+                r#"<SecurityPolicies xmlns="{V3}"><Policy id="default"/><ExcludedAlgorithms excludeDefaults="true">x</ExcludedAlgorithms></SecurityPolicies>"#
+            ),
+        );
+        assert_outcome(&new, "MIG-026", true);
+    }
 }

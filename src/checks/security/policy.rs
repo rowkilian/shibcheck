@@ -12,7 +12,10 @@ pub(super) fn run(
         if security_policy_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&security_policy_path) {
                 let lower = content.to_lowercase();
-                if lower.contains("algorithmblacklist") || lower.contains("algorithmfilter") {
+                if lower.contains("algorithmblacklist")
+                    || lower.contains("excludedalgorithms")
+                    || lower.contains("algorithmfilter")
+                {
                     results.push(CheckResult::pass(
                         "SEC-027",
                         CAT,
@@ -25,7 +28,7 @@ pub(super) fn run(
                             "SEC-027",
                             CAT,
                             Severity::Warning,
-                            "security-policy.xml has no AlgorithmBlacklist/AlgorithmFilter",
+                            "security-policy.xml has no ExcludedAlgorithms, AlgorithmBlacklist or AlgorithmFilter",
                             Some("Configure algorithm filtering in security-policy.xml to block weak algorithms"),
                         )
                         .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
@@ -108,34 +111,38 @@ pub(super) fn run(
         }
     }
 
-    // SEC-040: AlgorithmBlacklist explicitly disables default blacklist
-    {
-        let security_policy_path = config.base_dir.join("security-policy.xml");
-        if security_policy_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&security_policy_path) {
-                // Check for exclude="#default" or equivalent patterns that disable the default blacklist
-                if content.contains("exclude=\"#default\"")
-                    || content.contains("excludeDefaults=\"true\"")
-                {
-                    results.push(
-                        CheckResult::fail(
-                            "SEC-040",
-                            CAT,
-                            Severity::Warning,
-                            "security-policy.xml explicitly disables default algorithm blacklist",
-                            Some("Do not exclude default algorithm blacklists unless you have specific requirements"),
-                        )
-                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-                    );
-                } else {
-                    results.push(CheckResult::pass(
-                        "SEC-040",
-                        CAT,
-                        Severity::Warning,
-                        "security-policy.xml does not disable default algorithm blacklist",
-                    ));
-                }
-            }
+    // SEC-040: security-policy.xml must not stop the SP from excluding known weak algorithms.
+    // The docs make excludeDefaults (formerly includeDefaultBlacklist) true unless set to "false".
+    if let Some(loaded) = crate::parsers::security_policy::load_for(config) {
+        if loaded.policy.defaults_disabled {
+            let line =
+                find_attr_value_line(&loaded.content, "excludeDefaults", "false").or_else(|| {
+                    find_attr_value_line(&loaded.content, "includeDefaultBlacklist", "false")
+                });
+            results.push(
+                CheckResult::fail(
+                    "SEC-040",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} sets excludeDefaults=\"false\", so known weak algorithms stay enabled",
+                        loaded.file_name
+                    ),
+                    Some("Remove excludeDefaults=\"false\" (or includeDefaultBlacklist=\"false\") unless you must accept a weak algorithm"),
+                )
+                .with_location(&loaded.file_name, line)
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334583/ExcludedAlgorithms"),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "SEC-040",
+                CAT,
+                Severity::Warning,
+                &format!(
+                    "{} keeps the default exclusion of weak algorithms",
+                    loaded.file_name
+                ),
+            ));
         }
     }
 
@@ -258,12 +265,10 @@ pub(super) fn run(
                     ),
                 ];
                 let mut found: Vec<&str> = Vec::new();
+                // Listing a weak algorithm in an exclusion list is the point of the list.
+                let outside_exclusions = without_exclusion_lists(&content);
                 for (uri, label) in &weak_algos {
-                    // Only flag if algorithm appears in Allow/Permit context, not in Blacklist
-                    if content.contains(uri)
-                        && !content.contains("Blacklist")
-                        && !content.contains("blacklist")
-                    {
+                    if outside_exclusions.contains(uri) {
                         found.push(label);
                     }
                 }
@@ -323,6 +328,24 @@ pub(super) fn run(
     }
 
     check_policy_rules(config, sc, results);
+}
+
+/// `content` with the body of each `ExcludedAlgorithms` and `AlgorithmBlacklist` element removed.
+fn without_exclusion_lists(content: &str) -> String {
+    let mut rest = content.to_string();
+    for name in ["ExcludedAlgorithms", "AlgorithmBlacklist"] {
+        let open = format!("<{name}");
+        let close = format!("</{name}>");
+        while let Some(start) = rest.find(&open) {
+            let Some(len) = rest[start..].find(&close) else {
+                // An unclosed or self-closed element has no body to remove.
+                rest.replace_range(start..start + open.len(), "");
+                continue;
+            };
+            rest.replace_range(start..start + len + close.len(), "");
+        }
+    }
+    rest
 }
 
 /// Line of `attr="value"` or `attr='value'` in `content`.
@@ -413,5 +436,74 @@ fn check_policy_rules(
                 rule.pass_message,
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::checks::security::run;
+    use crate::result::CheckResult;
+    use crate::testutil::{assert_absent, assert_outcome, TestDir};
+
+    fn run_policy(policy: Option<&str>) -> Vec<CheckResult> {
+        let dir = TestDir::new();
+        dir.write(
+            "shibboleth2.xml",
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config"><ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#,
+        );
+        if let Some(policy) = policy {
+            dir.write("security-policy.xml", policy);
+        }
+        run(&dir.discover())
+    }
+
+    #[test]
+    fn default_algorithm_exclusion_must_stay_on() {
+        let with = |attrs: &str| {
+            run_policy(Some(&format!(
+                r#"<SecurityPolicies><Policy id="default"/><ExcludedAlgorithms {attrs}>x</ExcludedAlgorithms></SecurityPolicies>"#
+            )))
+        };
+        assert_outcome(&with(r#"excludeDefaults="false""#), "SEC-040", false);
+        assert_outcome(
+            &with(r#"includeDefaultBlacklist="false""#),
+            "SEC-040",
+            false,
+        );
+        // true is the default and the safe setting
+        assert_outcome(&with(r#"excludeDefaults="true""#), "SEC-040", true);
+        assert_outcome(&with(""), "SEC-040", true);
+        assert_absent(&run_policy(None), "SEC-040");
+    }
+
+    #[test]
+    fn weak_algorithms_inside_exclusion_lists_are_fine() {
+        const SHA1: &str = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
+        let policy = |body: &str| {
+            run_policy(Some(&format!(
+                r#"<SecurityPolicies><Policy id="default"/>{body}</SecurityPolicies>"#
+            )))
+        };
+        assert_outcome(
+            &policy(&format!("<ExcludedAlgorithms>{SHA1}</ExcludedAlgorithms>")),
+            "SEC-110",
+            true,
+        );
+        assert_outcome(
+            &policy(&format!("<AlgorithmBlacklist>{SHA1}</AlgorithmBlacklist>")),
+            "SEC-110",
+            true,
+        );
+        assert_outcome(
+            &policy(&format!("<IncludedAlgorithms>{SHA1}</IncludedAlgorithms>")),
+            "SEC-110",
+            false,
+        );
+        assert_outcome(
+            &policy("<ExcludedAlgorithms>x</ExcludedAlgorithms>"),
+            "SEC-027",
+            true,
+        );
+        assert_outcome(&policy(""), "SEC-027", false);
     }
 }

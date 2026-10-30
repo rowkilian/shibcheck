@@ -182,7 +182,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-060 | `refreshDelayFactor` is a decimal between 0 and 1, exclusive | Error |
 | XML-061 | `minRefreshDelay` / `minCacheDuration` does not exceed its maximum | Warning |
 
-### Cross-file References (REF-001 to REF-042)
+### Cross-file References (REF-001 to REF-043)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -227,6 +227,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-040 | `SessionCache` `persistedAttributes` has a `DataSealer` to encrypt the recovery cookie | Error |
 | REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
 | REF-042 | `requireSessionWith` names a `SessionInitiator` `id` | Warning |
+| REF-043 | `policyId` names a `<Policy>` in `security-policy.xml` or inline | Error |
 
 ### Security (SEC-001 to SEC-147)
 
@@ -258,7 +259,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-024 | `clockSkew` does not exceed 600s | Warning |
 | SEC-025 | `SSO` protocols do not include SAML1 | Info |
 | SEC-026 | `maxValidityInterval` present and <= 30 days | Info |
-| SEC-027 | `security-policy.xml` has algorithm blacklist/filter | Warning |
+| SEC-027 | `security-policy.xml` has `ExcludedAlgorithms`, an algorithm blacklist or a filter | Warning |
 | SEC-028 | `entityID` is not a placeholder | Warning |
 | SEC-029 | `SSO` `discoveryURL` uses HTTPS | Warning |
 | SEC-030 | Config files not world-writable (Unix) | Warning |
@@ -270,7 +271,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-036 | `spoofKey` configured | Warning |
 | SEC-038 | `postLimit` is non-zero and <= 10 MB | Info |
 | SEC-039 | `SecurityPolicyProvider` has `validate="true"` | Info |
-| SEC-040 | `security-policy.xml` does not disable default algorithm blacklist | Warning |
+| SEC-040 | `security-policy.xml` does not set `excludeDefaults="false"` (or `includeDefaultBlacklist="false"`) | Warning |
 | SEC-041 | `Notify` endpoints use HTTPS | Warning |
 | SEC-042 | `handlerURL` does not use plaintext HTTP | Warning |
 | SEC-043 | Signing and encryption `CredentialResolver` use separate keys | Warning |
@@ -340,7 +341,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-107 | XML comments do not contain sensitive keywords | Warning |
 | SEC-108 | Attribute map does not map to security-sensitive header names | Warning |
 | SEC-109 | `clockSkew` is not zero (tolerates minor time drift) | Info |
-| SEC-110 | `security-policy.xml` does not reference weak algorithms outside blacklists | Warning |
+| SEC-110 | `security-policy.xml` does not reference weak algorithms outside `ExcludedAlgorithms` and blacklists | Warning |
 | SEC-111 | Error template paths are not absolute URLs (no external redirect) | Info |
 | SEC-112 | Scoped attributes have scope validation in attribute policy | Warning |
 | SEC-113 | `DiagnosticService` handler has ACL | Warning |
@@ -467,7 +468,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-082 | `SessionCache` `unreliableNetworks` is not set while `consistentAddress` is `false` | Info |
 | OPS-083 | No access rule uses the deprecated `authnContextDeclRef` alias | Warning |
 
-### Migration (MIG-001 to MIG-024)
+### Migration (MIG-001 to MIG-026)
 
 MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and V3.
 
@@ -497,6 +498,8 @@ MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and 
 | MIG-022 | `SessionInitiator` `type="Shib1"` or `"WAYF"` (legacy) | Warning |
 | MIG-023 | `SSO` `defaultACSIndex`/`acsIndex` deprecated in SP3 | Info |
 | MIG-024 | `ApplicationOverride` `Sessions` missing `handlerSSL`/`cookieProps` (not inherited) | Warning |
+| MIG-025 | `security-policy.xml` does not use the SP2 namespace | Warning |
+| MIG-026 | `security-policy.xml` does not use names deprecated in SP 3.2 (`AlgorithmWhitelist`, `AlgorithmBlacklist`, `includeDefaultBlacklist`) | Info |
 
 ## Output
 

@@ -5,6 +5,9 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **REF-043**: a `policyId` must name a `<Policy>` in `security-policy.xml` or written inline.
+- **MIG-025**: `security-policy.xml` still on the SP2 namespace next to an SP3 `shibboleth2.xml`.
+- **MIG-026**: `AlgorithmWhitelist`, `AlgorithmBlacklist` and `includeDefaultBlacklist` are deprecated since SP 3.2.
 - **SEC-146**: `verifyHost="false"` on a `MDQ` or `Dynamic` metadata provider turns off the TLS host name check.
 - **SEC-147**: an ODBC `ConnectionString` that carries a password. The password is never stored or printed.
 - **XML-059**: a Static `DataSealer` key must be base64 that decodes to 16, 24 or 32 bytes.
@@ -72,6 +75,8 @@ All notable changes to shibcheck are documented in this file.
 - **XML-033**, **XML-034**, **XML-035** now strip namespace prefixes (e.g., `md:XML` → `XML`) before type comparison, and skip empty-type elements instead of flagging them as unrecognized — removing false positives on namespaced or partial configs.
 
 ### Fixed
+- **SEC-040** was inverted. The docs make `excludeDefaults` (formerly `includeDefaultBlacklist`) true by default, so it flagged the safe `excludeDefaults="true"` and missed `excludeDefaults="false"`, which keeps known weak algorithms enabled.
+- **SEC-027** did not recognize `ExcludedAlgorithms` (SP 3.2+), and **SEC-110** flagged weak algorithm URIs that sit inside an `ExcludedAlgorithms` list. A weak URI is now flagged only outside the exclusion lists.
 - `Notify` endpoints were read from the `Channel` attribute (`front`/`back`) whenever it was present, so SEC-041, SEC-105, SEC-124 and OPS-010 never saw the real `Location` URL. Endpoints now come from `Location`.
 - **XML-029** reported a valid `MDQ` `MetadataProvider` (which uses `baseUrl`) as having no data source, and also flagged `Dynamic` providers. `MDQ` now needs `baseUrl` and `Dynamic` is skipped.
 - Documentation links for ApplicationOverride, Errors, Sessions and the SP2 upgrade guide pointed at page ids that do not exist.

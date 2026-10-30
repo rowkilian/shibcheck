@@ -41,7 +41,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 |------|-----------|-------|
 | Plugin used without its extension library (`ODBC`, `memcache`, `GSSAPI`, `ADFS`) | ODBCStorageService (2065334638), ADFS (2065335656) | Needs `Extensions` / `Library` parsing. |
 | `ExternalApplicationOverrides` path and `<applicationId>-override.xml` files | ExternalApplicationOverrides (2070413604) | Also lets REF-030 stop reporting those ids as missing. |
-| `policyId` names a policy missing from `security-policy.xml` | CSRF (2096693787) | Needs the security-policy parse. |
 | Remote `Key` / `Certificate` / `DataSealer` url without `backingFilePath` | CredentialCommonAttributes (2067399713) | Needs parsing. |
 | Shared `cacheDirectory` between dynamic providers | MetadataProviderRemoteDynamicCommonAttributes (2067399842) | Needs parsing. |
 
@@ -61,7 +60,5 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 
 | Idea | Page (id) | Notes |
 |------|-----------|-------|
-| `security-policy.xml` still on the SP2 namespace | UpgradingFromV2 (2067400004) | Needs the root `xmlns` of that file. |
 | `file` / `uri` instead of `path` / `url` on plugins other than `MetadataProvider` | ReleaseNotes (2065335693) | Only `MetadataProvider` is covered by MIG-006 and MIG-013. |
 | V2 config with `cacheAssertions` unset (default changes to `false` under the V3 namespace) | ReleaseNotes (2065335693) | Needs `SessionCache` parsing. |
-| Deprecated `AlgorithmWhitelist`, `AlgorithmBlacklist`, `includeDefaultBlacklist` | SecurityPolicies (2065334425), ExcludedAlgorithms (2065334583) | Needs a security-policy scan. |

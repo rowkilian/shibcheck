@@ -218,6 +218,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     check_plugin_storage_references(sc, v, &mut results);
     check_session_recovery_sealer(sc, &mut results);
     check_require_session_with(sc, &mut results);
+    check_policy_ids(config, sc, &mut results);
     super::acl::references(config, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
@@ -1583,6 +1584,60 @@ fn check_require_session_with(
     }
 }
 
+/// REF-043: a `policyId` must name a `<Policy>` in `security-policy.xml` or written inline.
+fn check_policy_ids(
+    config: &DiscoveredConfig,
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    results: &mut Vec<CheckResult>,
+) {
+    if sc.policy_ids_used.is_empty() {
+        return;
+    }
+    let mut defined: HashSet<&str> = sc.policy_ids_defined.iter().map(String::as_str).collect();
+    let loaded = crate::parsers::security_policy::load_for(config);
+    if let Some(ref l) = loaded {
+        defined.extend(l.policy.policy_ids.iter().map(String::as_str));
+    } else if defined.is_empty() {
+        // The policy file is missing or unreadable, which other checks report.
+        return;
+    }
+    let mut seen = HashSet::new();
+    for id in &sc.policy_ids_used {
+        if !seen.insert(id.as_str()) {
+            continue;
+        }
+        if defined.contains(id.as_str()) {
+            results.push(CheckResult::pass(
+                "REF-043",
+                CAT,
+                Severity::Error,
+                &format!("policyId=\"{id}\" names a defined Policy"),
+            ));
+            continue;
+        }
+        let line = config
+            .shibboleth_xml_content
+            .as_deref()
+            .and_then(|c| crate::location::find_line(c, &format!("policyId=\"{id}\"")));
+        let file = config
+            .shibboleth_xml_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        results.push(
+            CheckResult::fail(
+                "REF-043",
+                CAT,
+                Severity::Error,
+                &format!("policyId=\"{id}\" matches no <Policy> id"),
+                Some("Add the policy to security-policy.xml (the CSRF page says to copy blockUnsolicited from the distributed file), or fix the name"),
+            )
+            .with_location(&file, line)
+            .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334425/SecurityPolicies"),
+        );
+    }
+}
+
 /// REF-038: `postData` and `relayState` of the form `ss:<id>` must name a configured
 /// StorageService. SP3 provides an in-memory one, id "mem", when none is configured.
 fn check_storage_references(
@@ -2071,5 +2126,23 @@ mod tests {
         );
         assert!(results(r#"requireSessionWith="""#).is_empty());
         assert!(results("").is_empty());
+    }
+
+    #[test]
+    fn policy_ids_must_be_defined() {
+        let run_policy = |used: &str, policy: &str| {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(
+                    r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config"><ApplicationDefaults entityID="https://sp.example.org/shibboleth" policyId="{used}"/></SPConfig>"#
+                ),
+            );
+            dir.write("security-policy.xml", policy);
+            run(&dir.discover(), false)
+        };
+        let policy = r#"<SecurityPolicies><Policy id="default"/><Policy id="blockUnsolicited"/></SecurityPolicies>"#;
+        assert_outcome(&run_policy("blockUnsolicited", policy), "REF-043", true);
+        assert_outcome(&run_policy("blockUnsolicted", policy), "REF-043", false);
     }
 }

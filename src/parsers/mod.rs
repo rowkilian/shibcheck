@@ -2,6 +2,7 @@ pub mod access_control;
 pub mod attribute_map;
 pub mod attribute_policy;
 pub mod certificate;
+pub mod security_policy;
 pub mod shibboleth_xml;
 
 use quick_xml::events::BytesStart;

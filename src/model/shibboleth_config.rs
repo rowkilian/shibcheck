@@ -44,6 +44,9 @@ pub struct ShibbolethConfig {
     /// `id` of every <StorageService> element
     pub storage_service_ids: Vec<String>,
     pub data_sealers: Vec<DataSealerInfo>,
+    /// Every `policyId` attribute value, and every `<Policy id>` written inline.
+    pub policy_ids_used: Vec<String>,
+    pub policy_ids_defined: Vec<String>,
     /// An ODBC `ConnectionString` embeds a password (the password itself is never stored).
     pub odbc_connection_has_password: bool,
     pub session_cache: Option<SessionCacheInfo>,

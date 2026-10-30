@@ -168,6 +168,15 @@ fn process_element(
     } = state;
     let in_request_map = *in_request_map;
 
+    if let Some(id) = get_attr(e, "policyId") {
+        config.policy_ids_used.push(id);
+    }
+    if name == "Policy" {
+        if let Some(id) = get_attr(e, "id") {
+            config.policy_ids_defined.push(id);
+        }
+    }
+
     match name {
         "SPConfig" => {
             config.has_sp_config = true;
