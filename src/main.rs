@@ -120,6 +120,9 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
         }
     };
 
+    let mut results = results;
+    attach_fix_edits(&mut results, &discovered);
+
     let summary = CheckSummary::from_results(&results);
     if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
         eprintln!("Error: {:#}", e);
@@ -170,6 +173,18 @@ fn hide_accepted(
         );
     }
     Ok(results)
+}
+
+/// Let JSON and SARIF carry the edit `shibcheck fix` would make for each result.
+fn attach_fix_edits(results: &mut [result::CheckResult], discovered: &config::DiscoveredConfig) {
+    let (Some(content), Some(sc), Some(file)) = (
+        discovered.shibboleth_xml_content.as_deref(),
+        discovered.shibboleth_config.as_ref(),
+        discovered.shibboleth_xml_path.file_name(),
+    ) else {
+        return;
+    };
+    fix::attach_edits(results, content, &file.to_string_lossy(), sc.sp_version);
 }
 
 /// `shibcheck baseline`: write today's failed findings to a baseline file.

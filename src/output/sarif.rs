@@ -74,6 +74,47 @@ struct SarifResult {
     level: String,
     message: SarifMessage,
     locations: Vec<SarifLocation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fixes: Vec<SarifFix>,
+}
+
+#[derive(Serialize)]
+struct SarifFix {
+    description: SarifMessage,
+    #[serde(rename = "artifactChanges")]
+    artifact_changes: Vec<SarifArtifactChange>,
+}
+
+#[derive(Serialize)]
+struct SarifArtifactChange {
+    #[serde(rename = "artifactLocation")]
+    artifact_location: SarifArtifactLocation,
+    replacements: Vec<SarifReplacement>,
+}
+
+#[derive(Serialize)]
+struct SarifReplacement {
+    #[serde(rename = "deletedRegion")]
+    deleted_region: SarifFullRegion,
+    #[serde(rename = "insertedContent")]
+    inserted_content: SarifContent,
+}
+
+#[derive(Serialize)]
+struct SarifFullRegion {
+    #[serde(rename = "startLine")]
+    start_line: usize,
+    #[serde(rename = "startColumn")]
+    start_column: usize,
+    #[serde(rename = "endLine")]
+    end_line: usize,
+    #[serde(rename = "endColumn")]
+    end_column: usize,
+}
+
+#[derive(Serialize)]
+struct SarifContent {
+    text: String,
 }
 
 #[derive(Serialize)]
@@ -99,6 +140,30 @@ struct SarifRegion {
 #[derive(Serialize)]
 struct SarifArtifactLocation {
     uri: String,
+}
+
+fn sarif_fix(edit: &crate::result::FixEdit) -> SarifFix {
+    SarifFix {
+        description: SarifMessage {
+            text: edit.description.clone(),
+        },
+        artifact_changes: vec![SarifArtifactChange {
+            artifact_location: SarifArtifactLocation {
+                uri: edit.file.clone(),
+            },
+            replacements: vec![SarifReplacement {
+                deleted_region: SarifFullRegion {
+                    start_line: edit.start_line,
+                    start_column: edit.start_column,
+                    end_line: edit.end_line,
+                    end_column: edit.end_column,
+                },
+                inserted_content: SarifContent {
+                    text: edit.new_text.clone(),
+                },
+            }],
+        }],
+    }
 }
 
 fn severity_to_level(severity: Severity) -> &'static str {
@@ -157,6 +222,7 @@ pub fn print(results: &[CheckResult], config: &DiscoveredConfig) -> Result<()> {
                         region,
                     },
                 }],
+                fixes: r.fix.iter().map(sarif_fix).collect(),
             }
         })
         .collect();

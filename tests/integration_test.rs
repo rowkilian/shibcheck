@@ -653,3 +653,51 @@ fn bad_baseline_file_is_a_tool_error() {
         .code(2);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+// ── fixes in JSON and SARIF ──
+
+#[test]
+fn json_and_sarif_carry_the_fix_edit() {
+    let out = shibcheck()
+        .args(["--json", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let sec001 = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["code"] == "SEC-001" && r["passed"] == false)
+        .expect("insecure fixture fails SEC-001");
+    let fix = &sec001["fix"];
+    assert!(fix["new_text"]
+        .as_str()
+        .unwrap()
+        .contains("handlerSSL=\"true\""));
+    assert_eq!(fix["file"], "shibboleth2.xml");
+
+    let out = shibcheck()
+        .args(["--sarif", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let result = v["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["ruleId"] == "SEC-001")
+        .unwrap();
+    let replacement = &result["fixes"][0]["artifactChanges"][0]["replacements"][0];
+    assert!(replacement["deletedRegion"]["startLine"].as_u64().unwrap() > 0);
+    assert!(replacement["insertedContent"]["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("<Sessions"));
+
+    // A passing config has no fixes to offer
+    let out = shibcheck()
+        .args(["--sarif", "tests/fixtures/good"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("artifactChanges"));
+}

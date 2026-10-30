@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::model::shibboleth_config::SpVersion;
-use crate::result::CheckResult;
+use crate::result::{CheckResult, FixEdit};
 
 /// Fixable check codes and what each fix does.
 pub const FIXABLE: &[(&str, &str)] = &[
@@ -38,6 +38,11 @@ pub struct AppliedFix {
     pub description: String,
     /// 1-based line of the element that changed
     pub line: usize,
+    /// Byte range of the start tag in the text as it stood before this edit, and its
+    /// replacement. For a plan with one code this is the range in the original file.
+    pub start: usize,
+    pub end: usize,
+    pub new_text: String,
 }
 
 /// The result of planning fixes against the text of shibboleth2.xml.
@@ -201,6 +206,9 @@ fn edit_tag(
         codes,
         description: format!("<{element}>: {description}"),
         line,
+        start,
+        end,
+        new_text: new_tag,
     });
 }
 
@@ -353,6 +361,45 @@ fn remove_attr(tag: &str, name: &str) -> String {
     match find_attr(tag, name) {
         Some(span) => format!("{}{}", &tag[..span.full.0], &tag[span.full.1..]),
         None => tag.to_string(),
+    }
+}
+
+/// 1-based line and UTF-16 column of a byte offset.
+fn position(text: &str, offset: usize) -> (usize, usize) {
+    let before = &text[..offset];
+    let line = before.matches('\n').count() + 1;
+    let line_start = before.rfind('\n').map_or(0, |p| p + 1);
+    let column = text[line_start..offset].encode_utf16().count() + 1;
+    (line, column)
+}
+
+/// Give each failed, fixable result the edit that would resolve it, so JSON and SARIF
+/// consumers can offer the same fix. Each edit is planned alone against the original text,
+/// so its position is valid without applying any other fix first.
+pub fn attach_edits(results: &mut [CheckResult], content: &str, file: &str, version: SpVersion) {
+    for r in results.iter_mut().filter(|r| !r.passed) {
+        let Some((code, _)) = FIXABLE.iter().find(|(c, _)| *c == r.code) else {
+            continue;
+        };
+        let in_file = r.location.as_ref().is_none_or(|l| l.file == file);
+        if !in_file {
+            continue;
+        }
+        let single = plan(content, &[code], version);
+        let [edit] = single.applied.as_slice() else {
+            continue;
+        };
+        let (start_line, start_column) = position(content, edit.start);
+        let (end_line, end_column) = position(content, edit.end);
+        r.fix = Some(FixEdit {
+            description: edit.description.clone(),
+            file: file.to_string(),
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+            new_text: edit.new_text.clone(),
+        });
     }
 }
 
@@ -557,6 +604,35 @@ mod tests {
         let second = fix(&first.fixed, ALL, SpVersion::V3);
         assert!(second.applied.is_empty());
         assert_eq!(second.fixed, first.fixed);
+    }
+
+    #[test]
+    fn edits_attach_to_failed_results_with_original_positions() {
+        use crate::result::{CheckCategory, Severity};
+        let xml = "<a>\n  <Sessions lifetime=\"1\"/>\n</a>";
+        let mk =
+            |code| CheckResult::fail(code, CheckCategory::Security, Severity::Warning, "m", None);
+        let mut results = vec![
+            mk("SEC-001"),
+            mk("SEC-002"),
+            mk("SEC-999"),
+            CheckResult::pass("SEC-003", CheckCategory::Security, Severity::Warning, "ok"),
+        ];
+        attach_edits(&mut results, xml, "shibboleth2.xml", SpVersion::V3);
+        let e = results[0].fix.as_ref().unwrap();
+        assert_eq!((e.start_line, e.start_column), (2, 3));
+        assert_eq!((e.end_line, e.end_column), (2, 27));
+        assert_eq!(e.new_text, r#"<Sessions handlerSSL="true" lifetime="1"/>"#);
+        // SEC-002 is planned alone, so its edit also starts at the original tag
+        assert_eq!(results[1].fix.as_ref().unwrap().start_column, 3);
+        assert!(results[2].fix.is_none());
+        assert!(results[3].fix.is_none());
+    }
+
+    #[test]
+    fn columns_count_utf16_units() {
+        assert_eq!(position("é<a/>", 2), (1, 2));
+        assert_eq!(position("😀<a/>", 4), (1, 3));
     }
 
     #[test]

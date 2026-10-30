@@ -580,6 +580,8 @@ With `--sarif`, output is a [SARIF v2.1.0](https://sarifweb.azurewebsites.net/) 
 shibcheck --sarif /etc/shibboleth > results.sarif
 ```
 
+Results that `shibcheck fix` can resolve also carry the edit. JSON results get a `fix` object (`description`, `file`, `start_line`, `start_column`, `end_line`, `end_column`, `new_text`) and SARIF results get a `fixes` entry with one replacement, so code scanning and editors can offer the same change. Lines and columns are 1-based, the end is exclusive, and columns count UTF-16 code units. Each edit is computed against the original file, so you can apply any one of them on its own.
+
 ### HTML Output
 
 With `--html`, output is a self-contained HTML page with collapsible category sections, color-coded badges, and a file summary table:

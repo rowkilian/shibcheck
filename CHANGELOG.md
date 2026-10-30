@@ -35,6 +35,9 @@ All notable changes to shibcheck are documented in this file.
 - **XML-054**: `unreliableNetworks` must be valid CIDR masks.
 - **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
 
+### Added (fix edits)
+- JSON results and SARIF `fixes` now carry the edit that `shibcheck fix` would make, for the checks `fix` handles.
+
 ### Added (suppression)
 - **`shibcheck-ignore` / `shibcheck-ignore-file` XML comments** hide reviewed findings, with a reason. `--no-ignore` shows everything.
 - **Baselines**: `shibcheck baseline` records today's findings and `--baseline FILE` (or `baseline` in `.shibcheckrc`) reports only new ones. Stale entries are reported.
