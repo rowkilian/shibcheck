@@ -10,6 +10,7 @@ pub mod fix;
 pub mod http;
 pub mod init_test_idp;
 pub mod location;
+pub mod migrate;
 pub mod model;
 pub mod output;
 pub mod parsers;

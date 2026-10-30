@@ -212,10 +212,12 @@ fn edit_tag(
     });
 }
 
-/// Byte range of the first start tag named `name`, skipping comments, CDATA, processing
-/// instructions and the contents of quoted attribute values.
-fn find_start_tag(content: &str, name: &str) -> Option<(usize, usize)> {
+/// Byte range of every start tag in document order (end tags are not included), skipping
+/// comments, CDATA, processing instructions, declarations and the contents of quoted
+/// attribute values.
+pub(crate) fn start_tags(content: &str) -> Vec<(usize, usize)> {
     let bytes = content.as_bytes();
+    let mut tags = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] != b'<' {
@@ -235,26 +237,48 @@ fn find_start_tag(content: &str, name: &str) -> Option<(usize, usize)> {
             None
         };
         if let Some(terminator) = skip_to {
-            i += rest.find(terminator)? + terminator.len();
-            continue;
+            match rest.find(terminator) {
+                Some(p) => {
+                    i += p + terminator.len();
+                    continue;
+                }
+                None => break,
+            }
         }
-        let end = tag_end(content, i)?;
-        let after_name = &content[i + 1..];
-        let is_match = after_name.starts_with(name)
-            && after_name[name.len()..]
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_whitespace() || c == '>' || c == '/');
-        if is_match {
-            return Some((i, end));
+        let Some(end) = tag_end(content, i) else {
+            break;
+        };
+        if !content[i + 1..].starts_with('/') {
+            tags.push((i, end));
         }
         i = end;
     }
-    None
+    tags
+}
+
+/// Local name of the start tag `tag` (`<conf:Sessions a="b">` gives `Sessions`).
+pub(crate) fn tag_name(tag: &str) -> &str {
+    let name = tag[1..]
+        .split(|c: char| c.is_whitespace() || c == '>' || c == '/')
+        .next()
+        .unwrap_or("");
+    name.rsplit(':').next().unwrap_or(name)
+}
+
+/// Byte range of the first start tag named `name`.
+fn find_start_tag(content: &str, name: &str) -> Option<(usize, usize)> {
+    start_tags(content).into_iter().find(|&(start, _)| {
+        let after_name = &content[start + 1..];
+        after_name.starts_with(name)
+            && after_name[name.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_whitespace() || c == '>' || c == '/')
+    })
 }
 
 /// Index just past the `>` that closes the tag starting at `start`.
-fn tag_end(content: &str, start: usize) -> Option<usize> {
+pub(crate) fn tag_end(content: &str, start: usize) -> Option<usize> {
     let mut quote: Option<u8> = None;
     for (offset, &b) in content.as_bytes()[start..].iter().enumerate() {
         match quote {
@@ -269,14 +293,14 @@ fn tag_end(content: &str, start: usize) -> Option<usize> {
 }
 
 /// Position of one attribute inside a start tag.
-struct AttrSpan {
+pub(crate) struct AttrSpan {
     /// from the whitespace before the name to just past the closing quote
-    full: (usize, usize),
+    pub(crate) full: (usize, usize),
     /// the value between the quotes
-    value: (usize, usize),
+    pub(crate) value: (usize, usize),
 }
 
-fn find_attr(tag: &str, name: &str) -> Option<AttrSpan> {
+pub(crate) fn find_attr(tag: &str, name: &str) -> Option<AttrSpan> {
     let bytes = tag.as_bytes();
     // skip "<Name"
     let mut i = 1;
@@ -326,13 +350,13 @@ fn find_attr(tag: &str, name: &str) -> Option<AttrSpan> {
     }
 }
 
-fn attr_value(tag: &str, name: &str) -> Option<String> {
+pub(crate) fn attr_value(tag: &str, name: &str) -> Option<String> {
     let span = find_attr(tag, name)?;
     Some(tag[span.value.0..span.value.1].to_string())
 }
 
 /// Replace the attribute's value, or insert the attribute right after the element name.
-fn set_attr(tag: &str, name: &str, value: &str) -> String {
+pub(crate) fn set_attr(tag: &str, name: &str, value: &str) -> String {
     let escaped = value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -357,11 +381,39 @@ fn set_attr(tag: &str, name: &str, value: &str) -> String {
     )
 }
 
-fn remove_attr(tag: &str, name: &str) -> String {
+pub(crate) fn remove_attr(tag: &str, name: &str) -> String {
     match find_attr(tag, name) {
         Some(span) => format!("{}{}", &tag[..span.full.0], &tag[span.full.1..]),
         None => tag.to_string(),
     }
+}
+
+/// Rename attribute `from` to `to`, keeping its value and quotes. `None` when `from` is
+/// missing or the tag already has `to`.
+pub(crate) fn rename_attr(tag: &str, from: &str, to: &str) -> Option<String> {
+    if find_attr(tag, to).is_some() {
+        return None;
+    }
+    let span = find_attr(tag, from)?;
+    let before_name = &tag[span.full.0..];
+    let name_start = span.full.0 + (before_name.len() - before_name.trim_start().len());
+    Some(format!(
+        "{}{}{}",
+        &tag[..name_start],
+        to,
+        &tag[name_start + from.len()..]
+    ))
+}
+
+/// Replace the value of an existing attribute without touching its quotes.
+pub(crate) fn replace_value(tag: &str, name: &str, value: &str) -> Option<String> {
+    let span = find_attr(tag, name)?;
+    Some(format!(
+        "{}{}{}",
+        &tag[..span.value.0],
+        value,
+        &tag[span.value.1..]
+    ))
 }
 
 /// 1-based line and UTF-16 column of a byte offset.

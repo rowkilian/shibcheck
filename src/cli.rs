@@ -24,6 +24,7 @@ EXAMPLES:
   shibcheck --severity warning           Fail on warnings and errors
   shibcheck fix /etc/shibboleth          Auto-fix safe issues (see fix --help)
   shibcheck fix --dry-run                Show what fix would change
+  shibcheck migrate --dry-run /etc/shibboleth   Show the SP2 to SP3 migration
   shibcheck --watch /etc/shibboleth      Re-run on file changes
   shibcheck baseline /etc/shibboleth     Record current findings as accepted
   shibcheck --baseline .shibcheck-baseline.json /etc/shibboleth
@@ -44,7 +45,7 @@ CHECKS:
     XML-001..061   XML validity and required elements
     REF-001..043   Cross-file reference validation
     SEC-001..147   Security best practices
-    MIG-001..026   SP2 to SP3 migration
+    MIG-001..027   SP2 to SP3 migration
     OPS-001..083   Operational best practices
 
   See https://github.com/rowkilian/shibcheck#checks-reference for details."
@@ -166,6 +167,47 @@ EXAMPLES:
         /// List the checks that fix can handle and exit
         #[arg(long)]
         list: bool,
+    },
+
+    /// Move an SP2 configuration to the SP3 format, keeping a backup of each file
+    #[command(after_help = "\
+Applies the edits the SP3 documentation prescribes and that keep behavior the same:
+  - the 2.0 namespace becomes 3.0 in shibboleth2.xml and security-policy.xml
+  - MetadataProvider file and uri become path and url
+  - redirectWhitelist, redirectLimit \"whitelist\" and the Whitelist, Blacklist and
+    EntityRoleWhiteList filter types get their SP 3.2 names
+  - SessionCache gets cacheAssertions=\"true\" so the SP2 default is kept
+
+Edits stay inside one start tag, so comments and layout are kept. What needs a person
+(SessionInitiator and LogoutInitiator elements, the attribute resolver, and so on) is
+listed at the end. The result needs SP 3.2 or later on every node. Run it on a copy
+first, or use --dry-run, or --output to leave the originals alone.
+
+EXAMPLES:
+  shibcheck migrate --dry-run /etc/shibboleth        Show the changes, write nothing
+  shibcheck migrate /etc/shibboleth                  Migrate and keep .bak files
+  shibcheck migrate --output ./sp3 /etc/shibboleth   Write the new files to ./sp3
+  shibcheck migrate --keep-namespace .               Rename settings, leave the namespace")]
+    Migrate {
+        /// Directory containing Shibboleth SP config files
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+
+        /// Show the changes and write nothing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Do not keep a .bak copy of each changed file
+        #[arg(long)]
+        no_backup: bool,
+
+        /// Write the migrated files to this directory and leave the originals alone
+        #[arg(long, value_name = "DIR", conflicts_with = "no_backup")]
+        output: Option<PathBuf>,
+
+        /// Fix deprecated settings but keep the 2.0 namespace, as a first step
+        #[arg(long)]
+        keep_namespace: bool,
     },
 
     /// Record today's findings in a baseline file, so later runs report only new ones

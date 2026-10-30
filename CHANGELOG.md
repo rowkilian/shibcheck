@@ -5,6 +5,8 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- `shibcheck migrate` moves an SP2 configuration to the SP3 format: the namespace in `shibboleth2.xml` and `security-policy.xml`, `file`/`uri` to `path`/`url` on `MetadataProvider`, the 3.2 names for `redirectWhitelist`, `redirectLimit` values and metadata filter types, and `cacheAssertions="true"` on `SessionCache` to keep the SP2 default. It supports `--dry-run`, `--output DIR`, `--no-backup` and `--keep-namespace`, and lists the migration findings that need a person.
+- **MIG-027**: a `SessionCache` that leaves `cacheAssertions` unset, whose default changes from true to false with the 3.0 namespace.
 - **REF-043**: a `policyId` must name a `<Policy>` in `security-policy.xml` or written inline.
 - **MIG-025**: `security-policy.xml` still on the SP2 namespace next to an SP3 `shibboleth2.xml`.
 - **MIG-026**: `AlgorithmWhitelist`, `AlgorithmBlacklist` and `includeDefaultBlacklist` are deprecated since SP 3.2.
@@ -75,6 +77,8 @@ All notable changes to shibcheck are documented in this file.
 - **XML-033**, **XML-034**, **XML-035** now strip namespace prefixes (e.g., `md:XML` → `XML`) before type comparison, and skip empty-type elements instead of flagging them as unrecognized — removing false positives on namespaced or partial configs.
 
 ### Fixed
+- **MIG-003** reported the SP3 `<Logout>` element as SP2-style. It now fires only for explicit `<LogoutInitiator type=...>` elements.
+- **MIG-015** is removed. It told people to replace `checkAddress` with `consistentAddress`, but those are two documented settings that do different things (the first compares addresses when the assertion arrives, the second when the session is reused).
 - **SEC-040** was inverted. The docs make `excludeDefaults` (formerly `includeDefaultBlacklist`) true by default, so it flagged the safe `excludeDefaults="true"` and missed `excludeDefaults="false"`, which keeps known weak algorithms enabled.
 - **SEC-027** did not recognize `ExcludedAlgorithms` (SP 3.2+), and **SEC-110** flagged weak algorithm URIs that sit inside an `ExcludedAlgorithms` list. A weak URI is now flagged only outside the exclusion lists.
 - `Notify` endpoints were read from the `Channel` attribute (`front`/`back`) whenever it was present, so SEC-041, SEC-105, SEC-124 and OPS-010 never saw the real `Location` URL. Endpoints now come from `Location`.

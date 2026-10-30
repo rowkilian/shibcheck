@@ -9,7 +9,8 @@ use shibcheck::cli::{Cli, Command, SeverityArg};
 use shibcheck::output::{self, OutputFormat};
 use shibcheck::result::{self, CheckSummary, Severity};
 use shibcheck::{
-    baseline, checks, config, diff, filter, fix, init_test_idp, rc_config, suppress, watch,
+    baseline, checks, config, diff, filter, fix, init_test_idp, migrate, parsers, rc_config,
+    suppress, watch,
 };
 
 fn main() {
@@ -44,6 +45,21 @@ fn main() {
                 run_fix(&resolve_dir(path), &opts)
             };
             process::exit(code);
+        }
+        Some(Command::Migrate {
+            path,
+            dry_run,
+            no_backup,
+            output,
+            keep_namespace,
+        }) => {
+            let opts = MigrateOptions {
+                dry_run: *dry_run,
+                backup: !*no_backup,
+                output: output.as_deref(),
+                keep_namespace: *keep_namespace,
+            };
+            process::exit(run_migrate(&resolve_dir(path), &opts));
         }
         Some(Command::Baseline { path, output }) => {
             process::exit(run_baseline(&resolve_dir(path), output.as_deref()));
@@ -225,6 +241,159 @@ struct FixOptions<'a> {
     backup: bool,
     only: Option<&'a [String]>,
     skip: Option<&'a [String]>,
+}
+
+struct MigrateOptions<'a> {
+    dry_run: bool,
+    backup: bool,
+    output: Option<&'a std::path::Path>,
+    keep_namespace: bool,
+}
+
+/// One file of a migration: where it lives and what changes.
+struct MigrationFile {
+    path: PathBuf,
+    migration: migrate::Migration,
+}
+
+fn run_migrate(base_dir: &std::path::Path, opts: &MigrateOptions) -> i32 {
+    if !base_dir.is_dir() {
+        eprintln!("Error: '{}' is not a directory", base_dir.display());
+        return 2;
+    }
+    let (discovered, results) = match discover_and_check(base_dir, false, &None, &None) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error discovering configuration: {}", e);
+            return 2;
+        }
+    };
+    if discovered.shibboleth_config.is_none() {
+        eprintln!(
+            "Error: no readable shibboleth2.xml in '{}'",
+            base_dir.display()
+        );
+        return 2;
+    }
+    let options = migrate::Options {
+        keep_namespace: opts.keep_namespace,
+    };
+
+    let mut files = Vec::new();
+    match std::fs::read_to_string(&discovered.shibboleth_xml_path) {
+        Ok(content) => files.push(MigrationFile {
+            path: discovered.shibboleth_xml_path.clone(),
+            migration: migrate::plan_main(&content, options),
+        }),
+        Err(e) => {
+            eprintln!(
+                "Error: cannot read {}: {}",
+                discovered.shibboleth_xml_path.display(),
+                e
+            );
+            return 2;
+        }
+    }
+    if let Some(policy) = parsers::security_policy::load_for(&discovered) {
+        files.push(MigrationFile {
+            path: policy.path,
+            migration: migrate::plan_policy(&policy.content, options),
+        });
+    }
+
+    let changed: Vec<&MigrationFile> = files.iter().filter(|f| !f.migration.is_empty()).collect();
+    for f in &changed {
+        let edits = &f.migration.plan.applied;
+        println!(
+            "{} {} in {}:",
+            if opts.dry_run { "Would make" } else { "Made" },
+            pluralize(edits.len(), "edit"),
+            f.path.display()
+        );
+        for e in edits {
+            println!(
+                "  line {}  {}  ({})",
+                e.line,
+                e.description,
+                e.codes.join(", ")
+            );
+        }
+        if opts.dry_run {
+            println!("\n{}", fix::render_diff(&f.migration.plan));
+        }
+    }
+    if changed.is_empty() {
+        println!("Nothing to migrate in {}", base_dir.display());
+    }
+    for f in &files {
+        for note in &f.migration.notes {
+            println!("Note ({}): {}", f.path.display(), note);
+        }
+    }
+
+    // What is left for a person: failed migration checks no edit addressed.
+    let handled: Vec<&str> = files.iter().flat_map(|f| f.migration.codes()).collect();
+    let mut manual: Vec<&result::CheckResult> = results
+        .iter()
+        .filter(|r| {
+            // MIG-001 and MIG-014 only summarize the others.
+            !r.passed
+                && r.code.starts_with("MIG-")
+                && !matches!(r.code.as_str(), "MIG-001" | "MIG-014")
+                && !handled.contains(&r.code.as_str())
+        })
+        .collect();
+    manual.sort_by(|a, b| a.code.cmp(&b.code));
+    if !manual.is_empty() {
+        println!("\nNeeds a person ({}):", manual.len());
+        for r in manual {
+            println!("  {}  {}", r.code, r.message);
+            if let Some(ref s) = r.suggestion {
+                println!("          {}", s);
+            }
+        }
+    }
+
+    if opts.dry_run {
+        if !changed.is_empty() {
+            println!("\nDry run: no files were changed.");
+        }
+        return 0;
+    }
+    if changed.is_empty() {
+        return 0;
+    }
+
+    if let Some(dir) = opts.output {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("Error: cannot create {}: {}", dir.display(), e);
+            return 2;
+        }
+        for f in &changed {
+            let target = dir.join(f.path.file_name().unwrap_or_default());
+            if let Err(e) = std::fs::write(&target, &f.migration.plan.fixed) {
+                eprintln!("Error: cannot write {}: {}", target.display(), e);
+                return 2;
+            }
+            println!("Wrote {}", target.display());
+        }
+    } else {
+        for f in &changed {
+            match fix::write_plan(&f.path, &f.migration.plan, opts.backup) {
+                Ok(Some(backup)) => println!("Backup saved to {}", backup.display()),
+                Ok(None) => {}
+                Err(e) => {
+                    eprintln!("Error: {:#}", e);
+                    return 2;
+                }
+            }
+        }
+    }
+    println!(
+        "\nThe result needs SP 3.2 or later on every node. Restart shibd, read its log for \
+         Shibboleth.DEPRECATION warnings, and run shibcheck on the migrated files."
+    );
+    0
 }
 
 fn print_fixable() {

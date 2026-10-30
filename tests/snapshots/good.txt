@@ -1,7 +1,6 @@
 MIG-011 pass shibboleth2.xml
 MIG-012 pass shibboleth2.xml
 MIG-014 pass shibboleth2.xml
-MIG-015 pass shibboleth2.xml
 MIG-016 pass shibboleth2.xml
 MIG-017 pass shibboleth2.xml
 MIG-018 pass shibboleth2.xml

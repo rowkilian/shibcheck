@@ -260,6 +260,7 @@ pub struct RelyingPartyInfo {
 
 #[derive(Debug)]
 pub struct SessionCacheInfo {
+    pub cache_assertions: Option<String>,
     pub persisted_attributes: Option<String>,
     pub maintain_reverse_index: Option<String>,
     pub unreliable_networks: Option<String>,

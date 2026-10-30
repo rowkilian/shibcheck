@@ -66,6 +66,29 @@ shibcheck fix --list                      # list what can be fixed
 
 Each run keeps the original as `shibboleth2.xml.bak`, then `.bak.1`, `.bak.2` and so on, so it never overwrites an earlier backup. Only the first `<Sessions>`, `<Errors>`, `<InProcess>` and `<ISAPI>` are edited, which are the ones the checks read. The config file is replaced in one rename, so a failed write cannot leave it half-written. Review the result before you deploy it, since a config file can hold key paths and passwords.
 
+### Migrating from SP2 to SP3
+
+`shibcheck migrate` applies the edits that the SP3 documentation prescribes for an SP2 configuration and that keep behavior the same. Like `fix`, it edits only start tags, so comments and layout stay and no line moves.
+
+```bash
+shibcheck migrate --dry-run /etc/shibboleth        # show the changes, write nothing
+shibcheck migrate /etc/shibboleth                  # migrate, keep a .bak of each changed file
+shibcheck migrate --output ./sp3 /etc/shibboleth   # write the new files to ./sp3, leave the originals
+shibcheck migrate --keep-namespace .               # rename settings first, change the namespace later
+```
+
+| Change | Files | Check |
+|--------|-------|-------|
+| Namespace `urn:mace:shibboleth:2.0:native:sp:config` becomes `3.0` | `shibboleth2.xml`, `security-policy.xml` | MIG-004, MIG-025 |
+| `MetadataProvider` `file` becomes `path`, `uri` becomes `url` | `shibboleth2.xml` | MIG-006, MIG-013 |
+| `Sessions` `redirectWhitelist` becomes `redirectAllow`; `redirectLimit` values `whitelist`, `exact+whitelist`, `host+whitelist` become `allow`, `exact+allow`, `host+allow` | `shibboleth2.xml` | MIG-008, MIG-018 |
+| `MetadataFilter` type `Whitelist`, `Blacklist`, `EntityRoleWhiteList` becomes `Include`, `Exclude`, `EntityRole` | `shibboleth2.xml` | MIG-011, MIG-012 |
+| `SessionCache` gets `cacheAssertions="true"`, because the default changes from true to false with the 3.0 namespace | `shibboleth2.xml` | MIG-027 |
+
+The release notes say the settings that cause deprecation warnings can stop the 3.0 schema from loading, so `migrate` renames them in the same pass as the namespace. The list of removed settings in the docs is not complete, which is why the command ends by listing the migration checks it could not resolve, such as explicit `SessionInitiator` and `LogoutInitiator` elements and the attribute resolver. Those need a person.
+
+After a run, the config needs SP 3.2 or later on every node, because the new names are 3.2 names. Restart `shibd`, read its log for `Shibboleth.DEPRECATION` warnings, and run `shibcheck` on the result. A configuration from SP 2.3 or earlier is better rebuilt from the default files, as the upgrade guide says. A second run changes nothing. The edits are documented for SP 3.2 up to 3.5, and 3.6 only adds deprecation warnings.
+
 ### Accepting known findings
 
 Two ways to keep a reviewed finding out of the report. Both print how many findings they hid, and `--no-ignore` shows everything again.
@@ -468,7 +491,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-082 | `SessionCache` `unreliableNetworks` is not set while `consistentAddress` is `false` | Info |
 | OPS-083 | No access rule uses the deprecated `authnContextDeclRef` alias | Warning |
 
-### Migration (MIG-001 to MIG-026)
+### Migration (MIG-001 to MIG-027)
 
 MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and V3.
 
@@ -488,7 +511,6 @@ MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and 
 | MIG-012 | `MetadataFilter` type `Whitelist`/`Blacklist` deprecated | Warning |
 | MIG-013 | `MetadataProvider` uses deprecated `uri` attribute | Info |
 | MIG-014 | Configuration contains deprecated constructs | Info |
-| MIG-015 | `Sessions` uses deprecated `checkAddress` attribute | Info |
 | MIG-016 | SP3 config has leftover SP2 handler declarations | Info |
 | MIG-017 | `MetadataGenerator` present (disabled by default in SP 3.4+) | Info |
 | MIG-018 | `redirectLimit="whitelist"` is a deprecated value | Warning |
@@ -500,6 +522,7 @@ MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and 
 | MIG-024 | `ApplicationOverride` `Sessions` missing `handlerSSL`/`cookieProps` (not inherited) | Warning |
 | MIG-025 | `security-policy.xml` does not use the SP2 namespace | Warning |
 | MIG-026 | `security-policy.xml` does not use names deprecated in SP 3.2 (`AlgorithmWhitelist`, `AlgorithmBlacklist`, `includeDefaultBlacklist`) | Info |
+| MIG-027 | `SessionCache` sets `cacheAssertions` (its default changes from true to false with the 3.0 namespace) | Info |
 
 ## Output
 

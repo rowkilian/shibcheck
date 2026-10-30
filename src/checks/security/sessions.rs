@@ -789,7 +789,7 @@ pub(super) fn run(
                     CAT,
                     Severity::Info,
                     "checkAddress is explicitly set to \"false\" (source IP consistency checking disabled)",
-                    Some("Consider enabling checkAddress to detect session hijacking via IP change"),
+                    Some("Consider enabling checkAddress so a stolen assertion cannot be replayed from another address"),
                 ).at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );

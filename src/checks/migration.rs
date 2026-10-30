@@ -27,7 +27,6 @@ const REGISTRY: &[(&str, CheckFn)] = &[
     ("MIG-012", mig_012),
     ("MIG-013", mig_013),
     ("MIG-014", mig_014),
-    ("MIG-015", mig_015),
     ("MIG-016", mig_016),
     ("MIG-017", mig_017),
     ("MIG-018", mig_018),
@@ -39,6 +38,7 @@ const REGISTRY: &[(&str, CheckFn)] = &[
     ("MIG-024", mig_024),
     ("MIG-025", mig_025),
     ("MIG-026", mig_026),
+    ("MIG-027", mig_027),
 ];
 
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
@@ -102,10 +102,15 @@ fn mig_003(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     if sc.sp_version != SpVersion::V2 {
         return Vec::new();
     }
-    let Some(sessions) = sc.sessions.as_ref() else {
+    if sc.sessions.is_none() {
         return Vec::new();
-    };
-    if sessions.has_logout {
+    }
+    // `<Logout>` is the SP3 shorthand and has no `type`; explicit `<LogoutInitiator type=...>` is the older form.
+    if sc
+        .logout_initiators
+        .iter()
+        .any(|l| l.initiator_type.is_some())
+    {
         vec![fail(
             "MIG-003",
             Severity::Info,
@@ -404,9 +409,6 @@ fn mig_014(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
         if sessions.redirect_whitelist.is_some() {
             deprecated_count += 1;
         }
-        if sessions.check_address.is_some() {
-            deprecated_count += 1;
-        }
     }
 
     if deprecated_count > 0 {
@@ -424,26 +426,6 @@ fn mig_014(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
             "MIG-014",
             Severity::Info,
             "No deprecated SP3 constructs detected",
-        )]
-    }
-}
-
-fn mig_015(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(sessions) = sc.sessions.as_ref() else {
-        return Vec::new();
-    };
-    if sessions.check_address.is_some() {
-        vec![fail(
-            "MIG-015",
-            Severity::Info,
-            "Sessions uses deprecated 'checkAddress' attribute",
-            "Replace 'checkAddress' with 'consistentAddress' for SP3",
-        )]
-    } else {
-        vec![pass(
-            "MIG-015",
-            Severity::Info,
-            "No deprecated checkAddress attribute found",
         )]
     }
 }
@@ -773,6 +755,33 @@ fn mig_026(config: &DiscoveredConfig, _sc: &ShibbolethConfig) -> Vec<CheckResult
     .with_doc(DOC_SECURITY_POLICIES)]
 }
 
+/// MIG-027: `cacheAssertions` defaults to true on the 2.0 namespace and false on the 3.0 one.
+fn mig_027(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
+    if sc.sp_version != SpVersion::V2 {
+        return Vec::new();
+    }
+    let set = sc
+        .session_cache
+        .as_ref()
+        .is_some_and(|c| c.cache_assertions.is_some());
+    if set {
+        return vec![pass(
+            "MIG-027",
+            Severity::Info,
+            "SessionCache sets cacheAssertions explicitly",
+        )];
+    }
+    vec![CheckResult::fail(
+        "MIG-027",
+        CAT,
+        Severity::Info,
+        "SessionCache does not set cacheAssertions, and its default changes from true to false with the 3.0 namespace",
+        Some("Set cacheAssertions=\"true\" on SessionCache before the namespace change if anything reads stored assertions, such as assertion export"),
+    )
+    .at_element("SessionCache")
+    .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334652/StorageServiceSessionCache")]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,5 +834,59 @@ mod tests {
             ),
         );
         assert_outcome(&new, "MIG-026", true);
+    }
+
+    #[test]
+    fn cache_assertions_default_change_is_reported_for_sp2() {
+        let run_with = |session_cache: &str| {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(
+                    r#"<SPConfig xmlns="{V2}">{session_cache}<ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#
+                ),
+            );
+            run(&dir.discover())
+        };
+        assert_outcome(
+            &run_with(r#"<SessionCache type="StorageService"/>"#),
+            "MIG-027",
+            false,
+        );
+        assert_outcome(&run_with(""), "MIG-027", false);
+        assert_outcome(
+            &run_with(r#"<SessionCache cacheAssertions="true"/>"#),
+            "MIG-027",
+            true,
+        );
+        let v3 = {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(r#"<SPConfig xmlns="{V3}"><SessionCache/><ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#),
+            );
+            run(&dir.discover())
+        };
+        assert_absent(&v3, "MIG-027");
+    }
+
+    #[test]
+    fn only_explicit_logout_initiators_count_as_the_old_form() {
+        let run_logout = |logout: &str| {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(
+                    r#"<SPConfig xmlns="{V2}"><ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions>{logout}</Sessions></ApplicationDefaults></SPConfig>"#
+                ),
+            );
+            run(&dir.discover())
+        };
+        assert_outcome(&run_logout("<Logout>SAML2 Local</Logout>"), "MIG-003", true);
+        assert_outcome(
+            &run_logout(r#"<LogoutInitiator type="Local" Location="/Logout"/>"#),
+            "MIG-003",
+            false,
+        );
     }
 }

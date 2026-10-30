@@ -228,6 +228,7 @@ fn process_element(
             };
             if name == "SessionCache" {
                 config.session_cache = Some(crate::model::shibboleth_config::SessionCacheInfo {
+                    cache_assertions: get_attr(e, "cacheAssertions"),
                     persisted_attributes: get_attr(e, "persistedAttributes"),
                     maintain_reverse_index: get_attr(e, "maintainReverseIndex"),
                     unreliable_networks: get_attr(e, "unreliableNetworks"),

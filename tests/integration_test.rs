@@ -701,3 +701,135 @@ fn json_and_sarif_carry_the_fix_edit() {
         .unwrap();
     assert!(!String::from_utf8_lossy(&out.stdout).contains("artifactChanges"));
 }
+
+fn sp2_copy(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("shibcheck-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for file in ["shibboleth2.xml", "security-policy.xml"] {
+        std::fs::copy(format!("tests/fixtures/sp2/{file}"), dir.join(file)).unwrap();
+    }
+    dir
+}
+
+#[test]
+fn migrate_moves_an_sp2_config_to_sp3_and_keeps_backups() {
+    let dir = sp2_copy("migrate");
+    let original = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+
+    shibcheck()
+        .arg("migrate")
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("MIG-004"))
+        .stdout(predicates::str::contains("Backup saved"))
+        .stdout(predicates::str::contains("SP 3.2 or later"));
+
+    let migrated = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    assert!(!migrated.contains("urn:mace:shibboleth:2.0:native:sp:config"));
+    assert!(migrated.contains(r#"url="https://md.example.org/metadata.xml""#));
+    assert!(migrated.contains(r#"path="local-metadata.xml""#));
+    assert!(migrated.contains(r#"redirectLimit="exact+allow""#));
+    assert!(migrated.contains("redirectAllow="));
+    assert!(migrated.contains(r#"type="Include""#));
+    assert!(migrated.contains(r#"cacheAssertions="true""#));
+    // Comments and formatting survive, and no line is added or removed.
+    assert!(
+        migrated.contains(r#"<!-- <MetadataProvider type="XML" file="commented-out.xml"/> -->"#)
+    );
+    assert_eq!(migrated.lines().count(), original.lines().count());
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml.bak")).unwrap(),
+        original
+    );
+    let policy = std::fs::read_to_string(dir.join("security-policy.xml")).unwrap();
+    assert!(policy.contains("urn:mace:shibboleth:3.0:native:sp:config"));
+    assert!(dir.join("security-policy.xml.bak").exists());
+
+    // The checker now sees an SP3 file with none of the migrated constructs.
+    let out = shibcheck().arg("--json").arg(&dir).output().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let results = report["results"].as_array().unwrap();
+    assert!(
+        results
+            .iter()
+            .any(|r| r["code"] == "MIG-025" && r["passed"] == true),
+        "the migrated policy file should pass MIG-025"
+    );
+    for code in [
+        "MIG-004", "MIG-006", "MIG-008", "MIG-012", "MIG-013", "MIG-025",
+    ] {
+        let failed = results
+            .iter()
+            .any(|r| r["code"] == code && r["passed"] == false);
+        assert!(!failed, "{code} still fails");
+    }
+
+    // A second run has nothing to do.
+    shibcheck()
+        .arg("migrate")
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Nothing to migrate"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn migrate_dry_run_and_output_leave_the_originals_alone() {
+    let dir = sp2_copy("migdry");
+    let original = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+
+    shibcheck()
+        .args(["migrate", "--dry-run"])
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Would make"))
+        .stdout(predicates::str::contains("Dry run"));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        original
+    );
+
+    let out_dir = dir.join("sp3");
+    shibcheck()
+        .args(["migrate", "--output"])
+        .arg(&out_dir)
+        .arg(&dir)
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        original
+    );
+    assert!(std::fs::read_to_string(out_dir.join("shibboleth2.xml"))
+        .unwrap()
+        .contains("urn:mace:shibboleth:3.0:native:sp:config"));
+    assert!(!dir.join("shibboleth2.xml.bak").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn migrate_keep_namespace_only_renames_settings() {
+    let dir = sp2_copy("migkeep");
+    shibcheck()
+        .args(["migrate", "--keep-namespace", "--no-backup"])
+        .arg(&dir)
+        .assert()
+        .success();
+    let text = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    assert!(text.contains("urn:mace:shibboleth:2.0:native:sp:config"));
+    assert!(text.contains(r#"url="https://md.example.org/metadata.xml""#));
+    assert!(!text.contains("cacheAssertions"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn migrate_rejects_a_missing_directory() {
+    shibcheck()
+        .args(["migrate", "/no/such/dir"])
+        .assert()
+        .code(2);
+}
