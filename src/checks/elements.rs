@@ -16,6 +16,11 @@ const DOC_ATTRIBUTE_CHECKER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334881/Attribute+Checker+Handler";
 const DOC_KEY_DESCRIPTOR: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334438/KeyDescriptorAttributeExtractor";
+const DOC_DYNAMIC: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616138/DynamicMetadataProvider";
+const DOC_REMOTE_DYNAMIC: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399842/MetadataProviderRemoteDynamicCommonAttributes";
+const DOC_METADATA_EXTRACTOR: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334447/MetadataAttributeExtractor";
 const DOC_PKIX: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335188/PKIX+and+StaticPKIX+TrustEngines";
 
@@ -137,6 +142,96 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
     }
 }
 
+/// XML-072 and XML-073: dynamic metadata provider settings.
+pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+
+    // XML-072: a Dynamic provider names its URL rule with exactly one Subst or Regex.
+    for mp in sc
+        .metadata_providers
+        .iter()
+        .filter(|mp| mp.provider_type == "Dynamic")
+    {
+        if mp.transform_children != 1 {
+            results.push(
+                CheckResult::fail(
+                    "XML-072",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "Dynamic MetadataProvider has {} <Subst> or <Regex> children, it needs exactly one",
+                        mp.transform_children
+                    ),
+                    Some("Add one <Subst> or <Regex> that turns the entityID into the metadata URL, and remove any extra"),
+                )
+                .at_element("MetadataProvider")
+                .with_doc(DOC_DYNAMIC),
+            );
+        }
+    }
+
+    // XML-073: each remote dynamic provider caches in its own directory.
+    let mut seen: Vec<(&str, &str)> = Vec::new();
+    for mp in &sc.metadata_providers {
+        let Some(dir) = mp.cache_directory.as_deref() else {
+            continue;
+        };
+        let key = dir.trim().trim_end_matches('/');
+        if let Some((_, first)) = seen.iter().find(|(k, _)| *k == key) {
+            results.push(
+                CheckResult::fail(
+                    "XML-073",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "cacheDirectory \"{dir}\" is shared by several metadata providers ({first} and {})",
+                        mp.provider_type
+                    ),
+                    Some("Give each metadata provider its own cacheDirectory"),
+                )
+                .at_element("MetadataProvider")
+                .with_doc(DOC_REMOTE_DYNAMIC),
+            );
+        } else {
+            seen.push((key, mp.provider_type.as_str()));
+        }
+    }
+}
+
+/// OPS-086: the Metadata and KeyDescriptor extractors only run when
+/// `metadataAttributePrefix` is set.
+pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    if sc.metadata_attribute_prefix_set {
+        return;
+    }
+    for kind in sc
+        .attribute_extractor_types
+        .iter()
+        .filter(|t| matches!(t.as_str(), "Metadata" | "KeyDescriptor"))
+    {
+        results.push(
+            CheckResult::fail(
+                "OPS-086",
+                CheckCategory::Operational,
+                Severity::Warning,
+                &format!("AttributeExtractor type=\"{kind}\" never runs without metadataAttributePrefix"),
+                Some("Set metadataAttributePrefix on <ApplicationDefaults> (for example \"Meta-\"), or remove the extractor"),
+            )
+            .at_element("AttributeExtractor")
+            .with_doc(if kind == "Metadata" {
+                DOC_METADATA_EXTRACTOR
+            } else {
+                DOC_KEY_DESCRIPTOR
+            }),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::checks::xml_validity;
@@ -209,6 +304,64 @@ mod tests {
         assert_outcome(&run("", &ext("")), "XML-070", false);
         assert_absent(&run("", &ext(r#"signingId="idp-key""#)), "XML-070");
         assert_absent(&run("", &ext(r#"hashId="idp-hash""#)), "XML-070");
+    }
+
+    #[test]
+    fn dynamic_provider_needs_one_transform() {
+        let mp =
+            |inner: &str| format!(r#"<MetadataProvider type="Dynamic">{inner}</MetadataProvider>"#);
+        assert_outcome(&run("", &mp("")), "XML-072", false);
+        assert_outcome(
+            &run(
+                "",
+                &mp("<Subst>https://mdq.example.org/$entityID</Subst><Regex match=\"a\">b</Regex>"),
+            ),
+            "XML-072",
+            false,
+        );
+        assert_absent(
+            &run("", &mp("<Subst>https://mdq.example.org/$entityID</Subst>")),
+            "XML-072",
+        );
+        assert_absent(
+            &run(
+                "",
+                r#"<MetadataProvider type="XML" url="https://x.example.org/m.xml"/>"#,
+            ),
+            "XML-072",
+        );
+    }
+
+    #[test]
+    fn cache_directory_is_not_shared() {
+        let mp = |dir: &str| {
+            format!(
+                r#"<MetadataProvider type="MDQ" baseUrl="https://mdq.example.org/" cacheDirectory="{dir}"/>"#
+            )
+        };
+        assert_outcome(
+            &run("", &format!("{}{}", mp("mdq"), mp("mdq/"))),
+            "XML-073",
+            false,
+        );
+        assert_absent(&run("", &format!("{}{}", mp("a"), mp("b"))), "XML-073");
+        assert_absent(&run("", &mp("a")), "XML-073");
+    }
+
+    #[test]
+    fn metadata_extractors_need_a_prefix() {
+        use crate::checks::operational;
+        let run = |defaults: &str, ext: &str| {
+            let (_dir, c) = config_from_xml(&sp3_app(defaults, ext));
+            operational::run(&c)
+        };
+        let ext = r#"<AttributeExtractor type="Metadata" path="m.xml"/>"#;
+        assert_outcome(&run("", ext), "OPS-086", false);
+        assert_absent(&run(r#"metadataAttributePrefix="Meta-""#, ext), "OPS-086");
+        assert_absent(
+            &run("", r#"<AttributeExtractor type="XML" path="a.xml"/>"#),
+            "OPS-086",
+        );
     }
 
     #[test]

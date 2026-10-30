@@ -171,6 +171,14 @@ fn process_element(
     if let Some(id) = get_attr(e, "policyId") {
         config.policy_ids_used.push(id);
     }
+    if get_attr(e, "metadataAttributePrefix").is_some() {
+        config.metadata_attribute_prefix_set = true;
+    }
+    if matches!(name, "Subst" | "Regex") && parent_is(stack, "MetadataProvider") {
+        if let Some(mp) = mp_stack.last_mut() {
+            mp.transform_children += 1;
+        }
+    }
     if get_attr(e, "acsByIndex").is_some_and(|v| v.trim() == "true") {
         config.acs_by_index.push(name.to_string());
     }
@@ -405,6 +413,8 @@ fn process_element(
                 min_cache_duration: get_attr(e, "minCacheDuration"),
                 max_cache_duration: get_attr(e, "maxCacheDuration"),
                 min_refresh_delay: get_attr(e, "minRefreshDelay"),
+                cache_directory: get_attr(e, "cacheDirectory"),
+                transform_children: 0,
             };
             if is_empty {
                 // If there's a parent Chaining MP on the stack, increment its count

@@ -48,6 +48,8 @@ pub struct ShibbolethConfig {
     pub policy_ids_used: Vec<String>,
     /// Names of elements that set `acsByIndex="true"`.
     pub acs_by_index: Vec<String>,
+    /// Some element sets `metadataAttributePrefix`.
+    pub metadata_attribute_prefix_set: bool,
     /// `id` written on `<ApplicationDefaults>`.
     pub application_defaults_id: Option<String>,
     /// How often each element the docs allow once appears under its parent
@@ -144,6 +146,9 @@ pub struct MetadataProvider {
     pub min_cache_duration: Option<String>,
     pub max_cache_duration: Option<String>,
     pub min_refresh_delay: Option<String>,
+    pub cache_directory: Option<String>,
+    /// Number of `<Subst>` and `<Regex>` children (a Dynamic provider needs exactly one).
+    pub transform_children: usize,
 }
 
 impl MetadataProvider {

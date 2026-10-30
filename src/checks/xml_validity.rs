@@ -1301,6 +1301,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     check_unreliable_networks(config, &mut results);
     check_static_sealer_key(config, &mut results);
     super::elements::structure(config, &mut results);
+    super::elements::metadata_providers(config, &mut results);
     super::settings::structure(config, &mut results);
     super::settings::initiators(config, &mut results);
     check_refresh_settings(config, &mut results);

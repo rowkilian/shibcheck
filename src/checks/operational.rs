@@ -2734,6 +2734,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     super::acl::deprecations(config, &mut results);
     super::settings::operational(config, &mut results);
+    super::elements::operational(config, &mut results);
 
     // OPS-080: Cookie SessionInitiator reads the IdP history cookie, which needs idpHistory
     if sc

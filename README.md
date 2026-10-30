@@ -139,7 +139,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-071)
+### XML Validity (XML-001 to XML-073)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -214,6 +214,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-069 | An `AttributeChecker` handler sets `template` | Error |
 | XML-070 | A `KeyDescriptor` attribute extractor sets `signingId`, `encryptionId` or `hashId` | Error |
 | XML-071 | `TrustEngine` `checkRevocation` is `off`, `entityOnly` or `fullChain` | Error |
+| XML-072 | A `Dynamic` metadata provider has exactly one `Subst` or `Regex` child | Error |
+| XML-073 | Metadata providers do not share a `cacheDirectory` | Warning |
 
 ### Cross-file References (REF-001 to REF-043)
 
@@ -413,7 +415,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-146 | `MDQ` / `Dynamic` providers do not set `verifyHost="false"` | Warning |
 | SEC-147 | ODBC `ConnectionString` does not carry a password | Info |
 
-### Operational (OPS-001 to OPS-085)
+### Operational (OPS-001 to OPS-086)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -502,6 +504,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-083 | No access rule uses the deprecated `authnContextDeclRef` alias | Warning |
 | OPS-084 | `acsByIndex` is not `true` | Info |
 | OPS-085 | `exportAssertion` has `exportLocation`, `exportACL` and an enabled `cacheAssertions` | Warning |
+| OPS-086 | `Metadata` and `KeyDescriptor` extractors have `metadataAttributePrefix` set, or they never run | Warning |
 
 ### Migration (MIG-001 to MIG-027)
 
