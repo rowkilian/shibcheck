@@ -132,7 +132,6 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                     "AttributeChecker handler has no template",
                     Some("Set template to the error page shown when the session lacks the required attributes"),
                 )
-                .at_element("Handler")
                 .with_doc(DOC_ATTRIBUTE_CHECKER),
             );
         }
@@ -223,7 +222,6 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
                     ),
                     Some("Add a <TrustEngine> (such as StaticPKIX with the CA certificate) to verify the metadata server's TLS certificate. ignoreTransport=\"true\" also clears this error, but then the metadata needs a Signature filter"),
                 )
-                .at_element("MetadataProvider")
                 .with_doc(DOC_NETWORK_CHILDREN),
             );
         }
@@ -278,7 +276,6 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
                     ),
                     Some("Give each metadata provider its own cacheDirectory"),
                 )
-                .at_element("MetadataProvider")
                 .with_doc(DOC_REMOTE_DYNAMIC),
             );
         } else {

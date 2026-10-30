@@ -104,7 +104,7 @@ fn locate_check<'a>(
         | "SEC-073" | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047" | "OPS-049" | "OPS-053"
         | "SEC-054" | "SEC-086" | "SEC-098" | "OPS-029" | "REF-004" | "REF-009" | "REF-017"
         | "REF-012" | "REF-020" | "REF-021" | "REF-026" | "REF-032" | "XML-029" | "XML-033"
-        | "XML-035" | "XML-044" => {
+        | "XML-035" | "XML-044" | "XML-073" | "XML-074" | "SEC-146" => {
             let line = locate_metadata_provider(xml, message);
             (Some(shib_file), line)
         }
@@ -118,7 +118,7 @@ fn locate_check<'a>(
 
         // Handler-related checks — try to locate the specific handler
         "SEC-015" | "SEC-032" | "SEC-033" | "SEC-046" | "SEC-047" | "SEC-062" | "SEC-063"
-        | "SEC-064" | "SEC-094" | "SEC-113" | "SEC-115" => {
+        | "SEC-064" | "SEC-094" | "SEC-113" | "SEC-115" | "XML-069" => {
             let line = locate_handler(xml, message);
             (Some(shib_file), line)
         }
@@ -237,8 +237,10 @@ fn extract_attr_from_message(message: &str) -> Option<String> {
 fn locate_metadata_provider(xml: &str, message: &str) -> Option<usize> {
     // Try to find a URI (http:// or https://) in the message
     if let Some(uri) = extract_url_from_message(message) {
-        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("uri"), Some(&uri)) {
-            return Some(line);
+        for attr in ["uri", "url", "baseUrl"] {
+            if let Some(line) = find_element_line(xml, "MetadataProvider", Some(attr), Some(&uri)) {
+                return Some(line);
+            }
         }
     }
 

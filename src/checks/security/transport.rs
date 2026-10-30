@@ -28,23 +28,19 @@ fn check_verify_host(sc: &ShibbolethConfig, v: SpVersion, results: &mut Vec<Chec
                     ),
                     Some("Remove verifyHost=\"false\" so the certificate must match the host name"),
                 )
-                .at_element("MetadataProvider")
                 .with_doc(doc_for(DOC_REMOTE_DYNAMIC, v)),
             );
         } else {
-            results.push(
-                CheckResult::pass(
-                    "SEC-146",
-                    CAT,
-                    Severity::Warning,
-                    &format!(
-                        "MetadataProvider type='{}'{} verifies the TLS host name",
-                        mp.provider_type,
-                        mp.label()
-                    ),
-                )
-                .at_element("MetadataProvider"),
-            );
+            results.push(CheckResult::pass(
+                "SEC-146",
+                CAT,
+                Severity::Warning,
+                &format!(
+                    "MetadataProvider type='{}'{} verifies the TLS host name",
+                    mp.provider_type,
+                    mp.label()
+                ),
+            ));
         }
     }
 }

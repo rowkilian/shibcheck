@@ -19,6 +19,7 @@ All notable changes to shibcheck are documented in this file.
 - **SEC-121** now reads the parsed `catchAll` attribute on both `OutOfProcess` and `InProcess` instead of searching the file text, and names the element.
 - **SEC-055** suggests a `TrustEngine` instead of just removing `ignoreTransport` on `MDQ` and `Dynamic` providers, since those need one (XML-074).
 - Messages about `MDQ` providers now show the `baseUrl`.
+- XML-069, XML-073, XML-074 and SEC-146 point at the specific `Handler` or `MetadataProvider` named in the message instead of the first one in the file.
 - **OPS-084**: `acsByIndex="true"` on `SSO` or `SessionInitiator`, which the docs call not advisable.
 - **OPS-085**: `exportAssertion` needs `exportLocation` and `exportACL` on `Sessions` and an enabled `cacheAssertions`.
 - `shibcheck migrate` moves an SP2 configuration to the SP3 format: the namespace in `shibboleth2.xml` and `security-policy.xml`, `file`/`uri` to `path`/`url` on `MetadataProvider`, the 3.2 names for `redirectWhitelist`, `redirectLimit` values and metadata filter types, and `cacheAssertions="true"` on `SessionCache` to keep the SP2 default. It supports `--dry-run`, `--output DIR`, `--no-backup` and `--keep-namespace`, and lists the migration findings that need a person.
