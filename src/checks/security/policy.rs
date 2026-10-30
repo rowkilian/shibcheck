@@ -22,18 +22,9 @@ pub(super) fn run(
                         Severity::Warning,
                         "security-policy.xml contains algorithm filtering rules",
                     ));
-                } else {
-                    results.push(
-                        CheckResult::fail(
-                            "SEC-027",
-                            CAT,
-                            Severity::Warning,
-                            "security-policy.xml has no ExcludedAlgorithms, AlgorithmBlacklist or AlgorithmFilter",
-                            Some("Configure algorithm filtering in security-policy.xml to block weak algorithms"),
-                        )
-                        .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-                    );
                 }
+                // Without the element the SP still excludes its default list of weak
+                // algorithms (excludeDefaults is true), so there is nothing to report.
             }
         }
     }
@@ -504,6 +495,7 @@ mod tests {
             "SEC-027",
             true,
         );
-        assert_outcome(&policy(""), "SEC-027", false);
+        // Without the element the SP still excludes its default list.
+        crate::testutil::assert_absent(&policy(""), "SEC-027");
     }
 }

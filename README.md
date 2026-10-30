@@ -257,7 +257,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-029 | Policy rule for scoped attribute uses scope validation | Warning |
 | REF-030 | `RequestMap` `applicationId` references valid `ApplicationOverride` | Warning |
 | REF-031 | Chaining `MetadataProvider` has >= 2 children | Info |
-| REF-032 | `MetadataProvider` `ignoreTransport="true"` has compensating Signature filter | Warning |
+| REF-032 | Retired (duplicate of SEC-055) | n/a |
 | REF-033 | `RequestMap` root `applicationId` is `"default"` | Warning |
 | REF-034 | Local metadata `validUntil` not expired | Warning |
 | REF-035 | Local metadata `validUntil` expiring (tiered: Warning < 30d, Info < 90d) | Warning |
@@ -309,7 +309,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-032 | No handler has `showAttributeValues="true"` | Warning |
 | SEC-033 | Sensitive handlers have ACL restrictions | Info |
 | SEC-034 | `exportAssertion` not enabled | Warning |
-| SEC-035 | `cipherSuites` contains no weak ciphers (RC4/DES/NULL/EXPORT) | Warning |
+| SEC-035 | Retired (merged into SEC-097) | n/a |
 | SEC-036 | `spoofKey` configured | Warning |
 | SEC-038 | `postLimit` is non-zero and <= 10 MB | Info |
 | SEC-039 | `SecurityPolicyProvider` has `validate="true"` | Info |
@@ -342,7 +342,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-066 | `idpHistory` not enabled (avoids leaking IdP usage via cookie) | Info |
 | SEC-067 | `maxTimeSinceAuthn` is set on `Sessions` | Info |
 | SEC-068 | `cookieLifetime` does not exceed session `lifetime` | Info |
-| SEC-069 | `RequireValidUntil` MetadataFilter not explicitly disabled | Warning |
+| SEC-069 | Retired (RequireValidUntil has no such attribute) | n/a |
 | SEC-070 | `SignatureMetadataFilter` has certificate or TrustEngine | Error |
 | SEC-071 | `checkAddress` not explicitly set to `false` | Info |
 | SEC-072 | No inline private key material in `shibboleth2.xml` | Error |
@@ -353,7 +353,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-077 | Signing and encryption use different certificates | Info |
 | SEC-078 | `idpHistoryDays` not excessively high (≤ 365) | Info |
 | SEC-079 | `sameSiteFallback` not enabled (no extra cookie surface) | Info |
-| SEC-080 | `Errors` `supportContact` does not expose direct email | Info |
+| SEC-080 | Retired (the docs use an email as the supportContact example) | n/a |
 | SEC-081 | `TCPListener` has explicit address or `UnixListener` used | Info |
 | SEC-082 | SSO protocols do not include SAML1 | Warning |
 | SEC-083 | Logout outgoing bindings do not use GET/Redirect | Info |
@@ -369,14 +369,14 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-093 | `authType="shibboleth"` paths have `requireSession="true"` | Warning |
 | SEC-094 | Handler `Location` is not at root path `/` | Warning |
 | SEC-095 | Signing `CredentialResolver` is configured | Info |
-| SEC-096 | Asynchronous `LogoutInitiator` has signing enabled | Info |
+| SEC-096 | Retired (no documented basis) | n/a |
 | SEC-097 | `cipherSuites` does not contain weak algorithms | Warning |
 | SEC-098 | `SignatureMetadataFilter` `verifyBackup` not disabled | Info |
 | SEC-099 | `PostData` cache awareness (sensitive form data on disk) | Info |
-| SEC-100 | `forceAuthn` not explicitly set to `false` on content settings | Info |
+| SEC-100 | Retired (flagged the default value) | n/a |
 | SEC-101 | `isPassive` not combined with `requireSession` | Info |
-| SEC-102 | `RequestMapper` type is not `Native` (SP controls access) | Info |
-| SEC-103 | `LogoutInitiator` does not skip notifications | Info |
+| SEC-102 | Retired (Native is the default RequestMapper) | n/a |
+| SEC-103 | Retired (notifyWithout is not a documented attribute) | n/a |
 | SEC-104 | `Errors` `helpLocation` does not use plain HTTP | Info |
 | SEC-105 | Notify endpoint count is not excessive (≤ 5) | Info |
 | SEC-106 | `attributePrefix` is set (avoids header name collisions) | Info |
@@ -388,7 +388,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-112 | Scoped attributes have scope validation in attribute policy | Warning |
 | SEC-113 | `DiagnosticService` handler has ACL | Warning |
 | SEC-114 | `DataSealer` is not `Static` (key in the config) and a remote `Versioned` one has `backingFilePath` | Warning |
-| SEC-115 | Informational handlers at default paths have ACL | Info |
+| SEC-115 | Retired (covered by SEC-033) | n/a |
 | SEC-116 | `ApplicationOverride` `entityID` uses HTTPS | Warning |
 | SEC-117 | SSO `discoveryProtocol` is not WAYF (outdated) | Info |
 | SEC-118 | Only one `SessionInitiator` marked as default | Warning |
@@ -533,20 +533,20 @@ MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and 
 | MIG-006 | `MetadataProvider` uses deprecated `file` attribute | Warning |
 | MIG-007 | `attribute-policy.xml` uses deprecated SP2 namespace | Info |
 | MIG-008 | `Sessions` uses deprecated `redirectWhitelist` | Info |
-| MIG-009 | `AttributeResolver` with `subjectMatch` (SP2 pattern) | Info |
+| MIG-009 | Retired (subjectMatch is the documented SP3 setting) | n/a |
 | MIG-010 | `MetadataProvider` uses deprecated `Provider` attribute | Warning |
 | MIG-011 | `MetadataFilter` type `EntityRoleWhiteList` deprecated | Warning |
 | MIG-012 | `MetadataFilter` type `Whitelist`/`Blacklist` deprecated | Warning |
 | MIG-013 | `MetadataProvider` uses deprecated `uri` attribute | Info |
 | MIG-014 | Configuration contains deprecated constructs | Info |
-| MIG-016 | SP3 config has leftover SP2 handler declarations | Info |
-| MIG-017 | `MetadataGenerator` present (disabled by default in SP 3.4+) | Info |
+| MIG-016 | Retired (explicit endpoints are still documented in SP3) | n/a |
+| MIG-017 | Retired (unverified claim about SP 3.4) | n/a |
 | MIG-018 | `redirectLimit="whitelist"` is a deprecated value | Warning |
 | MIG-019 | `SSO` `discoveryProtocol="WAYF"` deprecated | Warning |
 | MIG-020 | `MetadataProvider` `legacyOrgNames="true"` deprecated | Warning |
 | MIG-021 | `attribute-map.xml` `aliases` attribute deprecated | Info |
 | MIG-022 | `SessionInitiator` `type="Shib1"` or `"WAYF"` (legacy) | Warning |
-| MIG-023 | `SSO` `defaultACSIndex`/`acsIndex` deprecated in SP3 | Info |
+| MIG-023 | Retired (acsIndex is a documented SP3 attribute) | n/a |
 | MIG-024 | `ApplicationOverride` `Sessions` missing `handlerSSL`/`cookieProps` (not inherited) | Warning |
 | MIG-025 | `security-policy.xml` does not use the SP2 namespace | Warning |
 | MIG-026 | `security-policy.xml` does not use names deprecated in SP 3.2 (`AlgorithmWhitelist`, `AlgorithmBlacklist`, `includeDefaultBlacklist`) | Info |

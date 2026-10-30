@@ -53,29 +53,26 @@ pub(super) fn run(
         }
     }
 
-    // SEC-036: No spoofKey configured (header spoofing risk)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("spoofKey=") {
-            results.push(CheckResult::pass(
+    // SEC-036: No spoofKey configured (header spoofing risk). IIS generates one itself.
+    if !sc.has_isapi {
+        let r = if sc.in_process_spoof_key_set {
+            CheckResult::pass("SEC-036", CAT, Severity::Warning, "spoofKey is configured")
+        } else {
+            CheckResult::fail(
                 "SEC-036",
                 CAT,
                 Severity::Warning,
-                "spoofKey is configured",
-            ));
+                "No spoofKey on <InProcess>; the SP falls back to a weaker check for spoofed headers",
+                Some("Set spoofKey on <InProcess> to a long random value when attributes reach the application as headers"),
+            )
+            .with_doc(DOC_INPROCESS)
+        };
+        results.push(if sc.has_in_process {
+            r.at_element("InProcess")
         } else {
-            results.push(
-                CheckResult::fail(
-                    "SEC-036",
-                    CAT,
-                    Severity::Warning,
-                    "No spoofKey configured (header spoofing risk with non-default setup)",
-                    Some("Set spoofKey on <ApplicationDefaults> when using header-based attribute passing"),
-                )
-                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-            );
-        }
+            r
+        });
     }
-
     // SEC-044: TCPListener binds to non-localhost address
     if let Some(ref addr) = sc.tcp_listener_address {
         let lower = addr.to_lowercase();
@@ -107,35 +104,30 @@ pub(super) fn run(
         }
     }
 
-    // SEC-081: UnixListener element without proper acl attribute
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("<UnixListener") {
-            if !content.contains("stackSize=") {
-                // UnixListener is present; check for address attribute for socket path
-                results.push(
-                    CheckResult::pass(
-                        "SEC-081",
-                        CAT,
-                        Severity::Info,
-                        "UnixListener is configured (uses Unix domain socket)",
-                    )
-                    .at_element("TCPListener"),
-                );
-            }
-        } else if content.contains("<TCPListener") && sc.tcp_listener_address.is_none() {
-            results.push(
-                CheckResult::fail(
-                    "SEC-081",
-                    CAT,
-                    Severity::Info,
-                    "TCPListener used without explicit address (may bind to all interfaces)",
-                    Some("Set address=\"127.0.0.1\" on <TCPListener> or switch to <UnixListener> for local-only communication"),
-                ).at_element("TCPListener")
-                .with_doc(doc_for(DOC_SESSIONS, v)),
-            );
-        }
+    // SEC-081: listener choice
+    if sc.has_unix_listener {
+        results.push(
+            CheckResult::pass(
+                "SEC-081",
+                CAT,
+                Severity::Info,
+                "UnixListener is configured (uses Unix domain socket)",
+            )
+            .at_element("UnixListener"),
+        );
+    } else if sc.has_tcp_listener && sc.tcp_listener_address.is_none() {
+        results.push(
+            CheckResult::fail(
+                "SEC-081",
+                CAT,
+                Severity::Info,
+                "TCPListener used without explicit address (may bind to all interfaces)",
+                Some("Set address=\"127.0.0.1\" on <TCPListener> or switch to <UnixListener> for local-only communication"),
+            )
+            .at_element("TCPListener")
+            .with_doc(doc_for(DOC_SESSIONS, v)),
+        );
     }
-
     // SEC-121: catchAll="true" traps crashes, which hides bugs and can leave the process unstable
     for (element, value) in [
         ("OutOfProcess", &sc.out_of_process_catch_all),

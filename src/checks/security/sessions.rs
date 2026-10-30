@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn run(
-    config: &DiscoveredConfig,
+    _config: &DiscoveredConfig,
     sc: &ShibbolethConfig,
     v: SpVersion,
     results: &mut Vec<CheckResult>,
@@ -413,31 +413,40 @@ pub(super) fn run(
         }
     }
 
-    // SEC-034: exportAssertion="true" leaks SAML assertion in headers
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("exportAssertion=\"true\"") {
-            results.push(
-                CheckResult::fail(
-                    "SEC-034",
-                    CAT,
-                    Severity::Warning,
-                    "exportAssertion=\"true\" found (leaks full SAML assertion in HTTP headers)",
-                    Some(
-                        "Remove exportAssertion or set to \"false\" unless required for debugging",
-                    ),
+    // SEC-034: exportAssertion="true" exposes the SAML assertion through the export handler
+    {
+        let exporting: Vec<String> = sc
+            .request_map_content_settings
+            .iter()
+            .filter(|cs| cs.export_assertion.as_deref().map(str::trim) == Some("true"))
+            .map(|cs| {
+                format!(
+                    "{} '{}'",
+                    cs.element,
+                    cs.name.as_deref().unwrap_or("(unnamed)")
                 )
-                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-            );
-        } else {
+            })
+            .collect();
+        if exporting.is_empty() {
             results.push(CheckResult::pass(
                 "SEC-034",
                 CAT,
                 Severity::Warning,
                 "exportAssertion is not enabled",
             ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "SEC-034",
+                    CAT,
+                    Severity::Warning,
+                    &format!("exportAssertion=\"true\" on {}", exporting.join(", ")),
+                    Some("Remove exportAssertion unless the application reads the raw assertion; keep exportACL on loopback"),
+                )
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
         }
     }
-
     // SEC-042: handlerURL is absolute URL using http://
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref handler_url) = sessions.handler_url {
@@ -539,31 +548,37 @@ pub(super) fn run(
         }
     }
 
-    // SEC-050: exportAssertion="true" without any requireSession in config
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("exportAssertion=\"true\"")
-            && !content.contains("requireSession=\"true\"")
-        {
+    // SEC-050: a resource that exports the assertion should also require a session
+    for cs in sc
+        .request_map_content_settings
+        .iter()
+        .filter(|cs| cs.export_assertion.as_deref().map(str::trim) == Some("true"))
+    {
+        let place = format!(
+            "{} '{}'",
+            cs.element,
+            cs.name.as_deref().unwrap_or("(unnamed)")
+        );
+        if cs.require_session.as_deref() == Some("true") {
+            results.push(CheckResult::pass(
+                "SEC-050",
+                CAT,
+                Severity::Warning,
+                &format!("{place} exports the assertion and requires a session"),
+            ));
+        } else {
             results.push(
                 CheckResult::fail(
                     "SEC-050",
                     CAT,
                     Severity::Warning,
-                    "exportAssertion=\"true\" found without requireSession=\"true\" in config",
-                    Some("Ensure requireSession=\"true\" is set when exporting assertions to prevent unauthenticated access"),
+                    &format!("{place} has exportAssertion=\"true\" without requireSession=\"true\" on the same element"),
+                    Some("Set requireSession=\"true\" where the assertion is exported, unless the web server already requires a session there"),
                 )
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
-        } else if content.contains("exportAssertion=\"true\"") {
-            results.push(CheckResult::pass(
-                "SEC-050",
-                CAT,
-                Severity::Warning,
-                "exportAssertion has requireSession configured",
-            ));
         }
     }
-
     // SEC-061: redirectLimit contains "+allow" but redirectAllow is missing
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref limit) = sessions.redirect_limit {
@@ -595,99 +610,39 @@ pub(super) fn run(
         }
     }
 
-    // SEC-065: ApplicationOverride <Sessions> missing redirectLimit (not inherited)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        let mut in_override = false;
-        let mut override_id = String::new();
-        let mut sessions_buf = String::new();
-        let mut collecting_sessions = false;
-        let mut found_issue = false;
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if let Some(pos) = trimmed.find("<ApplicationOverride") {
-                in_override = true;
-                let rest = &trimmed[pos..];
-                override_id = rest
-                    .find("id=\"")
-                    .and_then(|start| {
-                        let after = &rest[start + 4..];
-                        after.find('"').map(|end| after[..end].to_string())
-                    })
-                    .or_else(|| {
-                        rest.find("id='").and_then(|start| {
-                            let after = &rest[start + 4..];
-                            after.find('\'').map(|end| after[..end].to_string())
-                        })
-                    })
-                    .unwrap_or_else(|| "unknown".to_string());
-                if trimmed.contains("/>") {
-                    in_override = false;
-                }
-                continue;
-            }
-            if in_override && trimmed.contains("<Sessions") {
-                collecting_sessions = true;
-                sessions_buf.clear();
-            }
-            if collecting_sessions {
-                sessions_buf.push_str(trimmed);
-                sessions_buf.push(' ');
-                if trimmed.contains("/>") || trimmed.contains(">") {
-                    if !sessions_buf.contains("redirectLimit") {
-                        results.push(
-                            CheckResult::fail(
-                                "SEC-065",
-                                CAT,
-                                Severity::Warning,
-                                &format!(
-                                    "ApplicationOverride '{}' <Sessions> missing redirectLimit (not inherited — may allow open redirects)",
-                                    override_id
-                                ),
-                                Some("Set redirectLimit on <Sessions> inside <ApplicationOverride> to prevent open redirect attacks"),
-                            )
-                            .with_doc(doc_for(DOC_SESSIONS, v)),
-                        );
-                        found_issue = true;
-                    }
-                    collecting_sessions = false;
-                }
-            }
-            if trimmed.contains("</ApplicationOverride") {
-                in_override = false;
-            }
-        }
-        if !found_issue && !sc.application_override_ids.is_empty() {
-            // Check if any override has its own Sessions
-            let has_override_sessions = {
-                let mut in_ov = false;
-                let mut found = false;
-                for line in content.lines() {
-                    let t = line.trim();
-                    if t.contains("<ApplicationOverride") {
-                        in_ov = true;
-                    }
-                    if in_ov && t.contains("<Sessions") {
-                        found = true;
-                        break;
-                    }
-                    if t.contains("</ApplicationOverride") {
-                        in_ov = false;
-                    }
-                }
-                found
-            };
-            if has_override_sessions {
-                results.push(CheckResult::pass(
+    // SEC-065: redirectLimit is inherited by an override, but redirectAllow is ignored there
+    // unless the override sets redirectLimit too.
+    for ov in sc
+        .overrides
+        .iter()
+        .filter(|o| o.children.iter().any(|c| c == "Sessions"))
+    {
+        if ov.redirect_allow.is_some() && ov.redirect_limit.is_none() {
+            results.push(
+                CheckResult::fail(
                     "SEC-065",
                     CAT,
                     Severity::Warning,
-                    "ApplicationOverride Sessions elements have redirectLimit set",
-                ));
-            }
+                    &format!(
+                        "ApplicationOverride '{}' <Sessions> sets redirectAllow without redirectLimit, so the allow list is ignored",
+                        ov.id
+                    ),
+                    Some("Set redirectLimit on the override's <Sessions> as well, for example redirectLimit=\"exact+allow\""),
+                )
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
+        } else {
+            results.push(CheckResult::pass(
+                "SEC-065",
+                CAT,
+                Severity::Warning,
+                &format!(
+                    "ApplicationOverride '{}' <Sessions> redirect settings are consistent",
+                    ov.id
+                ),
+            ));
         }
     }
-
     // SEC-066: idpHistory enabled (leaks IdP usage pattern to client via cookie)
     if let Some(ref sessions) = sc.sessions {
         if sessions.idp_history.as_deref() == Some("true") {
@@ -789,7 +744,7 @@ pub(super) fn run(
                     CAT,
                     Severity::Info,
                     "checkAddress is explicitly set to \"false\" (source IP consistency checking disabled)",
-                    Some("Consider enabling checkAddress so a stolen assertion cannot be replayed from another address"),
+                    Some("This matches the shipped default. Enabling it ties the session to the client address, which breaks for clients whose address changes"),
                 ).at_element("Sessions")
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
@@ -919,13 +874,13 @@ pub(super) fn run(
                 CheckResult::fail(
                     "SEC-093",
                     CAT,
-                    Severity::Warning,
+                    Severity::Info,
                     &format!(
                         "Content setting for {} '{}' has authType=\"shibboleth\" but requireSession=\"false\" (authentication not enforced)",
                         cs.element,
                         cs.name.as_deref().unwrap_or("(unnamed)")
                     ),
-                    Some("Set requireSession=\"true\" when authType=\"shibboleth\" to enforce authentication"),
+                    Some("This is the lazy-session pattern: the application must start the session itself. Set requireSession=\"true\" if the SP should enforce login"),
                 )
                 .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
@@ -944,26 +899,6 @@ pub(super) fn run(
                     Some("Ensure PostData cache directory has restrictive permissions to protect sensitive form data"),
                 )
                 .with_doc(doc_for(DOC_SESSIONS, v)),
-            );
-        }
-    }
-
-    // SEC-100: ContentSetting forceAuthn="false" explicitly disables re-authentication
-    for cs in &sc.request_map_content_settings {
-        if cs.force_authn.as_deref() == Some("false") {
-            results.push(
-                CheckResult::fail(
-                    "SEC-100",
-                    CAT,
-                    Severity::Info,
-                    &format!(
-                        "Content setting for {} '{}' has forceAuthn=\"false\" (re-authentication explicitly disabled)",
-                        cs.element,
-                        cs.name.as_deref().unwrap_or("(unnamed)")
-                    ),
-                    Some("Consider requiring forceAuthn for sensitive resources"),
-                )
-                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
             );
         }
     }

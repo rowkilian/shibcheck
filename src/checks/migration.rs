@@ -21,20 +21,16 @@ const REGISTRY: &[(&str, CheckFn)] = &[
     ("MIG-006", mig_006),
     ("MIG-007", mig_007),
     ("MIG-008", mig_008),
-    ("MIG-009", mig_009),
     ("MIG-010", mig_010),
     ("MIG-011", mig_011),
     ("MIG-012", mig_012),
     ("MIG-013", mig_013),
     ("MIG-014", mig_014),
-    ("MIG-016", mig_016),
-    ("MIG-017", mig_017),
     ("MIG-018", mig_018),
     ("MIG-019", mig_019),
     ("MIG-020", mig_020),
     ("MIG-021", mig_021),
     ("MIG-022", mig_022),
-    ("MIG-023", mig_023),
     ("MIG-024", mig_024),
     ("MIG-025", mig_025),
     ("MIG-026", mig_026),
@@ -235,34 +231,15 @@ fn mig_008(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     }
 }
 
-fn mig_009(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    if sc.sp_version != SpVersion::V2 {
-        return Vec::new();
-    }
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
-        return Vec::new();
-    };
-    if content.contains("AttributeResolver") && content.contains("subjectMatch") {
-        vec![fail(
-            "MIG-009",
-            Severity::Info,
-            "AttributeResolver with subjectMatch detected (SP2 pattern)",
-            "Review AttributeResolver configuration for SP3 compatibility",
-        )]
-    } else {
-        vec![pass(
-            "MIG-009",
-            Severity::Info,
-            "No SP2-style AttributeResolver subjectMatch found",
-        )]
-    }
-}
-
 fn mig_010(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
     if sc.sp_version != SpVersion::V2 {
         return Vec::new();
     }
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
+    let text = config
+        .shibboleth_xml_content
+        .as_deref()
+        .map(super::without_comments);
+    let Some(content) = text.as_ref() else {
         return Vec::new();
     };
     if content.contains("MetadataProvider") && content.contains("Provider=") {
@@ -296,7 +273,7 @@ fn mig_011(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
                         "MetadataFilter type 'EntityRoleWhiteList' is deprecated in MetadataProvider{}",
                         mp.label()
                     ),
-                    "Rename to type=\"EntityRole\" (SP 3.1+)",
+                    "Rename to type=\"EntityRole\" (SP 3.2+)",
                 ));
                 found = true;
             }
@@ -322,6 +299,25 @@ fn mig_012(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     let mut results = Vec::new();
     let mut found = false;
     for mp in &sc.metadata_providers {
+        for kind in &mp.discovery_filter_types {
+            if kind == "Whitelist" || kind == "Blacklist" {
+                let replacement = if kind == "Whitelist" {
+                    "Include"
+                } else {
+                    "Exclude"
+                };
+                results.push(fail(
+                    "MIG-012",
+                    Severity::Warning,
+                    &format!(
+                        "DiscoveryFilter type '{kind}' is deprecated in MetadataProvider{}",
+                        mp.label()
+                    ),
+                    &format!("Rename to type=\"{replacement}\" (SP 3.2+)"),
+                ));
+                found = true;
+            }
+        }
         for filter in &mp.filters {
             if filter.filter_type == "Whitelist" || filter.filter_type == "Blacklist" {
                 let replacement = if filter.filter_type == "Whitelist" {
@@ -337,7 +333,7 @@ fn mig_012(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
                         filter.filter_type,
                         mp.label()
                     ),
-                    &format!("Rename to type=\"{}\" (SP 3.1+)", replacement),
+                    &format!("Rename to type=\"{}\" (SP 3.2+)", replacement),
                 ));
                 found = true;
             }
@@ -430,66 +426,6 @@ fn mig_014(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     }
 }
 
-fn mig_016(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    if sc.sp_version != SpVersion::V3 {
-        return Vec::new();
-    }
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
-        return Vec::new();
-    };
-    let sp2_handlers = [
-        "ArtifactResolutionService",
-        "AssertionConsumerService",
-        "SingleLogoutService",
-    ];
-    let found_legacy: Vec<&str> = sp2_handlers
-        .iter()
-        .filter(|h| content.contains(**h))
-        .copied()
-        .collect();
-    if !found_legacy.is_empty() {
-        vec![fail(
-            "MIG-016",
-            Severity::Info,
-            &format!(
-                "SP3 config has leftover SP2 handler declarations: {}",
-                found_legacy.join(", ")
-            ),
-            "SP3 auto-registers these handlers; explicit declarations can be removed",
-        )]
-    } else {
-        vec![pass(
-            "MIG-016",
-            Severity::Info,
-            "No leftover SP2 handler declarations in SP3 config",
-        )]
-    }
-}
-
-fn mig_017(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    if sc.sp_version != SpVersion::V3 {
-        return Vec::new();
-    }
-    let has_metadata_gen = sc
-        .handlers
-        .iter()
-        .any(|h| h.handler_type.contains("MetadataGenerator"));
-    if has_metadata_gen {
-        vec![fail(
-            "MIG-017",
-            Severity::Info,
-            "MetadataGenerator handler present (disabled by default in SP 3.4+)",
-            "MetadataGenerator is disabled by default in SP 3.4+; consider removing if not needed",
-        )]
-    } else {
-        vec![pass(
-            "MIG-017",
-            Severity::Info,
-            "No MetadataGenerator handler (consistent with SP 3.4+ defaults)",
-        )]
-    }
-}
-
 fn mig_018(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
     let Some(sessions) = sc.sessions.as_ref() else {
         return Vec::new();
@@ -497,12 +433,15 @@ fn mig_018(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     let Some(limit) = sessions.redirect_limit.as_ref() else {
         return Vec::new();
     };
-    if limit == "whitelist" {
+    if limit.contains("whitelist") {
         vec![fail(
             "MIG-018",
             Severity::Warning,
-            "redirectLimit=\"whitelist\" is a deprecated value",
-            "Use redirectLimit=\"allow\" instead (SP 3.3+)",
+            &format!("redirectLimit=\"{limit}\" uses the pre-3.2 spelling"),
+            &format!(
+                "Use redirectLimit=\"{}\" (SP 3.2+)",
+                limit.replace("whitelist", "allow")
+            ),
         )]
     } else {
         vec![pass(
@@ -537,7 +476,11 @@ fn mig_019(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
 }
 
 fn mig_020(config: &DiscoveredConfig, _sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
+    let text = config
+        .shibboleth_xml_content
+        .as_deref()
+        .map(super::without_comments);
+    let Some(content) = text.as_ref() else {
         return Vec::new();
     };
     if content.contains("legacyOrgNames=\"true\"") {
@@ -606,28 +549,12 @@ fn mig_022(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     results
 }
 
-fn mig_023(config: &DiscoveredConfig, _sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
-        return Vec::new();
-    };
-    if content.contains("defaultACSIndex") || content.contains("acsIndex") {
-        vec![fail(
-            "MIG-023",
-            Severity::Info,
-            "SSO uses deprecated defaultACSIndex or acsIndex attribute",
-            "Remove defaultACSIndex/acsIndex — SP3 manages ACS index automatically",
-        )]
-    } else {
-        vec![pass(
-            "MIG-023",
-            Severity::Info,
-            "No deprecated ACS index attributes found",
-        )]
-    }
-}
-
 fn mig_024(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
+    let text = config
+        .shibboleth_xml_content
+        .as_deref()
+        .map(super::without_comments);
+    let Some(content) = text.as_ref() else {
         return Vec::new();
     };
     let mut in_override = false;
@@ -801,6 +728,27 @@ mod tests {
 
     const V3: &str = "urn:mace:shibboleth:3.0:native:sp:config";
     const V2: &str = "urn:mace:shibboleth:2.0:native:sp:config";
+
+    #[test]
+    fn redirect_limit_spellings_and_discovery_filters() {
+        use crate::testutil::{config_from_xml, sp3_app};
+        let (_dir, c) = config_from_xml(&sp3_app(
+            "",
+            r#"<Sessions redirectLimit="exact+whitelist"/>
+<MetadataProvider type="XML" path="m.xml"><DiscoveryFilter type="Whitelist" matcher="Name"/><!-- <MetadataFilter type="Blacklist"/> --></MetadataProvider>"#,
+        ));
+        let r = run(&c);
+        assert_outcome(&r, "MIG-018", false);
+        assert!(r.iter().any(|x| x.code == "MIG-018"
+            && x.suggestion
+                .as_deref()
+                .is_some_and(|s| s.contains("exact+allow"))));
+        assert_outcome(&r, "MIG-012", false);
+        assert_eq!(crate::testutil::with_code(&r, "MIG-012").len(), 1);
+        for code in ["MIG-009", "MIG-016", "MIG-017", "MIG-023"] {
+            assert_absent(&r, code);
+        }
+    }
 
     #[test]
     fn policy_namespace_must_match_sp3() {

@@ -60,7 +60,7 @@ pub(super) fn run(
     // SEC-006: signing attribute on ApplicationDefaults
     if let Some(ref app) = sc.application_defaults {
         if let Some(ref signing) = app.signing {
-            if signing == "true" || signing == "front" || signing == "back" {
+            if matches!(signing.as_str(), "conditional" | "true" | "front" | "back") {
                 results.push(
                     CheckResult::pass(
                         "SEC-006",
@@ -88,15 +88,13 @@ pub(super) fn run(
             }
         } else {
             results.push(
-                CheckResult::fail(
+                CheckResult::pass(
                     "SEC-006",
                     CAT,
                     Severity::Info,
-                    "signing attribute not set on ApplicationDefaults",
-                    Some("Set signing=\"true\" on <ApplicationDefaults> to sign SAML messages"),
+                    "signing is not set on ApplicationDefaults, so the default (conditional) applies",
                 )
-                .at_element("ApplicationDefaults")
-                .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
+                .at_element("ApplicationDefaults"),
             );
         }
     }
@@ -104,7 +102,10 @@ pub(super) fn run(
     // SEC-007: encryption attribute on ApplicationDefaults
     if let Some(ref app) = sc.application_defaults {
         if let Some(ref encryption) = app.encryption {
-            if encryption == "true" || encryption == "front" || encryption == "back" {
+            if matches!(
+                encryption.as_str(),
+                "conditional" | "true" | "front" | "back"
+            ) {
                 results.push(
                     CheckResult::pass(
                         "SEC-007",
@@ -128,11 +129,15 @@ pub(super) fn run(
                 );
             }
         } else {
-            results.push(CheckResult::fail(
-                "SEC-007", CAT, Severity::Info,
-                "encryption attribute not set on ApplicationDefaults",
-                Some("Set encryption=\"true\" on <ApplicationDefaults> to request encrypted assertions"),
-            ).at_element("ApplicationDefaults").with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)));
+            results.push(
+                CheckResult::pass(
+                    "SEC-007",
+                    CAT,
+                    Severity::Info,
+                    "encryption is not set on ApplicationDefaults, so the default (conditional) applies",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         }
     }
 
@@ -322,47 +327,6 @@ pub(super) fn run(
         }
     }
 
-    // SEC-035: Weak cipherSuites on ApplicationDefaults
-    if let Some(ref app) = sc.application_defaults {
-        if let Some(ref ciphers) = app.cipher_suites {
-            let lower = ciphers.to_lowercase();
-            let weak_patterns = ["rc4", "des", "null", "export"];
-            let found_weak: Vec<&str> = weak_patterns
-                .iter()
-                .filter(|p| lower.contains(**p))
-                .copied()
-                .collect();
-            if found_weak.is_empty() {
-                results.push(
-                    CheckResult::pass(
-                        "SEC-035",
-                        CAT,
-                        Severity::Warning,
-                        "cipherSuites does not contain known weak ciphers",
-                    )
-                    .at_element("ApplicationDefaults"),
-                );
-            } else {
-                results.push(
-                    CheckResult::fail(
-                        "SEC-035",
-                        CAT,
-                        Severity::Warning,
-                        &format!(
-                            "cipherSuites contains weak cipher pattern(s): {}",
-                            found_weak.join(", ")
-                        ),
-                        Some(
-                            "Remove weak cipher suites (RC4, DES, NULL, EXPORT) from cipherSuites",
-                        ),
-                    )
-                    .at_element("ApplicationDefaults")
-                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-                );
-            }
-        }
-    }
-
     // SEC-043: Signing and encryption CredentialResolvers use the same key file
     {
         let signing_keys: Vec<&str> = sc
@@ -392,12 +356,12 @@ pub(super) fn run(
                     CheckResult::fail(
                         "SEC-043",
                         CAT,
-                        Severity::Warning,
+                        Severity::Info,
                         &format!(
                             "Signing and encryption CredentialResolvers share the same key file: {}",
                             sk
                         ),
-                        Some("Use separate key files for signing and encryption for better key management"),
+                        Some("One key pair for both is the shipped default and the docs see no security gain in separating them; split them only if your key management needs it"),
                     )
                     .with_doc(doc_for(DOC_CREDENTIAL_RESOLVER, v)),
                 );
@@ -408,7 +372,7 @@ pub(super) fn run(
             results.push(CheckResult::pass(
                 "SEC-043",
                 CAT,
-                Severity::Warning,
+                Severity::Info,
                 "Signing and encryption use different key files",
             ));
         }
@@ -662,8 +626,8 @@ pub(super) fn run(
                     "SEC-088",
                     CAT,
                     Severity::Warning,
-                    "signing is explicitly set to \"false\" on ApplicationDefaults (SAML messages will not be signed)",
-                    Some("Set signing=\"true\" to sign SAML requests for integrity and authenticity"),
+                    "signing=\"false\" on ApplicationDefaults: the SP signs none of its own outbound messages, even where the IdP's metadata asks for it",
+                    Some("Remove the setting to get the default (conditional), which signs when the IdP's metadata requires it"),
                 ).at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
             );
@@ -687,9 +651,9 @@ pub(super) fn run(
                 CheckResult::fail(
                     "SEC-089",
                     CAT,
-                    Severity::Warning,
-                    "encryption is explicitly set to \"false\" on ApplicationDefaults (assertions will not be encrypted)",
-                    Some("Set encryption=\"true\" to request encrypted assertions from IdPs"),
+                    Severity::Info,
+                    "encryption=\"false\" on ApplicationDefaults: the SP encrypts none of what it sends (IdP assertions are not affected)",
+                    Some("Remove the setting to get the default (conditional)"),
                 ).at_element("ApplicationDefaults")
                 .with_doc(doc_for(DOC_SIGNING_ENCRYPTION, v)),
             );
@@ -698,7 +662,7 @@ pub(super) fn run(
                 CheckResult::pass(
                     "SEC-089",
                     CAT,
-                    Severity::Warning,
+                    Severity::Info,
                     "encryption is not explicitly disabled on ApplicationDefaults",
                 )
                 .at_element("ApplicationDefaults"),
@@ -757,45 +721,73 @@ pub(super) fn run(
         }
     }
 
-    // SEC-097: cipher_suites contains known weak algorithms
-    if let Some(ref app) = sc.application_defaults {
-        if let Some(ref suites) = app.cipher_suites {
-            let lower = suites.to_lowercase();
-            let weak_patterns = ["rc4", "des", "md5", "null", "export", "anon", "3des"];
-            let mut found_weak: Vec<&str> = Vec::new();
+    // SEC-097: cipherSuites enables a weak algorithm. OpenSSL expressions list what to
+    // exclude with "!" or "-", so those tokens are the fix, not the problem.
+    for (owner, element, suites) in sc
+        .application_defaults
+        .iter()
+        .map(|a| {
+            (
+                "ApplicationDefaults".to_string(),
+                "ApplicationDefaults",
+                &a.cipher_suites,
+            )
+        })
+        .chain(sc.relying_parties.iter().map(|rp| {
+            (
+                match rp.name.as_deref() {
+                    Some(n) => format!("RelyingParty Name=\"{n}\""),
+                    None => "RelyingParty".to_string(),
+                },
+                "RelyingParty",
+                &rp.cipher_suites,
+            )
+        }))
+    {
+        let Some(suites) = suites.as_deref() else {
+            continue;
+        };
+        let weak_patterns = ["rc4", "des", "md5", "null", "export", "anon", "3des"];
+        let mut found_weak: Vec<&str> = Vec::new();
+        for token in suites
+            .split([':', ',', ' '])
+            .map(str::trim)
+            .filter(|t| !t.is_empty() && !t.starts_with('!') && !t.starts_with('-'))
+        {
+            let lower = token.to_lowercase();
             for pattern in &weak_patterns {
-                if lower.contains(pattern) {
+                if lower.contains(pattern) && !found_weak.contains(pattern) {
                     found_weak.push(pattern);
                 }
             }
-            if !found_weak.is_empty() {
-                results.push(
-                    CheckResult::fail(
-                        "SEC-097",
-                        CAT,
-                        Severity::Warning,
-                        &format!(
-                            "cipherSuites contains weak algorithms: {}",
-                            found_weak.join(", ")
-                        ),
-                        Some("Remove weak cipher suites (RC4, DES, 3DES, MD5, NULL, EXPORT, ANON) from cipherSuites"),
-                    ).at_element("ApplicationDefaults")
-                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-                );
-            } else {
-                results.push(
-                    CheckResult::pass(
-                        "SEC-097",
-                        CAT,
-                        Severity::Warning,
-                        "cipherSuites does not contain known weak algorithms",
-                    )
-                    .at_element("ApplicationDefaults"),
-                );
-            }
+        }
+        if !found_weak.is_empty() {
+            results.push(
+                CheckResult::fail(
+                    "SEC-097",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{owner} cipherSuites enables weak algorithms: {}",
+                        found_weak.join(", ")
+                    ),
+                    Some("Remove RC4, DES, 3DES, MD5, NULL, EXPORT and ANON suites, or exclude them with a ! prefix"),
+                )
+                .at_element(element)
+                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
+            );
+        } else {
+            results.push(
+                CheckResult::pass(
+                    "SEC-097",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{owner} cipherSuites enables no known weak algorithms"),
+                )
+                .at_element(element),
+            );
         }
     }
-
     // SEC-107: XML configuration contains password/secret in comments
     if let Some(ref content) = config.shibboleth_xml_content {
         let lower = content.to_lowercase();

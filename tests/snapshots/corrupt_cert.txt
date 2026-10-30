@@ -1,8 +1,5 @@
 MIG-014 pass shibboleth2.xml
-MIG-016 pass shibboleth2.xml
-MIG-017 pass shibboleth2.xml
 MIG-020 pass shibboleth2.xml
-MIG-023 pass shibboleth2.xml
 OPS-009 pass shibboleth2.xml
 OPS-010 fail shibboleth2.xml
 OPS-013 fail shibboleth2.xml
@@ -45,8 +42,8 @@ SEC-002 fail shibboleth2.xml:3
 SEC-003 fail shibboleth2.xml:3
 SEC-004 pass shibboleth2.xml:6
 SEC-005 pass shibboleth2.xml:6
-SEC-006 fail shibboleth2.xml:2
-SEC-007 fail shibboleth2.xml:2
+SEC-006 pass shibboleth2.xml:2
+SEC-007 pass shibboleth2.xml:2
 SEC-015 pass shibboleth2.xml
 SEC-016 fail shibboleth2.xml:6
 SEC-017 pass shibboleth2.xml:3

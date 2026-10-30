@@ -94,12 +94,45 @@ pub fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
     }
 }
 
-/// SEC-140 to SEC-144: settings a `RelyingParty` can weaken for one IdP.
+/// SEC-140 to SEC-144: settings a `RelyingParty` can weaken for one IdP. SEC-142 and
+/// SEC-143 also apply to the same attributes on `ApplicationDefaults`.
 pub fn security(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
     let Some(sc) = &config.shibboleth_config else {
         return;
     };
     let cat = CheckCategory::Security;
+    if let Some(app) = &sc.application_defaults {
+        if app
+            .auth_type
+            .as_deref()
+            .is_some_and(|a| a.eq_ignore_ascii_case("basic"))
+        {
+            results.push(
+                CheckResult::fail(
+                    "SEC-142",
+                    cat,
+                    Severity::Info,
+                    "ApplicationDefaults uses authType=\"basic\", which sends a name and password in cleartext",
+                    Some("Use TLS client certificate authentication (the default). If you must use Basic, make sure the back-channel URL is https"),
+                )
+                .at_element("ApplicationDefaults")
+                .with_doc(DOC),
+            );
+        }
+        if app.has_auth_password {
+            results.push(
+                CheckResult::fail(
+                    "SEC-143",
+                    cat,
+                    Severity::Warning,
+                    "ApplicationDefaults keeps authPassword in shibboleth2.xml",
+                    Some("Prefer TLS client certificate authentication. If you keep the password, limit read access to this file and keep it out of version control"),
+                )
+                .at_element("ApplicationDefaults")
+                .with_doc(DOC),
+            );
+        }
+    }
     let file = file(config);
     for rp in &sc.relying_parties {
         let line = locate(config, rp);

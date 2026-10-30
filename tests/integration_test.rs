@@ -310,7 +310,7 @@ fn check_sec_044_tcp_listener_insecure_binding() {
 /// SEC-062 flags an `ExternalAuth` handler with no ACL — the handler accepts
 /// remote-user assertions, so without an ACL any caller can inject a pre-authenticated session.
 #[test]
-fn check_sec_062_external_auth_no_acl() {
+fn check_sec_062_external_auth_default_acl() {
     let output = shibcheck()
         .args(["--check", "SEC-062", "--json", "tests/fixtures/insecure"])
         .output()
@@ -325,11 +325,12 @@ fn check_sec_062_external_auth_no_acl() {
         .collect();
     assert!(
         !sec_062.is_empty(),
-        "Expected SEC-062 check for ExternalAuth handler without ACL"
+        "Expected SEC-062 check for the ExternalAuth handler"
     );
+    // The handler's acl defaults to loopback, so a missing acl is not a finding.
     assert!(
-        !sec_062[0]["passed"].as_bool().unwrap(),
-        "Expected SEC-062 to fail on ExternalAuth handler without ACL"
+        sec_062[0]["passed"].as_bool().unwrap(),
+        "Expected SEC-062 to pass on an ExternalAuth handler with the default acl"
     );
 }
 

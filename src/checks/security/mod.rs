@@ -318,6 +318,163 @@ mod tests {
         assert_absent(&run_sessions(""), "SEC-130");
     }
 
+    fn run_xml(top: &str, body: &str) -> Vec<CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth">{body}</ApplicationDefaults></SPConfig>"#
+        );
+        let (_dir, config) = config_from_xml(&xml);
+        run(&config)
+    }
+
+    #[test]
+    fn cipher_exclusions_are_not_weak_ciphers() {
+        let r = run_app(r#"cipherSuites="HIGH:!aNULL:!MD5:!RC4:!3DES:!EXPORT""#, "");
+        assert_outcome(&r, "SEC-097", true);
+        assert_outcome(
+            &run_app(r#"cipherSuites="HIGH:RC4-SHA""#, ""),
+            "SEC-097",
+            false,
+        );
+        assert_absent(&run_app("", ""), "SEC-035");
+        let r = run_app(
+            "",
+            r#"<RelyingParty Name="https://idp.example.org/idp" cipherSuites="DES-CBC3-SHA"/>"#,
+        );
+        assert_outcome(&r, "SEC-097", false);
+    }
+
+    #[test]
+    fn listeners_are_told_apart() {
+        let r = run_xml(r#"<UnixListener address="shibd.sock"/>"#, "<Sessions/>");
+        assert_absent(&r, "SEC-044");
+        assert_outcome(&r, "SEC-081", true);
+        let r = run_xml(
+            r#"<TCPListener address="0.0.0.0" port="1600"/>"#,
+            "<Sessions/>",
+        );
+        assert_outcome(&r, "SEC-044", false);
+    }
+
+    #[test]
+    fn defaults_the_docs_give_are_not_findings() {
+        // exportACL defaults to loopback.
+        assert_outcome(
+            &run_app("", r#"<Sessions exportLocation="/GetAssertion"/>"#),
+            "SEC-059",
+            true,
+        );
+        // ExternalAuth and AttributeResolver handlers default to a loopback acl.
+        let r = run_app(
+            "",
+            r#"<Sessions><Handler type="ExternalAuth" Location="/EA"/><Handler type="AttributeResolver" Location="/AR" acl="10.0.0.0/8"/></Sessions>"#,
+        );
+        assert_outcome(&r, "SEC-062", true);
+        assert_outcome(&r, "SEC-063", false);
+        // RequireValidUntil defaults to 7 days.
+        let r = run_app(
+            "",
+            r#"<MetadataProvider type="XML" path="m.xml"><MetadataFilter type="RequireValidUntil"/></MetadataProvider>"#,
+        );
+        assert_outcome(&r, "SEC-026", true);
+        // signing defaults to conditional; only "false" is a finding.
+        assert_outcome(&run_app(r#"signing="conditional""#, ""), "SEC-006", true);
+        assert_outcome(&run_app("", ""), "SEC-006", true);
+        assert_absent(
+            &run_app("", "<Sessions><Logout>SAML2 Local</Logout></Sessions>"),
+            "SEC-060",
+        );
+        assert_outcome(
+            &run_app(
+                "",
+                r#"<Sessions><Logout signing="false">SAML2 Local</Logout></Sessions>"#,
+            ),
+            "SEC-060",
+            false,
+        );
+    }
+
+    #[test]
+    fn per_application_comparisons() {
+        let body = r#"<Sessions><SessionInitiator type="SAML2" id="a" isDefault="true" Location="/Login"/><Handler type="Session" Location="/Session"/></Sessions>
+<ApplicationOverride id="other"><Sessions><SessionInitiator type="SAML2" id="b" isDefault="true" Location="/Login"/><Handler type="Session" Location="/Session"/></Sessions></ApplicationOverride>"#;
+        let r = run_app("", body);
+        assert_outcome(&r, "SEC-118", true);
+        assert_outcome(&r, "SEC-119", true);
+        let r = run_app(
+            "",
+            r#"<Sessions><SessionInitiator type="SAML2" id="a" isDefault="true" Location="/Login"/><SessionInitiator type="SAML2" id="b" isDefault="true" Location="/Login2"/></Sessions>"#,
+        );
+        assert_outcome(&r, "SEC-118", false);
+    }
+
+    #[test]
+    fn override_redirect_allow_needs_redirect_limit() {
+        let r = run_app(
+            "",
+            r#"<Sessions redirectLimit="exact"/><ApplicationOverride id="o"><Sessions redirectAllow="https://a.example.org/"/></ApplicationOverride>"#,
+        );
+        assert_outcome(&r, "SEC-065", false);
+        let r = run_app(
+            "",
+            r#"<Sessions redirectLimit="exact"/><ApplicationOverride id="o"><Sessions lifetime="1"/></ApplicationOverride>"#,
+        );
+        assert_outcome(&r, "SEC-065", true);
+    }
+
+    #[test]
+    fn export_assertion_checks_use_the_request_map() {
+        let xml = |path_attrs: &str| {
+            format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config"><!-- exportAssertion="true" -->
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions/></ApplicationDefaults>
+<RequestMapper type="Native"><RequestMap><Host name="a.example.org"><Path name="x" {path_attrs}/></Host></RequestMap></RequestMapper></SPConfig>"#
+            )
+        };
+        let (_dir, c) = config_from_xml(&xml(""));
+        let r = run(&c);
+        assert_outcome(&r, "SEC-034", true);
+        assert_absent(&r, "SEC-050");
+        let (_dir, c) = config_from_xml(&xml(r#"exportAssertion="true""#));
+        let r = run(&c);
+        assert_outcome(&r, "SEC-034", false);
+        assert_outcome(&r, "SEC-050", false);
+        let (_dir, c) = config_from_xml(&xml(r#"exportAssertion="true" requireSession="true""#));
+        assert_outcome(&run(&c), "SEC-050", true);
+    }
+
+    #[test]
+    fn spoof_key_and_attribute_prefix_are_parsed() {
+        assert_outcome(
+            &run_xml(r#"<InProcess spoofKey="k"/>"#, "<Sessions/>"),
+            "SEC-036",
+            true,
+        );
+        assert_outcome(
+            &run_xml("<!-- spoofKey= -->", "<Sessions/>"),
+            "SEC-036",
+            false,
+        );
+        // IIS generates its own key.
+        assert_absent(
+            &run_xml("<InProcess><ISAPI/></InProcess>", "<Sessions/>"),
+            "SEC-036",
+        );
+        assert_outcome(&run_app(r#"attributePrefix="AJP_""#, ""), "SEC-106", true);
+        assert_outcome(
+            &run_xml("<!-- attributePrefix= -->", "<Sessions/>"),
+            "SEC-106",
+            false,
+        );
+    }
+
+    #[test]
+    fn basic_auth_on_application_defaults() {
+        let r = run_app(r#"authType="basic" authUsername="u" authPassword="p""#, "");
+        assert_outcome(&r, "SEC-142", false);
+        assert_outcome(&r, "SEC-143", false);
+    }
+
     #[test]
     fn catch_all_is_reported_for_both_processes() {
         let run_top = |top: &str| {

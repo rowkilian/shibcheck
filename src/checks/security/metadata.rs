@@ -64,7 +64,7 @@ pub(super) fn run(
     // SEC-014: No plaintext HTTP metadata URLs
     let mut has_http_url = false;
     for mp in &sc.metadata_providers {
-        for url in [&mp.uri, &mp.url].into_iter().flatten() {
+        for url in [&mp.uri, &mp.url, &mp.base_url].into_iter().flatten() {
             if url.starts_with("http://") {
                 results.push(
                     CheckResult::fail(
@@ -162,17 +162,14 @@ pub(super) fn run(
                             }
                         }
                     } else {
+                        // The default is 7 days, well under the 30-day threshold.
                         has_check = true;
-                        results.push(
-                            CheckResult::fail(
-                                "SEC-026",
-                                CAT,
-                                Severity::Info,
-                                "RequireValidUntil filter has no maxValidityInterval set",
-                                Some("Set maxValidityInterval on the RequireValidUntil filter (e.g., 2592000 for 30 days)"),
-                            )
-                            .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
-                        );
+                        results.push(CheckResult::pass(
+                            "SEC-026",
+                            CAT,
+                            Severity::Info,
+                            "RequireValidUntil filter uses the default maxValidityInterval (7 days)",
+                        ));
                     }
                 }
             }
@@ -252,6 +249,9 @@ pub(super) fn run(
 
     // SEC-055: MetadataProvider ignoreTransport="true" without Signature filter
     for mp in &sc.metadata_providers {
+        if mp.provider_type == "Chaining" {
+            continue;
+        }
         if mp.ignore_transport.as_deref() == Some("true") {
             let has_sig_filter = mp.filters.iter().any(|f| f.filter_type == "Signature");
             if !has_sig_filter {
@@ -282,26 +282,6 @@ pub(super) fn run(
                         mp.provider_type, mp.label()
                     ),
                 ));
-            }
-        }
-    }
-
-    // SEC-069: RequireValidUntil MetadataFilter explicitly disabled
-    for mp in &sc.metadata_providers {
-        for filter in &mp.filters {
-            if filter.filter_type == "RequireValidUntil"
-                && filter.require_valid_until.as_deref() == Some("false")
-            {
-                results.push(
-                    CheckResult::fail(
-                        "SEC-069",
-                        CAT,
-                        Severity::Warning,
-                        &format!("RequireValidUntil MetadataFilter{} is explicitly disabled (accepts expired metadata)", mp.label()),
-                        Some("Remove require=\"false\" or set to \"true\" to enforce metadata expiration"),
-                    )
-                    .with_doc(doc_for(DOC_VALID_UNTIL_FILTER, v)),
-                );
             }
         }
     }
@@ -512,11 +492,19 @@ pub(super) fn run(
 
     // SEC-118: Multiple default SessionInitiators (ambiguous default)
     {
-        let default_count = sc
+        // Each application (defaults or one override) has its own default initiator.
+        let mut per_app: Vec<(&Option<String>, usize)> = Vec::new();
+        for si in sc
             .session_initiators
             .iter()
             .filter(|si| si.is_default.as_deref() == Some("true"))
-            .count();
+        {
+            match per_app.iter_mut().find(|(app, _)| *app == &si.application) {
+                Some((_, n)) => *n += 1,
+                None => per_app.push((&si.application, 1)),
+            }
+        }
+        let default_count = per_app.iter().map(|(_, n)| *n).max().unwrap_or(0);
         if default_count > 1 {
             results.push(
                 CheckResult::fail(
@@ -524,7 +512,7 @@ pub(super) fn run(
                     CAT,
                     Severity::Warning,
                     &format!(
-                        "{} SessionInitiators marked as isDefault=\"true\" (ambiguous default — behavior is undefined)",
+                        "{} SessionInitiators in one application are marked isDefault=\"true\" (ambiguous default)",
                         default_count
                     ),
                     Some("Only one SessionInitiator should have isDefault=\"true\""),

@@ -208,6 +208,12 @@ fn process_element(
     if get_attr(e, "metadataAttributePrefix").is_some() {
         config.metadata_attribute_prefix_set = true;
     }
+    if name == "DiscoveryFilter" && parent_is(stack, "MetadataProvider") {
+        if let Some(mp) = mp_stack.last_mut() {
+            mp.discovery_filter_types
+                .push(get_attr(e, "type").unwrap_or_default());
+        }
+    }
     if matches!(name, "Subst" | "Regex") && parent_is(stack, "MetadataProvider") {
         if let Some(mp) = mp_stack.last_mut() {
             mp.transform_children += 1;
@@ -246,13 +252,19 @@ fn process_element(
             };
             config.clock_skew = get_attr(e, "clockSkew");
         }
-        "TCPListener" | "UnixListener"
-            if config.tcp_listener_address.is_none() => {
+        "TCPListener" => {
+            config.has_tcp_listener = true;
+            if config.tcp_listener_address.is_none() {
                 config.tcp_listener_address = get_attr(e, "address");
                 config.tcp_listener_acl = get_attr(e, "acl");
             }
+        }
+        "UnixListener" => {
+            config.has_unix_listener = true;
+        }
         "InProcess" => {
             config.has_in_process = true;
+            config.in_process_spoof_key_set = get_attr(e, "spoofKey").is_some();
             config.in_process_check_spoofing = get_attr(e, "checkSpoofing");
             config.in_process_catch_all = get_attr(e, "catchAll");
         }
@@ -292,6 +304,7 @@ fn process_element(
                     name: get_attr(e, "Name"),
                     matcher_type: get_attr(e, "type"),
                     auth_type: get_attr(e, "authType"),
+                    cipher_suites: get_attr(e, "cipherSuites"),
                     has_auth_password: get_attr(e, "authPassword").is_some(),
                     require_transport_auth: get_attr(e, "requireTransportAuth"),
                     require_confidentiality: get_attr(e, "requireConfidentiality"),
@@ -347,7 +360,15 @@ fn process_element(
                 require_confidentiality: get_attr(e, "requireConfidentiality"),
                 attribute_prefix: get_attr(e, "attributePrefix"),
                 artifact_by_filesystem: get_attr(e, "artifactByFilesystem"),
+                auth_type: get_attr(e, "authType"),
+                has_auth_password: get_attr(e, "authPassword").is_some(),
             });
+        }
+        "Sessions" if parent_is(stack, "ApplicationOverride") => {
+            if let Some(ov) = config.overrides.last_mut() {
+                ov.redirect_limit = get_attr(e, "redirectLimit");
+                ov.redirect_allow = get_attr(e, "redirectAllow");
+            }
         }
         "Sessions"
             if parent_is(stack, "ApplicationDefaults") => {
@@ -489,6 +510,7 @@ fn process_element(
                 cache_directory: get_attr(e, "cacheDirectory"),
                 has_trust_engine: false,
                 transform_children: 0,
+                discovery_filter_types: Vec::new(),
             };
             if is_empty {
                 // If there's a parent Chaining MP on the stack, increment its count
@@ -615,7 +637,7 @@ fn process_element(
                 .overrides
                 .push(crate::model::shibboleth_config::OverrideInfo {
                     id: id.clone().unwrap_or_else(|| "unknown".to_string()),
-                    children: Vec::new(),
+                    ..Default::default()
                 });
             let entity_id = get_attr(e, "entityID");
             if let Some(ref id_val) = id {
@@ -642,6 +664,7 @@ fn process_element(
 
             config.handlers.push(HandlerInfo {
                 handler_type,
+                application: application.clone(),
                 location,
                 show_attribute_values: show_attr_values,
                 acl,
@@ -1224,10 +1247,10 @@ mod tests {
         </SPConfig>
         "#;
         let config = parse_str(xml).unwrap();
-        assert_eq!(
-            config.tcp_listener_address.as_deref(),
-            Some("/var/run/shibboleth/shibd.sock")
-        );
+        assert!(config.has_unix_listener);
+        assert!(!config.has_tcp_listener);
+        // A socket path is not a TCP address.
+        assert!(config.tcp_listener_address.is_none());
     }
 
     #[test]

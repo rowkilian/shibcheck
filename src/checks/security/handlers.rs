@@ -164,56 +164,80 @@ pub(super) fn run(sc: &ShibbolethConfig, v: SpVersion, results: &mut Vec<CheckRe
         }
     }
 
-    // SEC-062: ExternalAuth handler has no ACL (authentication bypass risk)
-    for handler in &sc.handlers {
-        if handler.handler_type == "ExternalAuth" {
-            if handler.acl.is_some() {
-                results.push(CheckResult::pass(
+    // SEC-062: the ExternalAuth handler defaults to a loopback acl; a wider acl opens it up
+    for handler in sc
+        .handlers
+        .iter()
+        .filter(|h| h.handler_type == "ExternalAuth")
+    {
+        let loopback = handler.acl.as_deref().is_none_or(|a| {
+            a.split_whitespace().all(|p| {
+                matches!(
+                    p,
+                    "127.0.0.1" | "::1" | "localhost" | "127.0.0.1/32" | "::1/128"
+                )
+            })
+        });
+        if loopback {
+            results.push(CheckResult::pass(
+                "SEC-062",
+                CAT,
+                Severity::Warning,
+                "ExternalAuth handler is limited to loopback addresses",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
                     "SEC-062",
                     CAT,
                     Severity::Warning,
-                    "ExternalAuth handler has ACL restriction",
-                ));
-            } else {
-                results.push(
-                    CheckResult::fail(
-                        "SEC-062",
-                        CAT,
-                        Severity::Warning,
-                        "ExternalAuth handler has no ACL (authentication bypass risk)",
-                        Some("Add acl=\"127.0.0.1 ::1\" to the ExternalAuth handler to restrict access"),
-                    )
-                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
-                );
-            }
+                    &format!(
+                        "ExternalAuth handler acl=\"{}\" reaches beyond loopback (authentication bypass risk)",
+                        handler.acl.as_deref().unwrap_or("")
+                    ),
+                    Some("Leave acl unset (it defaults to 127.0.0.1 ::1) or list only loopback addresses"),
+                )
+                .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+            );
         }
     }
-
-    // SEC-063: AttributeResolver handler has no ACL (PII exposure)
-    for handler in &sc.handlers {
-        if handler.handler_type == "AttributeResolver" {
-            if handler.acl.is_some() {
-                results.push(CheckResult::pass(
+    // SEC-063: the AttributeResolver handler defaults to a loopback acl; a wider acl opens it up
+    for handler in sc
+        .handlers
+        .iter()
+        .filter(|h| h.handler_type == "AttributeResolver")
+    {
+        let loopback = handler.acl.as_deref().is_none_or(|a| {
+            a.split_whitespace().all(|p| {
+                matches!(
+                    p,
+                    "127.0.0.1" | "::1" | "localhost" | "127.0.0.1/32" | "::1/128"
+                )
+            })
+        });
+        if loopback {
+            results.push(CheckResult::pass(
+                "SEC-063",
+                CAT,
+                Severity::Warning,
+                "AttributeResolver handler is limited to loopback addresses",
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
                     "SEC-063",
                     CAT,
                     Severity::Warning,
-                    "AttributeResolver handler has ACL restriction",
-                ));
-            } else {
-                results.push(
-                    CheckResult::fail(
-                        "SEC-063",
-                        CAT,
-                        Severity::Warning,
-                        "AttributeResolver handler has no ACL (PII exposure risk)",
-                        Some("Add acl=\"127.0.0.1 ::1\" to the AttributeResolver handler to restrict access"),
-                    )
-                    .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
-                );
-            }
+                    &format!(
+                        "AttributeResolver handler acl=\"{}\" reaches beyond loopback (PII exposure risk)",
+                        handler.acl.as_deref().unwrap_or("")
+                    ),
+                    Some("Leave acl unset (it defaults to 127.0.0.1 ::1) or list only loopback addresses"),
+                )
+                .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
+            );
         }
     }
-
     // SEC-064: Handler ACL contains broad CIDR (0.0.0.0/0 or ::/0)
     for handler in &sc.handlers {
         if let Some(ref acl) = handler.acl {
@@ -275,22 +299,6 @@ pub(super) fn run(sc: &ShibbolethConfig, v: SpVersion, results: &mut Vec<CheckRe
         }
     }
 
-    // SEC-102: RequestMapper type is "Native" (relies on web server config for access control)
-    if let Some(ref rmt) = sc.request_map_type {
-        if rmt == "Native" {
-            results.push(
-                CheckResult::fail(
-                    "SEC-102",
-                    CAT,
-                    Severity::Info,
-                    "RequestMapper type=\"Native\" — access control relies on web server configuration, not SP XML",
-                    Some("Ensure web server configuration properly enforces Shibboleth protection on intended paths"),
-                )
-                .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-            );
-        }
-    }
-
     // SEC-113: DiagnosticService handler has no ACL
     for handler in &sc.handlers {
         if handler.handler_type.contains("Diagnostic") {
@@ -316,50 +324,21 @@ pub(super) fn run(sc: &ShibbolethConfig, v: SpVersion, results: &mut Vec<CheckRe
         }
     }
 
-    // SEC-115: Handler at default Shibboleth.sso path without ACL (information disclosure handlers)
-    {
-        let info_handlers = [
-            "Session",
-            "Status",
-            "MetadataGenerator",
-            "DiscoveryFeed",
-            "Diagnostic",
-        ];
-        for handler in &sc.handlers {
-            if info_handlers.contains(&handler.handler_type.as_str()) {
-                if let Some(ref loc) = handler.location {
-                    if loc.contains("Shibboleth.sso") && handler.acl.is_none() {
-                        results.push(
-                            CheckResult::fail(
-                                "SEC-115",
-                                CAT,
-                                Severity::Info,
-                                &format!(
-                                    "Handler type='{}' at default path '{}' has no ACL restriction",
-                                    handler.handler_type, loc
-                                ),
-                                Some("Add an ACL to restrict access to informational handlers at well-known paths"),
-                            )
-                            .with_doc(doc_for(DOC_STATUS_HANDLER, v)),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
     // SEC-119: Duplicate handler Locations (may cause routing conflicts)
     {
-        let mut locations: Vec<&str> = Vec::new();
+        // An override may reuse a Location to replace the default handler, so compare
+        // within one application only.
+        let mut locations: Vec<(&Option<String>, &str)> = Vec::new();
         let mut duplicates: Vec<String> = Vec::new();
         for handler in &sc.handlers {
             if let Some(ref loc) = handler.location {
-                if locations.contains(&loc.as_str()) {
+                let key = (&handler.application, loc.as_str());
+                if locations.contains(&key) {
                     if !duplicates.contains(loc) {
                         duplicates.push(loc.clone());
                     }
                 } else {
-                    locations.push(loc);
+                    locations.push(key);
                 }
             }
         }

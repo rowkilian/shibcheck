@@ -20,6 +20,14 @@ All notable changes to shibcheck are documented in this file.
 - `docs/check-backlog.md` gained a second pass over the SP3 documentation with about 140 further leads.
 
 ### Changed
+- Retired checks whose claim the SP3 docs do not support: SEC-035 (merged into SEC-097), SEC-069, SEC-080, SEC-096, SEC-100, SEC-102, SEC-103, SEC-115, REF-032 (duplicate of SEC-055), MIG-009, MIG-016, MIG-017 and MIG-023.
+- SEC-097 tokenises the OpenSSL cipher expression, so `!RC4` style exclusions no longer count as weak ciphers, and it also reads `RelyingParty` `cipherSuites`.
+- Defaults the docs give are no longer findings: SEC-006/007 accept `conditional` and an unset value; SEC-026 treats a missing `maxValidityInterval` as the 7-day default; SEC-059 treats a missing `exportACL` as loopback; SEC-062/063 only flag an acl wider than loopback; SEC-060 only flags `signing="false"`; SEC-027 says nothing when the element is absent.
+- SEC-044/081 tell `UnixListener` and `TCPListener` apart; SEC-065 now flags `redirectAllow` without `redirectLimit` in an override (the old claim that `redirectLimit` is not inherited was wrong); SEC-118 and SEC-119 compare within one application; SEC-083 matches `HTTP-Redirect`; SEC-014 covers `baseUrl`.
+- SEC-034, SEC-050, SEC-036 and SEC-106 read parsed values instead of raw text; SEC-036 is skipped on IIS and points at `InProcess`.
+- SEC-142/143 also cover `authType` and `authPassword` on `ApplicationDefaults`.
+- MIG-018 catches `exact+whitelist` and `host+whitelist`; MIG-012 also covers `DiscoveryFilter`; the MIG checks ignore comments and name SP 3.2 as the rename release.
+- Severity changes: SEC-043 and SEC-089 are Info (sharing one key pair is the shipped default; `encryption` only controls what the SP sends); SEC-093 is Info (lazy sessions are a documented pattern).
 - The parser now keeps an `ApplicationOverride`'s `SSO`, `Logout`, `Errors` and protocol text apart from the defaults, and joins protocol text split by a comment. Several checks (XML-022/023/027/028/032/050/077, OPS-057/058/089 and others) misreported when an override existed.
 - `fix`: removing a multi-line attribute keeps the line count; namespace-prefixed tags (`<conf:Sessions>`) are found; the JSON and SARIF edit covers only the changed attribute, so unrelated values such as `spoofKey` stay out of the output; the dry-run diff masks `spoofKey`, `authPassword`, `password` and `key` values; writing follows symlinks instead of replacing them.
 - `migrate --output` refuses a directory that holds the originals, since it writes without a backup.

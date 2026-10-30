@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn run(
-    config: &DiscoveredConfig,
+    _config: &DiscoveredConfig,
     sc: &ShibbolethConfig,
     v: SpVersion,
     results: &mut Vec<CheckResult>,
@@ -186,6 +186,7 @@ pub(super) fn run(
     // SEC-059: exportLocation set (assertion export is enabled)
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref loc) = sessions.export_location {
+            // exportACL defaults to 127.0.0.1, so an absent value is loopback-only.
             let acl_safe = sessions
                 .export_acl
                 .as_ref()
@@ -195,7 +196,7 @@ pub(super) fn run(
                         .iter()
                         .all(|p| *p == "127.0.0.1" || *p == "::1" || *p == "localhost")
                 })
-                .unwrap_or(false);
+                .unwrap_or(true);
             if acl_safe {
                 results.push(
                     CheckResult::pass(
@@ -227,18 +228,26 @@ pub(super) fn run(
         }
     }
 
-    // SEC-060: LogoutInitiator signing not set (logout requests may be unsigned)
+    // SEC-060: signing="false" on a logout element turns off the default (conditional)
     for li in &sc.logout_initiators {
-        if li.signing.is_none() {
+        let Some(signing) = li.signing.as_deref() else {
+            continue;
+        };
+        let element = if li.initiator_type.is_some() {
+            "LogoutInitiator"
+        } else {
+            "Logout"
+        };
+        if signing == "false" {
             results.push(
                 CheckResult::fail(
                     "SEC-060",
                     CAT,
                     Severity::Warning,
-                    "LogoutInitiator has no 'signing' attribute (logout requests may be unsigned)",
-                    Some("Set signing=\"true\" on LogoutInitiator to sign logout requests"),
+                    &format!("<{element}> has signing=\"false\", so logout requests are never signed"),
+                    Some("Remove the setting to get the default (conditional), which signs when the IdP's metadata requires it"),
                 )
-                .at_element("Logout")
+                .at_element(element)
                 .with_doc(doc_for(DOC_SESSIONS, v)),
             );
         } else {
@@ -247,61 +256,26 @@ pub(super) fn run(
                     "SEC-060",
                     CAT,
                     Severity::Warning,
-                    &format!(
-                        "LogoutInitiator signing is set: {}",
-                        li.signing.as_deref().unwrap_or("?")
-                    ),
+                    &format!("<{element}> signing is set: {signing}"),
                 )
-                .at_element("Logout"),
+                .at_element(element),
             );
         }
     }
-
-    // SEC-080: supportContact in Errors uses mailto: or contains @ (email exposed to users)
-    if let Some(ref errors) = sc.errors {
-        if let Some(ref contact) = errors.support_contact {
-            if contact.contains('@') || contact.starts_with("mailto:") {
-                results.push(
-                    CheckResult::fail(
-                        "SEC-080",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "Errors supportContact exposes an email address: {}",
-                            contact
-                        ),
-                        Some("Consider using a support page URL instead of a direct email to reduce spam/phishing risk"),
-                    ).at_element("Errors")
-                    .with_doc(doc_for(DOC_APP_DEFAULTS, v)),
-                );
-            } else {
-                results.push(
-                    CheckResult::pass(
-                        "SEC-080",
-                        CAT,
-                        Severity::Info,
-                        "Errors supportContact does not expose a direct email address",
-                    )
-                    .at_element("Errors"),
-                );
-            }
-        }
-    }
-
     // SEC-083: logout outgoing binding uses HTTP-GET (tokens visible in URL/logs)
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref bindings) = sessions.logout_outgoing_bindings {
-            if bindings.contains("HTTP-GET") || bindings.contains("REDIRECT") {
+            if bindings.to_ascii_lowercase().contains("http-redirect") {
                 results.push(
                     CheckResult::fail(
                         "SEC-083",
                         CAT,
                         Severity::Info,
                         &format!(
-                            "Logout outgoing binding includes GET/Redirect: {} (tokens visible in URL/server logs)",
+                            "Logout outgoing bindings include HTTP-Redirect: {} (the request travels in the URL and lands in server logs)",
                             bindings
                         ),
-                        Some("Prefer SOAP or HTTP-POST bindings for logout to keep tokens out of URLs"),
+                        Some("Redirect is the usual logout binding; list HTTP-POST first if your IdPs support it and URL logging is a concern"),
                     ).at_element("Sessions")
                     .with_doc(doc_for(DOC_SESSIONS, v)),
                 );
@@ -311,46 +285,11 @@ pub(super) fn run(
                         "SEC-083",
                         CAT,
                         Severity::Info,
-                        "Logout outgoing bindings do not use GET/Redirect",
+                        "Logout outgoing bindings do not use HTTP-Redirect",
                     )
                     .at_element("Sessions"),
                 );
             }
-        }
-    }
-
-    // SEC-096: LogoutInitiator asynchronous with signing disabled (logout may not complete reliably)
-    for li in &sc.logout_initiators {
-        if li.asynchronous.as_deref() == Some("true") && li.signing.as_deref() == Some("false") {
-            results.push(
-                CheckResult::fail(
-                    "SEC-096",
-                    CAT,
-                    Severity::Info,
-                    "LogoutInitiator is asynchronous with signing disabled (logout notifications may be rejected)",
-                    Some("Enable signing on asynchronous LogoutInitiators to ensure logout notifications are accepted"),
-                ).at_element("Logout")
-                .with_doc(doc_for(DOC_SESSIONS, v)),
-            );
-        }
-    }
-
-    // SEC-103: LogoutInitiator notifyWithout set (skips notification to some services)
-    for li in &sc.logout_initiators {
-        if let Some(ref nw) = li.notify_without {
-            results.push(
-                CheckResult::fail(
-                    "SEC-103",
-                    CAT,
-                    Severity::Info,
-                    &format!(
-                        "LogoutInitiator has notifyWithout=\"{}\" (logout skips notification to some services)",
-                        nw
-                    ),
-                    Some("Ensure all services are notified on logout to prevent dangling sessions"),
-                ).at_element("Logout")
-                .with_doc(doc_for(DOC_SESSIONS, v)),
-            );
         }
     }
 
@@ -400,8 +339,8 @@ pub(super) fn run(
     }
 
     // SEC-106: No attributePrefix set (header name collision risk with environment variables)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("attributePrefix=") {
+    if let Some(ref app) = sc.application_defaults {
+        if app.attribute_prefix.is_some() {
             results.push(
                 CheckResult::pass(
                     "SEC-106",

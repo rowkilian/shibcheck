@@ -42,6 +42,10 @@ pub struct ShibbolethConfig {
     /// `id` of each IIS <Site> with useHeaders="true" (empty if it has no id)
     pub site_use_headers: Vec<String>,
     pub tcp_listener_acl: Option<String>,
+    pub has_tcp_listener: bool,
+    pub has_unix_listener: bool,
+    /// `<InProcess spoofKey>` is set (the value is never stored).
+    pub in_process_spoof_key_set: bool,
     pub storage_references: Vec<StorageReference>,
     /// `id` of every <StorageService> element
     pub storage_service_ids: Vec<String>,
@@ -111,6 +115,9 @@ pub struct ApplicationDefaults {
     pub require_confidentiality: Option<String>,
     pub attribute_prefix: Option<String>,
     pub artifact_by_filesystem: Option<String>,
+    pub auth_type: Option<String>,
+    /// `authPassword` is set (the value is never stored).
+    pub has_auth_password: bool,
 }
 
 #[derive(Debug, Default)]
@@ -175,6 +182,8 @@ pub struct MetadataProvider {
     pub has_trust_engine: bool,
     /// Number of `<Subst>` and `<Regex>` children (a Dynamic provider needs exactly one).
     pub transform_children: usize,
+    /// `type` of each `<DiscoveryFilter>` child.
+    pub discovery_filter_types: Vec<String>,
 }
 
 impl MetadataProvider {
@@ -272,6 +281,8 @@ pub struct ErrorsConfig {
 #[derive(Debug)]
 pub struct HandlerInfo {
     pub handler_type: String,
+    /// `None` in the defaults, `Some(id)` inside an `<ApplicationOverride>`.
+    pub application: Option<String>,
     pub location: Option<String>,
     pub show_attribute_values: Option<String>,
     pub acl: Option<String>,
@@ -300,6 +311,9 @@ pub struct SessionInitiatorInfo {
 pub struct OverrideInfo {
     pub id: String,
     pub children: Vec<String>,
+    /// `redirectLimit` / `redirectAllow` on the override's own `<Sessions>`.
+    pub redirect_limit: Option<String>,
+    pub redirect_allow: Option<String>,
 }
 
 /// A `<Library>` extension.
@@ -331,6 +345,7 @@ pub struct RelyingPartyInfo {
     pub encryption: Option<String>,
     pub signing_alg: Option<String>,
     pub digest_alg: Option<String>,
+    pub cipher_suites: Option<String>,
 }
 
 #[derive(Debug)]
