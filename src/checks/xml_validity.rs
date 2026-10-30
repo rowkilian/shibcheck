@@ -1296,6 +1296,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     check_handler_attributes(config, &mut results);
     check_credential_use(config, &mut results);
     check_signing_encryption_values(config, &mut results);
+    super::acl::structure(config, &mut results);
     check_unreliable_networks(config, &mut results);
 
     results

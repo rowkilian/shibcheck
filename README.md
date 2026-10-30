@@ -116,7 +116,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-054)
+### XML Validity (XML-001 to XML-057)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -174,8 +174,11 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-052 | File `CredentialResolver` `use` is `signing`, `TLS` or `encryption` | Warning |
 | XML-053 | `signing` / `encryption` on `ApplicationDefaults` is a recognized value | Warning |
 | XML-054 | `SessionCache` `unreliableNetworks` lists valid CIDR masks | Error |
+| XML-055 | XML access control policy is well formed: one root rule, two or more children under `AND` / `OR`, one under `NOT` | Error |
+| XML-056 | Time access control values are valid (`operator`, `TimeSinceAuthn`, `Time`, `Hour`, `Month`, `DayOfWeek` and the other time rules) | Error |
+| XML-057 | Every `Rule` and `RuleRegex` has a `require` attribute | Error |
 
-### Cross-file References (REF-001 to REF-040)
+### Cross-file References (REF-001 to REF-041)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -217,6 +220,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-037 | Persistent NameID source uses a scoped attribute | Warning |
 | REF-038 | `postData` / `relayState` `ss:<id>` names a defined `StorageService` | Error |
 | REF-039 | `SessionCache` / `ReplayCache` / `ArtifactMap` `StorageService` names a defined service | Error |
+| REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
 | REF-040 | `SessionCache` `persistedAttributes` has a `DataSealer` to encrypt the recovery cookie | Error |
 
 ### Security (SEC-001 to SEC-139)
@@ -362,7 +366,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-138 | No policy rule sets `checkReplay="false"` | Warning |
 | SEC-139 | `SessionCache` does not enable session recovery (`persistedAttributes`), which skips the timeout and survives logout | Warning |
 
-### Operational (OPS-001 to OPS-082)
+### Operational (OPS-001 to OPS-083)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -448,6 +452,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-080 | `Cookie` `SessionInitiator` has `idpHistory` enabled | Warning |
 | OPS-081 | `SessionCache` keeps the reverse index when logout is configured | Warning |
 | OPS-082 | `SessionCache` `unreliableNetworks` is not set while `consistentAddress` is `false` | Info |
+| OPS-083 | No access rule uses the deprecated `authnContextDeclRef` alias | Warning |
 
 ### Migration (MIG-001 to MIG-024)
 

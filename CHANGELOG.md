@@ -35,6 +35,12 @@ All notable changes to shibcheck are documented in this file.
 - **XML-054**: `unreliableNetworks` must be valid CIDR masks.
 - **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
 
+### Added (access control)
+- **XML-055** / **XML-056** / **XML-057**: access control policies (`<AccessControl>` in `shibboleth2.xml` or a policy file) must be well formed: the right number of children under `AND`, `OR`, `NOT` and the root, valid Time plugin values, and a `require` on every rule. The docs say the SP installs a deny-all policy when it cannot process one.
+- **REF-041**: a `Rule` or `RuleRegex` `require` must be an alias or an attribute defined in `attribute-map.xml` (skipped when other attribute extractors make the set of attributes unknowable).
+- **OPS-083**: the `authnContextDeclRef` rule alias is deprecated.
+- `attribute-map.xml` `aliases` are now read.
+
 ### Added (fix edits)
 - JSON results and SARIF `fixes` now carry the edit that `shibcheck fix` would make, for the checks `fix` handles.
 

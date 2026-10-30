@@ -217,6 +217,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     check_storage_references(sc, v, &mut results);
     check_plugin_storage_references(sc, v, &mut results);
     check_session_recovery_sealer(sc, &mut results);
+    super::acl::references(config, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
     for mp in &sc.metadata_providers {

@@ -13,4 +13,6 @@ pub struct MappedAttribute {
     pub id: String,
     /// The xsi:type from a child <AttributeDecoder> element
     pub decoder_type: Option<String>,
+    /// extra names from the `aliases` attribute (space-delimited in the file)
+    pub aliases: Vec<String>,
 }

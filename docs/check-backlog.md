@@ -30,7 +30,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 | Duplicate singleton elements (`Extensions`, `OutOfProcess`, `InProcess`, `DataSealer`, `SessionCache`, `RequestMapper`, a second `Sessions` or `Errors`) | SPConfig (2063695926), ApplicationDefaults (2063695997) | Needs element counts. |
 | `ApplicationDefaults` `id` must be `default`; `Sessions` then `Errors` must come first | ApplicationDefaults (2063695997) | Needs element order. |
 | `ApplicationOverride` nested in another override | ApplicationDefaults (2063695997) | Cardinality table. |
-| Access control structure: `AND` / `OR` with fewer than 2 children, `NOT` with other than 1, bad `Time` operators | AND Rule (2065335131), NOT Rule (2065335135), Time AccessControl (2065335084) | Doc: a malformed rule installs a deny-all policy. |
 | `Path` names with uppercase, `Host` without `name`, overlapping sibling `Path` elements | Path (2065335408), HowToRequestMap (2065335006) | Needs a request-map tree. |
 | `Chaining` initiator with no children | Chaining SessionInitiator (2065334780) | Needs child counts. |
 | `TrustEngine` `type` and `checkRevocation` values | TrustEngine (2063695951), PKIX pages (2065335188) | Needs parsing. |
@@ -45,7 +44,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 
 | Idea | Page (id) | Notes |
 |------|-----------|-------|
-| `Rule` `require` names an attribute that is not in `attribute-map.xml` | Rule (2065335141), RuleRegex (2065335144) | Needs access-rule parsing. |
 | `requireSessionWith` names a `SessionInitiator` id that does not exist | ContentSettings (2065334723) | Needs a content-setting field. |
 | Plugin used without its extension library (`ODBC`, `memcache`, `GSSAPI`, `ADFS`) | ODBCStorageService (2065334638), ADFS (2065335656) | Needs `Extensions` / `Library` parsing. |
 | `ExternalApplicationOverrides` path and `<applicationId>-override.xml` files | ExternalApplicationOverrides (2070413604) | Also lets REF-030 stop reporting those ids as missing. |
@@ -73,4 +71,3 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 | `file` / `uri` instead of `path` / `url` on plugins other than `MetadataProvider` | ReleaseNotes (2065335693) | Only `MetadataProvider` is covered by MIG-006 and MIG-013. |
 | V2 config with `cacheAssertions` unset (default changes to `false` under the V3 namespace) | ReleaseNotes (2065335693) | Needs `SessionCache` parsing. |
 | Deprecated `AlgorithmWhitelist`, `AlgorithmBlacklist`, `includeDefaultBlacklist` | SecurityPolicies (2065334425), ExcludedAlgorithms (2065334583) | Needs a security-policy scan. |
-| Deprecated `authnContextDeclRef` rule alias | Rule (2065335141) | Needs access-rule parsing. |

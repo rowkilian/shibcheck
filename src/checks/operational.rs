@@ -2732,6 +2732,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    super::acl::deprecations(config, &mut results);
+
     // OPS-080: Cookie SessionInitiator reads the IdP history cookie, which needs idpHistory
     if sc
         .session_initiators

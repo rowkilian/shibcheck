@@ -372,6 +372,9 @@ fn process_element(
             }
         }
         "AttributeExtractor" => {
+            config
+                .attribute_extractor_types
+                .push(get_attr(e, "type").unwrap_or_default());
             if let Some(path) = get_attr(e, "path") {
                 config.attribute_extractor_paths.push(path);
             }

@@ -17,6 +17,8 @@ pub struct ShibbolethConfig {
     pub metadata_providers: Vec<MetadataProvider>,
     pub credential_resolvers: Vec<CredentialResolver>,
     pub attribute_extractor_paths: Vec<String>,
+    /// `type` of every <AttributeExtractor> (XML, Metadata, Assertion, ...)
+    pub attribute_extractor_types: Vec<String>,
     pub attribute_filter_paths: Vec<String>,
     pub application_defaults: Option<ApplicationDefaults>,
     pub status_handler: Option<StatusHandler>,
