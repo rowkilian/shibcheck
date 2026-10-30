@@ -88,6 +88,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     application::run(config, sc, v, &mut results);
 
     super::relying_party::security(config, &mut results);
+    super::elements::security(config, &mut results);
 
     // Keep the report in code order, whichever group produced a result.
     results.sort_by_key(|r| {

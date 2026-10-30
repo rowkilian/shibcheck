@@ -58,6 +58,7 @@ OPS-075 pass shibboleth2.xml
 OPS-076 pass shibboleth2.xml
 OPS-077 pass shibboleth2.xml
 OPS-078 pass shibboleth2.xml
+OPS-089 fail shibboleth2.xml:25
 REF-001 fail shibboleth2.xml:34
 REF-002 fail shibboleth2.xml:34
 REF-008 pass shibboleth2.xml
@@ -157,3 +158,4 @@ XML-044 fail shibboleth2.xml:28
 XML-048 pass shibboleth2.xml:25
 XML-049 pass shibboleth2.xml:11
 XML-051 pass shibboleth2.xml:40
+XML-078 fail shibboleth2.xml:31

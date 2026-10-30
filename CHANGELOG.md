@@ -14,6 +14,10 @@ All notable changes to shibcheck are documented in this file.
 - **XML-074** to **XML-076**: an `MDQ` or `Dynamic` provider without a `TrustEngine` or `ignoreTransport="true"`; an `EntityRole` filter without `RetainedRole` or a `UIInfo` filter without `Entity`; `Errors` placed before `Sessions`.
 - **REF-044**: `ODBC` and `MEMCACHE` storage, the `GSSAPI` extractor and ADFS need their extension `Library` in `OutOfProcess` (and `adfs-lite` in `InProcess`).
 - **OPS-087** / **OPS-088**: an explicit initiator at the `/Login` or `/Logout` location the shorthand uses, and `OutOfProcess` without `tranLogFormat`.
+- **XML-077** to **XML-079**: a `Logout` protocol that `SSO` does not list; an `Include` or `Exclude` filter with no entries and no `matcher`; duplicate `Policy` ids in `security-policy.xml`. XML-067 now also counts the listener elements as one slot.
+- **SEC-148** / **SEC-149**: `persistedAttributes` combined with assertion caching or export, and an absolute `exportLocation` off localhost.
+- **OPS-089** / **OPS-090**: `Notify` without any logout, and `redirectErrors` hiding the `session`, `metadata` or `ssl` templates.
+- `docs/check-backlog.md` gained a second pass over the SP3 documentation with about 140 further leads.
 
 ### Changed
 - **SEC-121** now reads the parsed `catchAll` attribute on both `OutOfProcess` and `InProcess` instead of searching the file text, and names the element.

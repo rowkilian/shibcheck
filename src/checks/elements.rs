@@ -37,6 +37,19 @@ const DOC_MEMCACHE: &str =
 const DOC_GSSAPI: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334451/GSSAPIAttributeExtractor";
 const DOC_ADFS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335656/ADFS";
+const DOC_LOGOUT_SAML2: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334796/SAML2+LogoutInitiator";
+const DOC_INCLUDE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696201/IncludeMetadataFilter";
+const DOC_EXCLUDE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696198/ExcludeMetadataFilter";
+const DOC_POLICY: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334531/Policy";
+const DOC_NOTIFY: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334394/Notify";
+const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334361/Errors";
+const DOC_SESSION_CACHE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache";
+const DOC_ASSERTION_EXPORT: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335032/AssertionExport";
 const DOC_PKIX: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335188/PKIX+and+StaticPKIX+TrustEngines";
 
@@ -86,17 +99,106 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
     {
         let count = sc.singleton_counts.get(name).copied().unwrap_or(0);
         if count > 1 {
+            let msg = if name == "Listener" {
+                format!("<Listener>, <UnixListener> and <TCPListener> appear {count} times in total, the docs allow one listener")
+            } else {
+                format!("<{name}> appears {count} times, the docs allow at most one")
+            };
             results.push(
                 CheckResult::fail(
                     "XML-067",
                     CAT,
                     Severity::Warning,
-                    &format!("<{name}> appears {count} times, the docs allow at most one"),
+                    &msg,
                     Some("Merge the copies into one element, or remove the extras"),
                 )
                 .at_element(name)
                 .with_doc(doc),
             );
+        }
+    }
+
+    // XML-077: a logout handler only acts on sessions started with its own protocol.
+    if let Some(sessions) = sc.sessions.as_ref() {
+        if let (Some(sso), Some(logout)) = (
+            sessions.sso_protocols.as_deref(),
+            sessions.logout_protocols.as_deref(),
+        ) {
+            let sso: Vec<&str> = sso.split_whitespace().collect();
+            for proto in logout
+                .split_whitespace()
+                .filter(|p| *p != "Local" && !sso.contains(p))
+            {
+                results.push(
+                    CheckResult::fail(
+                        "XML-077",
+                        CAT,
+                        Severity::Warning,
+                        &format!("<Logout> lists {proto} but <SSO> does not, so that logout handler never has a matching session"),
+                        Some("Remove the protocol from <Logout>, or add it to <SSO>"),
+                    )
+                    .at_element("Logout")
+                    .with_doc(DOC_LOGOUT_SAML2),
+                );
+            }
+        }
+    }
+
+    // XML-078: Include and Exclude filters need something to match.
+    for filter in sc.metadata_providers.iter().flat_map(|mp| &mp.filters) {
+        let (child, doc, severity, effect) = match filter.filter_type.as_str() {
+            "Include" | "Whitelist" => (
+                "Include",
+                DOC_INCLUDE,
+                Severity::Error,
+                "it drops every entity",
+            ),
+            "Exclude" | "Blacklist" => {
+                ("Exclude", DOC_EXCLUDE, Severity::Warning, "it does nothing")
+            }
+            _ => continue,
+        };
+        if filter.matcher.is_none() && filter.child_names.is_empty() {
+            results.push(
+                CheckResult::fail(
+                    "XML-078",
+                    CAT,
+                    severity,
+                    &format!(
+                        "MetadataFilter type=\"{}\" has no <{child}> child and no matcher, so {effect}",
+                        filter.filter_type
+                    ),
+                    Some("List the entityIDs or groups as child elements, or set matcher"),
+                )
+                .at_element("MetadataFilter")
+                .with_doc(doc),
+            );
+        }
+    }
+
+    // XML-079: Policy ids are unique within security-policy.xml.
+    if let Some(policy) = crate::parsers::security_policy::load_for(config) {
+        let mut seen = std::collections::HashSet::new();
+        let mut reported = std::collections::HashSet::new();
+        for id in &policy.policy.policy_ids {
+            if !seen.insert(id.as_str()) && reported.insert(id.as_str()) {
+                results.push(
+                    CheckResult::fail(
+                        "XML-079",
+                        CAT,
+                        Severity::Error,
+                        &format!(
+                            "Policy id=\"{id}\" is defined more than once in {}",
+                            policy.file_name
+                        ),
+                        Some(
+                            "Give each <Policy> a unique id; policyId references name exactly one",
+                        ),
+                    )
+                    .with_location(&policy.file_name, None)
+                    .with_doc(DOC_POLICY),
+                );
+            }
         }
     }
 
@@ -391,6 +493,53 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
         }
     }
 
+    // OPS-089: Notify only runs during logout.
+    if !sc.notify_elements.is_empty() && !sc.sessions.as_ref().is_some_and(|s| s.has_logout) {
+        results.push(
+            CheckResult::fail(
+                "OPS-089",
+                OPS,
+                Severity::Info,
+                "<Notify> is configured but no <Logout> or <LogoutInitiator> exists, so notifications never fire",
+                Some("Add <Logout>SAML2 Local</Logout> to <Sessions>, or remove the <Notify> elements"),
+            )
+            .at_element("Notify")
+            .with_doc(DOC_NOTIFY),
+        );
+    }
+
+    // OPS-090: redirectErrors replaces every template except the access one.
+    if let Some(errors) = sc.errors.as_ref() {
+        if errors.redirect_errors.is_some() {
+            let unused: Vec<&str> = [
+                ("session", &errors.session_error),
+                ("metadata", &errors.metadata_error),
+                ("ssl", &errors.ssl_error),
+            ]
+            .iter()
+            .filter(|(_, v)| v.is_some())
+            .map(|(n, _)| *n)
+            .collect();
+            if !unused.is_empty() {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-090",
+                        OPS,
+                        Severity::Info,
+                        &format!(
+                            "Errors sets redirectErrors, so the {} template{} never shown",
+                            unused.join(", "),
+                            if unused.len() == 1 { " is" } else { "s are" }
+                        ),
+                        Some("Remove the unused templates, or drop redirectErrors to use them; only the access template still applies"),
+                    )
+                    .at_element("Errors")
+                    .with_doc(DOC_ERRORS),
+                );
+            }
+        }
+    }
+
     if sc.has_out_of_process {
         results.push(if sc.out_of_process_tran_log_format.is_some() {
             CheckResult::pass(
@@ -435,6 +584,79 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
                 DOC_KEY_DESCRIPTOR
             }),
         );
+    }
+}
+
+/// SEC-148 and SEC-149: session recovery against assertion access, and the export
+/// location host.
+pub(super) fn security(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    const SEC: CheckCategory = CheckCategory::Security;
+
+    // SEC-148: a recovered session has no assertion, so the two features clash.
+    let recovery = sc
+        .session_cache
+        .as_ref()
+        .is_some_and(|c| c.persisted_attributes.is_some());
+    if recovery {
+        let caching = sc
+            .session_cache
+            .as_ref()
+            .and_then(|c| c.cache_assertions.as_deref())
+            .is_some_and(|v| v.trim() == "true");
+        let exporting = sc
+            .request_map_content_settings
+            .iter()
+            .any(|s| s.export_assertion.as_deref().map(str::trim) == Some("true"));
+        if caching || exporting {
+            let other = match (caching, exporting) {
+                (true, true) => "cacheAssertions=\"true\" and exportAssertion=\"true\"",
+                (true, false) => "cacheAssertions=\"true\"",
+                _ => "exportAssertion=\"true\"",
+            };
+            results.push(
+                CheckResult::fail(
+                    "SEC-148",
+                    SEC,
+                    Severity::Warning,
+                    &format!("SessionCache persistedAttributes is combined with {other}; a recovered session carries no assertion"),
+                    Some("Pick one: session recovery across nodes, or access to the raw assertion"),
+                )
+                .at_element("SessionCache")
+                .with_doc(DOC_SESSION_CACHE),
+            );
+        }
+    }
+
+    // SEC-149: assertion export is unauthenticated, so keep it on the loopback.
+    if let Some(location) = sc
+        .sessions
+        .as_ref()
+        .and_then(|s| s.export_location.as_deref())
+    {
+        if let Some(rest) = location
+            .strip_prefix("https://")
+            .or_else(|| location.strip_prefix("http://"))
+        {
+            let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+            let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
+            let host = host.trim_start_matches('[').trim_end_matches(']');
+            if !matches!(host, "localhost" | "127.0.0.1" | "::1") {
+                results.push(
+                    CheckResult::fail(
+                        "SEC-149",
+                        SEC,
+                        Severity::Warning,
+                        &format!("exportLocation points at {host}; the docs say a non-localhost request is open to attack"),
+                        Some("Use a relative exportLocation, or an absolute one on localhost, and keep exportACL to loopback addresses"),
+                    )
+                    .at_element("Sessions")
+                    .with_doc(DOC_ASSERTION_EXPORT),
+                );
+            }
+        }
     }
 }
 
@@ -840,6 +1062,180 @@ mod tests {
                 "{code} fired on the stock layout"
             );
         }
+    }
+
+    #[test]
+    fn logout_protocols_come_from_sso() {
+        let sessions = |inner: &str| {
+            let (_dir, c) = config_from_xml(&sp3_app("", &format!("<Sessions>{inner}</Sessions>")));
+            xml_validity::run(&c)
+        };
+        assert_outcome(
+            &sessions("<SSO>SAML2</SSO><Logout>SAML2 ADFS Local</Logout>"),
+            "XML-077",
+            false,
+        );
+        assert_absent(
+            &sessions("<SSO>SAML2</SSO><Logout>SAML2 Local</Logout>"),
+            "XML-077",
+        );
+        assert_absent(&sessions("<Logout>SAML2 Local</Logout>"), "XML-077");
+    }
+
+    #[test]
+    fn include_and_exclude_filters_need_content() {
+        let mp = |filter: &str| {
+            format!(r#"<MetadataProvider type="XML" path="m.xml">{filter}</MetadataProvider>"#)
+        };
+        assert_outcome(
+            &run("", &mp(r#"<MetadataFilter type="Include"/>"#)),
+            "XML-078",
+            false,
+        );
+        assert_outcome(
+            &run("", &mp(r#"<MetadataFilter type="Blacklist"/>"#)),
+            "XML-078",
+            false,
+        );
+        assert_absent(
+            &run(
+                "",
+                &mp(
+                    r#"<MetadataFilter type="Include"><Include>https://idp.example.org/idp</Include></MetadataFilter>"#,
+                ),
+            ),
+            "XML-078",
+        );
+        assert_absent(
+            &run(
+                "",
+                &mp(
+                    r#"<MetadataFilter type="Exclude" matcher="EntityAttributes" attributeName="x" attributeValue="y"/>"#,
+                ),
+            ),
+            "XML-078",
+        );
+    }
+
+    #[test]
+    fn duplicate_policy_ids_are_reported() {
+        let dir = crate::testutil::TestDir::new();
+        dir.write("shibboleth2.xml", &sp3_app("", r#"<Sessions/>"#));
+        dir.write(
+            "security-policy.xml",
+            r#"<SecurityPolicies xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+<Policy id="default"><PolicyRule type="MessageFlow"/></Policy>
+<Policy id="default"><PolicyRule type="MessageFlow"/></Policy>
+<Policy id="other"><PolicyRule type="MessageFlow"/></Policy></SecurityPolicies>"#,
+        );
+        let results = xml_validity::run(&dir.discover());
+        assert_outcome(&results, "XML-079", false);
+        assert_eq!(crate::testutil::with_code(&results, "XML-079").len(), 1);
+    }
+
+    #[test]
+    fn listeners_share_one_slot() {
+        let (_dir, c) = config_from_xml(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config"><UnixListener address="shibd.sock"/><TCPListener address="127.0.0.1" port="1600"/>
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions/></ApplicationDefaults></SPConfig>"#,
+        );
+        assert_outcome(&xml_validity::run(&c), "XML-067", false);
+    }
+
+    #[test]
+    fn notify_needs_logout_and_redirect_errors_hides_templates() {
+        use crate::checks::operational;
+        let run = |body: &str| {
+            let (_dir, c) = config_from_xml(&sp3_app("", body));
+            operational::run(&c)
+        };
+        let notify = r#"<Notify Channel="back" Location="https://app.example.org/logout"/>"#;
+        assert_outcome(
+            &run(&format!("<Sessions><SSO>SAML2</SSO></Sessions>{notify}")),
+            "OPS-089",
+            false,
+        );
+        assert_absent(
+            &run(&format!(
+                "<Sessions><SSO>SAML2</SSO><Logout>SAML2 Local</Logout></Sessions>{notify}"
+            )),
+            "OPS-089",
+        );
+
+        assert_outcome(
+            &run(
+                r#"<Sessions/><Errors redirectErrors="https://sp.example.org/error" session="sessionError.html" ssl="sslError.html"/>"#,
+            ),
+            "OPS-090",
+            false,
+        );
+        assert_absent(
+            &run(
+                r#"<Sessions/><Errors redirectErrors="https://sp.example.org/error" access="accessError.html"/>"#,
+            ),
+            "OPS-090",
+        );
+        assert_absent(
+            &run(r#"<Sessions/><Errors session="sessionError.html"/>"#),
+            "OPS-090",
+        );
+    }
+
+    #[test]
+    fn session_recovery_and_export_location() {
+        use crate::checks::security;
+        let run = |cache: &str, sessions_attrs: &str, path_attrs: &str| {
+            let xml = format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{cache}
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions {sessions_attrs}><SSO>SAML2</SSO></Sessions></ApplicationDefaults>
+<RequestMapper type="Native"><RequestMap><Host name="a.example.org"><Path name="x" {path_attrs}/></Host></RequestMap></RequestMapper></SPConfig>"#
+            );
+            let (_dir, c) = config_from_xml(&xml);
+            security::run(&c)
+        };
+        let recovery = r#"<SessionCache type="StorageService" persistedAttributes="eppn"/>"#;
+        assert_outcome(
+            &run(
+                r#"<SessionCache type="StorageService" persistedAttributes="eppn" cacheAssertions="true"/>"#,
+                "",
+                "",
+            ),
+            "SEC-148",
+            false,
+        );
+        assert_outcome(
+            &run(recovery, "", r#"exportAssertion="true""#),
+            "SEC-148",
+            false,
+        );
+        assert_absent(&run(recovery, "", ""), "SEC-148");
+        assert_absent(
+            &run(
+                r#"<SessionCache type="StorageService" cacheAssertions="true"/>"#,
+                "",
+                "",
+            ),
+            "SEC-148",
+        );
+
+        assert_outcome(
+            &run(
+                "",
+                r#"exportLocation="https://app.example.org:8443/GetAssertion""#,
+                "",
+            ),
+            "SEC-149",
+            false,
+        );
+        assert_absent(
+            &run("", r#"exportLocation="http://localhost/GetAssertion""#, ""),
+            "SEC-149",
+        );
+        assert_absent(
+            &run("", r#"exportLocation="http://[::1]:8080/GetAssertion""#, ""),
+            "SEC-149",
+        );
+        assert_absent(&run("", r#"exportLocation="/GetAssertion""#, ""), "SEC-149");
     }
 
     #[test]

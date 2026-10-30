@@ -211,6 +211,7 @@ pub struct MetadataFilter {
     pub verify_backup: Option<String>,
     /// Names of the filter's direct child elements.
     pub child_names: Vec<String>,
+    pub matcher: Option<String>,
 }
 
 #[derive(Debug)]
@@ -258,6 +259,7 @@ pub struct ErrorsConfig {
     pub metadata_error: Option<String>,
     pub global_logout: Option<String>,
     pub external_parameters: Option<String>,
+    pub redirect_errors: Option<String>,
 }
 
 #[derive(Debug)]

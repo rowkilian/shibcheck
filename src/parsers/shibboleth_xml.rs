@@ -199,7 +199,13 @@ fn process_element(
         _ => &[],
     };
     if singleton_parent.contains(&name) {
-        *config.singleton_counts.entry(name.to_string()).or_insert(0) += 1;
+        // The three listener elements share one "0 or 1" slot.
+        let key = if matches!(name, "UnixListener" | "TCPListener") {
+            "Listener"
+        } else {
+            name
+        };
+        *config.singleton_counts.entry(key.to_string()).or_insert(0) += 1;
     }
     if name == "Policy" {
         if let Some(id) = get_attr(e, "id") {
@@ -482,6 +488,7 @@ fn process_element(
                 verify_name: get_attr(e, "verifyName"),
                 verify_backup: get_attr(e, "verifyBackup"),
                 child_names: Vec::new(),
+                matcher: get_attr(e, "matcher"),
             };
             if let Some(mp) = mp_stack.last_mut() {
                 mp.filters.push(filter);
@@ -564,6 +571,7 @@ fn process_element(
                 metadata_error: get_attr(e, "metadata"),
                 global_logout: get_attr(e, "globalLogout"),
                 external_parameters: get_attr(e, "externalParameters"),
+                redirect_errors: get_attr(e, "redirectErrors"),
             });
         }
         "SecurityPolicyProvider" => {
@@ -663,7 +671,10 @@ fn process_element(
 }
 
 /// Children of `<SPConfig>` the docs allow at most once.
-pub(crate) const SPCONFIG_SINGLETONS: [&str; 11] = [
+pub(crate) const SPCONFIG_SINGLETONS: [&str; 14] = [
+    "Listener",
+    "UnixListener",
+    "TCPListener",
     "Extensions",
     "OutOfProcess",
     "InProcess",
