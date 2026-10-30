@@ -109,6 +109,28 @@ fn locate_check<'a>(
             (Some(shib_file), line)
         }
 
+        // Checks whose message quotes the distinguishing attribute as name="value".
+        "XML-068" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "SessionInitiator", "type", message),
+        ),
+        "XML-071" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "TrustEngine", "checkRevocation", message),
+        ),
+        "XML-072" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "MetadataProvider", "type", message),
+        ),
+        "XML-075" | "XML-078" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "MetadataFilter", "type", message),
+        ),
+        "OPS-086" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "AttributeExtractor", "type", message),
+        ),
+
         // CredentialResolver-related checks — try to locate the specific resolver
         "SEC-004" | "SEC-005" | "SEC-043" | "SEC-051" | "SEC-074" | "SEC-077" | "SEC-091"
         | "SEC-095" | "OPS-051" => {
@@ -369,6 +391,19 @@ fn locate_handler(xml: &str, message: &str) -> Option<usize> {
 
     // Fallback
     find_element_line(xml, "Handler", None, None)
+}
+
+/// Line of the first `<element attr="value">` where `attr="value"` is quoted verbatim in
+/// the message, falling back to the first `<element>`.
+fn locate_by_quoted_attr(xml: &str, element: &str, attr: &str, message: &str) -> Option<usize> {
+    let needle = format!("{attr}=\"");
+    let value = message
+        .find(&needle)
+        .map(|i| &message[i + needle.len()..])
+        .and_then(|rest| rest.split('"').next());
+    value
+        .and_then(|v| find_element_line(xml, element, Some(attr), Some(v)))
+        .or_else(|| find_element_line(xml, element, None, None))
 }
 
 /// Extract a URL (http:// or https://) from a message string.

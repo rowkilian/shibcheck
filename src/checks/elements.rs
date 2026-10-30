@@ -170,7 +170,6 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                     ),
                     Some("List the entityIDs or groups as child elements, or set matcher"),
                 )
-                .at_element("MetadataFilter")
                 .with_doc(doc),
             );
         }
@@ -210,10 +209,9 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                     "XML-068",
                     CAT,
                     Severity::Error,
-                    "Chaining SessionInitiator has no child SessionInitiator",
+                    "SessionInitiator type=\"Chaining\" has no child SessionInitiator",
                     Some("Add the initiators to run in order, or remove the Chaining initiator"),
                 )
-                .at_element("SessionInitiator")
                 .with_doc(DOC_CHAINING),
             );
         }
@@ -267,7 +265,6 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                     &format!("{kind} trust engine has checkRevocation=\"{value}\""),
                     Some("Use off, entityOnly or fullChain"),
                 )
-                .at_element("TrustEngine")
                 .with_doc(DOC_PKIX),
             );
         }
@@ -293,12 +290,11 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
                     CAT,
                     Severity::Error,
                     &format!(
-                        "Dynamic MetadataProvider has {} <Subst> or <Regex> children, it needs exactly one",
+                        "MetadataProvider type=\"Dynamic\" has {} <Subst> or <Regex> children, it needs exactly one",
                         mp.transform_children
                     ),
                     Some("Add one <Subst> or <Regex> that turns the entityID into the metadata URL, and remove any extra"),
                 )
-                .at_element("MetadataProvider")
                 .with_doc(DOC_DYNAMIC),
             );
         }
@@ -352,7 +348,6 @@ pub(super) fn metadata_providers(config: &DiscoveredConfig, results: &mut Vec<Ch
                         "Add an <Entity> with the entityID that each <mdui:UIInfo> applies to"
                     }),
                 )
-                .at_element("MetadataFilter")
                 .with_doc(doc),
             );
         }
@@ -453,38 +448,40 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
     };
     const OPS: CheckCategory = CheckCategory::Operational;
 
-    if let Some(sessions) = sc.sessions.as_ref() {
-        // Only the ApplicationDefaults <Sessions> is compared; an override has its own handlers.
-        let login_clash = sessions.has_sso_shorthand
-            && sc
-                .session_initiators
-                .iter()
-                .any(|i| !i.in_override && i.location.as_deref().map(str::trim) == Some("/Login"));
-        if login_clash {
+    // Each application (the defaults, or one override) is compared on its own.
+    let where_ = |app: &Option<String>| match app {
+        None => String::new(),
+        Some(id) => format!(" in ApplicationOverride \"{id}\""),
+    };
+    for app in &sc.sso_shorthand_in {
+        let clash = sc.session_initiators.iter().any(|i| {
+            i.application == *app && i.location.as_deref().map(str::trim) == Some("/Login")
+        });
+        if clash {
             results.push(
                 CheckResult::fail(
                     "OPS-087",
                     OPS,
                     Severity::Warning,
-                    "An explicit <SessionInitiator> sits at /Login, the location the <SSO> shorthand already uses",
+                    &format!("An explicit <SessionInitiator> and the <SSO> shorthand both install a handler at /Login{}", where_(app)),
                     Some("Give the explicit initiator another Location, or remove the <SSO> element and configure the chain yourself"),
                 )
                 .at_element("SessionInitiator")
                 .with_doc(DOC_SSO),
             );
         }
-        let logout_clash = sessions.has_logout_shorthand
-            && sc
-                .logout_initiators
-                .iter()
-                .any(|i| !i.in_override && i.location.as_deref().map(str::trim) == Some("/Logout"));
-        if logout_clash {
+    }
+    for app in &sc.logout_shorthand_in {
+        let clash = sc.logout_initiators.iter().any(|i| {
+            i.application == *app && i.location.as_deref().map(str::trim) == Some("/Logout")
+        });
+        if clash {
             results.push(
                 CheckResult::fail(
                     "OPS-087",
                     OPS,
                     Severity::Warning,
-                    "An explicit <LogoutInitiator> and the <Logout> shorthand both install a handler at /Logout",
+                    &format!("An explicit <LogoutInitiator> and the <Logout> shorthand both install a handler at /Logout{}", where_(app)),
                     Some("Give the explicit initiator another Location, or remove the <Logout> element and configure the chain yourself"),
                 )
                 .at_element("LogoutInitiator")
@@ -577,7 +574,6 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
                 &format!("AttributeExtractor type=\"{kind}\" never runs without metadataAttributePrefix"),
                 Some("Set metadataAttributePrefix on <ApplicationDefaults> (for example \"Meta-\"), or remove the extractor"),
             )
-            .at_element("AttributeExtractor")
             .with_doc(if kind == "Metadata" {
                 DOC_METADATA_EXTRACTOR
             } else {
@@ -961,6 +957,17 @@ mod tests {
             "OPS-087",
         );
 
+        // A clash inside one override is reported and names the override.
+        let (_dir, c) = config_from_xml(&sp3_app(
+            "",
+            r#"<Sessions><SSO>SAML2</SSO></Sessions>
+<ApplicationOverride id="other"><Sessions><SSO>SAML2</SSO><SessionInitiator type="SAML2" Location="/Login"/></Sessions></ApplicationOverride>"#,
+        ));
+        let results = operational::run(&c);
+        assert_outcome(&results, "OPS-087", false);
+        assert!(results
+            .iter()
+            .any(|r| r.code == "OPS-087" && r.message.contains("\"other\"")));
         // An override's shorthand does not clash with the defaults' explicit initiators.
         let (_dir, c) = config_from_xml(&sp3_app(
             "",

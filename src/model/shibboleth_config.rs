@@ -59,6 +59,11 @@ pub struct ShibbolethConfig {
     pub out_of_process_tran_log_format: Option<String>,
     pub out_of_process_catch_all: Option<String>,
     pub in_process_catch_all: Option<String>,
+    /// Applications whose `<Sessions>` holds an `<SSO>` shorthand: `None` for the
+    /// defaults, `Some(id)` for an override.
+    pub sso_shorthand_in: Vec<Option<String>>,
+    /// Applications whose `<Sessions>` holds a `<Logout>` shorthand.
+    pub logout_shorthand_in: Vec<Option<String>>,
     /// Some element uses the ADFS plugin (`type="ADFS"`, or ADFS in the SSO/Logout protocols).
     pub uses_adfs: bool,
     /// Some element sets `metadataAttributePrefix`.
@@ -112,10 +117,6 @@ pub struct SessionsConfig {
     pub has_sso: bool,
     pub has_session_initiator: bool,
     pub has_logout: bool,
-    /// `<SSO>` is present in the ApplicationDefaults `<Sessions>` (overrides excluded).
-    pub has_sso_shorthand: bool,
-    /// `<Logout>` is present in the ApplicationDefaults `<Sessions>` (overrides excluded).
-    pub has_logout_shorthand: bool,
     pub sso_entity_id: Option<String>,
     pub redirect_limit: Option<String>,
     pub consistent_address: Option<String>,
@@ -280,8 +281,8 @@ pub struct SessionInitiatorInfo {
     pub template: Option<String>,
     pub entity_id: Option<String>,
     pub location: Option<String>,
-    /// Declared inside an `<ApplicationOverride>`.
-    pub in_override: bool,
+    /// `None` in the defaults, `Some(id)` inside an `<ApplicationOverride>`.
+    pub application: Option<String>,
     /// Number of ancestor elements, to pair nested initiators with their parent.
     pub depth: usize,
     /// Number of `<SessionInitiator>` elements directly inside this one.
@@ -350,8 +351,8 @@ pub struct NotifyInfo {
 pub struct LogoutInitiatorInfo {
     pub initiator_type: Option<String>,
     pub location: Option<String>,
-    /// Declared inside an `<ApplicationOverride>`.
-    pub in_override: bool,
+    /// `None` in the defaults, `Some(id)` inside an `<ApplicationOverride>`.
+    pub application: Option<String>,
     pub signing: Option<String>,
     pub asynchronous: Option<String>,
     pub notify_without: Option<String>,

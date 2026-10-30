@@ -19,6 +19,8 @@ struct ParseState {
     mp_stack: Vec<MetadataProvider>,
     cr_stack: Vec<CredentialResolver>,
     in_request_map: bool,
+    /// Ids of the open `<ApplicationOverride>` elements (empty id when none is set).
+    override_ids: Vec<String>,
 }
 
 impl ParseState {
@@ -28,6 +30,9 @@ impl ParseState {
         };
         match name.as_str() {
             "RequestMap" => self.in_request_map = false,
+            "ApplicationOverride" => {
+                self.override_ids.pop();
+            }
             "MetadataProvider" => {
                 if let Some(mp) = self.mp_stack.pop() {
                     if let Some(parent) = self.mp_stack.last_mut() {
@@ -168,7 +173,9 @@ fn process_element(
         mp_stack,
         cr_stack,
         in_request_map,
+        override_ids,
     } = state;
+    let application = override_ids.last().cloned();
     let in_request_map = *in_request_map;
 
     if let Some(id) = get_attr(e, "policyId") {
@@ -179,7 +186,9 @@ fn process_element(
             filter.child_names.push(name.to_string());
         }
     }
-    if get_attr(e, "type").as_deref() == Some("ADFS") {
+    if get_attr(e, "type").as_deref() == Some("ADFS")
+        || get_attr(e, "Binding").as_deref() == Some(ADFS_BINDING)
+    {
         config.uses_adfs = true;
     }
     if get_attr(e, "metadataAttributePrefix").is_some() {
@@ -335,8 +344,6 @@ fn process_element(
                     has_sso: false,
                     has_session_initiator: false,
                     has_logout: false,
-                has_sso_shorthand: false,
-                has_logout_shorthand: false,
                     sso_entity_id: None,
                     redirect_limit: get_attr(e, "redirectLimit"),
                     consistent_address: get_attr(e, "consistentAddress"),
@@ -363,11 +370,11 @@ fn process_element(
                 });
             }
         "SSO" => {
+            if parent_is(stack, "Sessions") {
+                config.sso_shorthand_in.push(application.clone());
+            }
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_sso = true;
-                if !in_override(stack) {
-                    sessions.has_sso_shorthand = true;
-                }
                 if sessions.sso_entity_id.is_none() {
                     sessions.sso_entity_id = get_attr(e, "entityID");
                 }
@@ -402,7 +409,7 @@ fn process_element(
                     template: get_attr(e, "template"),
                     entity_id: get_attr(e, "entityID"),
                     location: get_attr(e, "Location"),
-                    in_override: in_override(stack),
+                    application: application.clone(),
                     depth: stack.len(),
                     children: 0,
                 });
@@ -420,11 +427,11 @@ fn process_element(
             }
         }
         "Logout" | "LogoutInitiator" => {
+            if name == "Logout" && parent_is(stack, "Sessions") {
+                config.logout_shorthand_in.push(application.clone());
+            }
             if let Some(ref mut sessions) = config.sessions {
                 sessions.has_logout = true;
-                if name == "Logout" && !in_override(stack) {
-                    sessions.has_logout_shorthand = true;
-                }
                 if sessions.logout_outgoing_bindings.is_none() {
                     sessions.logout_outgoing_bindings = get_attr(e, "outgoingBindings");
                 }
@@ -434,7 +441,7 @@ fn process_element(
                 .push(crate::model::shibboleth_config::LogoutInitiatorInfo {
                     initiator_type: get_attr(e, "type"),
                     location: get_attr(e, "Location"),
-                    in_override: in_override(stack),
+                    application: application.clone(),
                     signing: get_attr(e, "signing"),
                     asynchronous: get_attr(e, "asynchronous"),
                     notify_without: get_attr(e, "notifyWithout"),
@@ -580,6 +587,7 @@ fn process_element(
         }
         "ApplicationOverride" => {
             let id = get_attr(e, "id");
+            override_ids.push(id.clone().unwrap_or_default());
             let entity_id = get_attr(e, "entityID");
             if let Some(ref id_val) = id {
                 config.application_override_ids.push(id_val.clone());
@@ -691,10 +699,8 @@ pub(crate) const SPCONFIG_SINGLETONS: [&str; 14] = [
 /// Children of `<ApplicationDefaults>` the docs allow at most once.
 pub(crate) const DEFAULTS_SINGLETONS: [&str; 2] = ["Sessions", "Errors"];
 
-/// True inside an `<ApplicationOverride>`.
-fn in_override(stack: &[String]) -> bool {
-    stack.iter().any(|s| s == "ApplicationOverride")
-}
+/// The WS-Federation binding URI on an explicit ADFS endpoint.
+const ADFS_BINDING: &str = "http://schemas.xmlsoap.org/ws/2003/07/secext";
 
 fn parent_is(stack: &[String], name: &str) -> bool {
     stack.last().is_some_and(|s| s == name)
