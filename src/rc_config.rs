@@ -19,7 +19,6 @@ pub struct RcConfig {
     pub check: Option<Vec<String>>,
     pub skip: Option<Vec<String>>,
     pub severity: Option<String>,
-    pub fix: Option<bool>,
     pub watch: Option<bool>,
 }
 

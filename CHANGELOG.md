@@ -36,6 +36,10 @@ All notable changes to shibcheck are documented in this file.
 - **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
 
 ### Changed
+- **`fix` is now a subcommand** (`shibcheck fix [PATH]`). The `--fix` flag and the `fix` key in `.shibcheckrc` are gone. New options: `--dry-run` (prints a diff), `--only`, `--skip`, `--no-backup`, `--list`.
+- **Fix engine**: edits now go through a start-tag scanner instead of string search, so a match inside a comment, or an attribute on another element, no longer misleads it. Backups no longer overwrite an earlier `.bak`, and the file is replaced atomically.
+- **Fix of SEC-002 / SEC-003 on SP3** now sets `cookieProps="https"` or appends the missing flag. It used to turn `http` into `http; secure; httpOnly`, which is not a valid value.
+- `fix` also handles SEC-131, SEC-133 and SEC-134.
 - **SEC-017** now flags a `SameSite` attribute in `cookieProps` (SP3) instead of asking for one. The SameSite and Sessions docs say supported SP versions add the right value to each cookie and `cookieProps` should not set it. Severity is Warning. `--fix` no longer adds `SameSite=None`.
 - **SEC-114** (`DataSealer`) no longer looks for `keyStorePath` / `keyStorePassword`, which do not exist in SP3. It now flags a `Static` sealer (secret key in `shibboleth2.xml`) and a `Versioned` sealer that loads keys from a `url` without `backingFilePath`.
 - **REF-035** (metadata `validUntil` expiry) now tiers severity: Warning if expiring within 30 days (critical), Info if within 90 days (planning window), pass otherwise. Previously a single Info-level 30-day threshold.

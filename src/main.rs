@@ -21,6 +21,28 @@ fn main() {
         Some(Command::InitTestIdp { path, force }) => {
             run_init_test_idp(path, *force);
         }
+        Some(Command::Fix {
+            path,
+            dry_run,
+            no_backup,
+            only,
+            skip,
+            list,
+        }) => {
+            let opts = FixOptions {
+                dry_run: *dry_run,
+                backup: !*no_backup,
+                only: only.as_deref(),
+                skip: skip.as_deref(),
+            };
+            let code = if *list {
+                print_fixable();
+                0
+            } else {
+                run_fix(&resolve_dir(path), &opts)
+            };
+            process::exit(code);
+        }
         Some(Command::Completions { shell }) => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             generate(*shell, &mut cmd, "shibcheck", &mut std::io::stdout());
@@ -66,7 +88,6 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
 
     let verbose = cli.verbose || rc.verbose.unwrap_or(false);
     let check_remote = cli.check_remote || rc.check_remote.unwrap_or(false);
-    let do_fix = cli.fix || rc.fix.unwrap_or(false);
 
     let format = determine_format(cli, rc);
     let severity_threshold = determine_severity(cli, rc);
@@ -83,34 +104,6 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
         }
     };
 
-    // Optional auto-fix, then re-run so the report reflects the fixed files
-    let (discovered, results) = if do_fix && fix::has_fixable(&results) {
-        let fixes = fix::apply_fixes(&results, &discovered.shibboleth_xml_path);
-        if fixes.is_empty() {
-            (discovered, results)
-        } else {
-            for f in &fixes {
-                eprintln!("Fixed: {}", f);
-            }
-            eprintln!(
-                "Backup saved to {}",
-                discovered
-                    .shibboleth_xml_path
-                    .with_extension("xml.bak")
-                    .display()
-            );
-            match discover_and_check(base_dir, check_remote, &include, &exclude) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Error re-discovering after fix: {}", e);
-                    return 2;
-                }
-            }
-        }
-    } else {
-        (discovered, results)
-    };
-
     let summary = CheckSummary::from_results(&results);
     if let Err(e) = output::print_results(&results, verbose, format, &discovered) {
         eprintln!("Error: {:#}", e);
@@ -118,6 +111,136 @@ fn run_check(cli: &Cli, base_dir: &std::path::Path, rc: &rc_config::RcConfig) ->
     }
 
     i32::from(summary.has_failures_at_severity(severity_threshold))
+}
+
+struct FixOptions<'a> {
+    dry_run: bool,
+    backup: bool,
+    only: Option<&'a [String]>,
+    skip: Option<&'a [String]>,
+}
+
+fn print_fixable() {
+    for (code, what) in fix::FIXABLE {
+        println!("{code}  {what}");
+    }
+}
+
+/// `shibcheck fix`: apply the safe fixes to shibboleth2.xml, or show them with --dry-run.
+fn run_fix(base_dir: &std::path::Path, opts: &FixOptions) -> i32 {
+    if !base_dir.is_dir() {
+        eprintln!("Error: '{}' is not a directory", base_dir.display());
+        return 2;
+    }
+    let known = |code: &str| {
+        fix::FIXABLE
+            .iter()
+            .any(|(c, _)| c.eq_ignore_ascii_case(code))
+    };
+    for code in opts
+        .only
+        .iter()
+        .chain(opts.skip.iter())
+        .flat_map(|c| c.iter())
+    {
+        if !known(code) {
+            eprintln!(
+                "Error: {code} is not a fixable check. Run `shibcheck fix --list` to see them"
+            );
+            return 2;
+        }
+    }
+
+    let (discovered, results) = match discover_and_check(base_dir, false, &None, &None) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error discovering configuration: {}", e);
+            return 2;
+        }
+    };
+    let path = &discovered.shibboleth_xml_path;
+    let Some(sp_version) = discovered.shibboleth_config.as_ref().map(|c| c.sp_version) else {
+        eprintln!(
+            "Error: no readable shibboleth2.xml in '{}'",
+            base_dir.display()
+        );
+        return 2;
+    };
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: cannot read {}: {}", path.display(), e);
+            return 2;
+        }
+    };
+
+    let wanted = |code: &str| {
+        let listed = |list: &[String]| list.iter().any(|c| c.eq_ignore_ascii_case(code));
+        opts.only.is_none_or(listed) && !opts.skip.is_some_and(listed)
+    };
+    let codes: Vec<&str> = fix::failed_fixable(&results)
+        .into_iter()
+        .filter(|c| wanted(c))
+        .collect();
+    let plan = fix::plan(&content, &codes, sp_version);
+
+    if plan.applied.is_empty() {
+        println!("Nothing to fix in {}", path.display());
+        return 0;
+    }
+
+    println!(
+        "{} {} in {}:",
+        if opts.dry_run { "Would fix" } else { "Fixed" },
+        pluralize(plan.applied.len(), "issue"),
+        path.display()
+    );
+    for f in &plan.applied {
+        println!(
+            "  line {}  {}  ({})",
+            f.line,
+            f.description,
+            f.codes.join(", ")
+        );
+    }
+
+    if opts.dry_run {
+        println!("\n{}", fix::render_diff(&plan));
+        println!("Dry run: no files were changed.");
+        return 0;
+    }
+
+    match fix::write_plan(path, &plan, opts.backup) {
+        Ok(Some(backup)) => println!("Backup saved to {}", backup.display()),
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("Error: {:#}", e);
+            return 2;
+        }
+    }
+
+    // Re-run so the user sees what is left for a person to decide
+    match discover_and_check(base_dir, false, &None, &None) {
+        Ok((_, after)) => {
+            let remaining = after.iter().filter(|r| !r.passed).count();
+            if remaining > 0 {
+                println!(
+                    "{} still fail. Run `shibcheck {}` to see them.",
+                    pluralize(remaining, "check"),
+                    base_dir.display()
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("Error re-checking after fix: {}", e);
+            return 2;
+        }
+    }
+    0
+}
+
+fn pluralize(n: usize, word: &str) -> String {
+    format!("{n} {word}{}", if n == 1 { "" } else { "s" })
 }
 
 /// Discover the config in `base_dir`, run all checks, and apply the include/exclude filters.

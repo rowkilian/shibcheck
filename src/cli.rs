@@ -22,7 +22,8 @@ EXAMPLES:
   shibcheck --check SEC,REF-001          Run only SEC-* and REF-001 checks
   shibcheck --skip XML-005               Skip XML-005 check
   shibcheck --severity warning           Fail on warnings and errors
-  shibcheck --fix /etc/shibboleth        Auto-fix safe issues
+  shibcheck fix /etc/shibboleth          Auto-fix safe issues (see fix --help)
+  shibcheck fix --dry-run                Show what fix would change
   shibcheck --watch /etc/shibboleth      Re-run on file changes
   shibcheck --no-color | less            Pipe output without ANSI codes
   shibcheck completions bash             Generate shell completions
@@ -93,10 +94,6 @@ pub struct Cli {
     #[arg(long, default_value = "error", value_name = "LEVEL")]
     pub severity: SeverityArg,
 
-    /// Auto-fix safe issues (SEC-001, SEC-002, SEC-003)
-    #[arg(long)]
-    pub fix: bool,
-
     /// Watch for file changes and re-run checks
     #[arg(long)]
     pub watch: bool,
@@ -121,6 +118,43 @@ pub enum Command {
         /// Overwrite existing metadata file
         #[arg(long)]
         force: bool,
+    },
+
+    /// Fix issues that have one safe answer, keeping a backup of the original
+    #[command(after_help = "\
+Only checks with a single safe answer are fixed (see --list). Edits stay inside the
+element's start tag, so comments and formatting are kept. Everything else needs a
+person: run `shibcheck` to see what is left.
+
+EXAMPLES:
+  shibcheck fix --dry-run /etc/shibboleth   Show the changes, write nothing
+  shibcheck fix /etc/shibboleth             Fix and keep shibboleth2.xml.bak
+  shibcheck fix --only SEC-001 .            Fix one check
+  shibcheck fix --skip SEC-133 .            Fix all but one")]
+    Fix {
+        /// Directory containing Shibboleth SP config files
+        #[arg(default_value = ".", value_name = "PATH")]
+        path: PathBuf,
+
+        /// Show the changes and write nothing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Do not keep a backup of shibboleth2.xml
+        #[arg(long)]
+        no_backup: bool,
+
+        /// Only fix these checks (comma-separated codes)
+        #[arg(long, value_delimiter = ',', value_name = "CODES")]
+        only: Option<Vec<String>>,
+
+        /// Do not fix these checks (comma-separated codes)
+        #[arg(long, value_delimiter = ',', value_name = "CODES")]
+        skip: Option<Vec<String>>,
+
+        /// List the checks that fix can handle and exit
+        #[arg(long)]
+        list: bool,
     },
 
     /// Generate shell completions

@@ -476,26 +476,101 @@ fn ref_001_attaches_location_at_check_site() {
     );
 }
 
-// ── --fix ──
+// ── fix subcommand ──
 
-#[test]
-fn fix_rewrites_config_and_keeps_a_backup() {
-    let dir = std::env::temp_dir().join(format!("shibcheck-fix-{}", std::process::id()));
+/// Copy the insecure fixture into a fresh temp dir and return the dir.
+fn insecure_copy(tag: &str) -> (std::path::PathBuf, String) {
+    let dir = std::env::temp_dir().join(format!("shibcheck-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let original = std::fs::read_to_string("tests/fixtures/insecure/shibboleth2.xml").unwrap();
     std::fs::write(dir.join("shibboleth2.xml"), &original).unwrap();
+    (dir, original)
+}
+
+#[test]
+fn fix_rewrites_config_and_keeps_a_backup() {
+    let (dir, original) = insecure_copy("fix");
 
     shibcheck()
-        .arg("--fix")
+        .arg("fix")
         .arg(&dir)
         .assert()
-        .stderr(predicates::str::contains("Fixed: SEC-001"))
-        .stderr(predicates::str::contains("Backup saved to"));
+        .success()
+        .stdout(predicates::str::contains("SEC-001"))
+        .stdout(predicates::str::contains("Backup saved to"));
 
     let fixed = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
     let backup = std::fs::read_to_string(dir.join("shibboleth2.xml.bak")).unwrap();
     assert_ne!(fixed, original);
     assert_eq!(backup, original);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn fix_dry_run_shows_a_diff_and_writes_nothing() {
+    let (dir, original) = insecure_copy("fixdry");
+
+    shibcheck()
+        .args(["fix", "--dry-run"])
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Would fix"))
+        .stdout(predicates::str::contains("Dry run"));
+
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        original
+    );
+    assert!(!dir.join("shibboleth2.xml.bak").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn fix_is_idempotent_and_honors_only_and_no_backup() {
+    let (dir, _) = insecure_copy("fixonly");
+
+    shibcheck()
+        .args(["fix", "--only", "SEC-001", "--no-backup"])
+        .arg(&dir)
+        .assert()
+        .success();
+    assert!(!dir.join("shibboleth2.xml.bak").exists());
+    let once = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    assert!(!once.contains("handlerSSL=\"false\""));
+
+    shibcheck()
+        .args(["fix", "--only", "SEC-001"])
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Nothing to fix"));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        once
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn fix_rejects_unknown_codes_and_lists_fixable_ones() {
+    shibcheck()
+        .args(["fix", "--only", "SEC-999", "tests/fixtures/insecure"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("not a fixable check"));
+    shibcheck()
+        .args(["fix", "--list"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("SEC-002"));
+}
+
+#[test]
+fn old_fix_flag_is_gone() {
+    shibcheck()
+        .args(["--fix", "tests/fixtures/good"])
+        .assert()
+        .code(2);
 }

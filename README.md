@@ -43,6 +43,29 @@ shibcheck --no-color /etc/shibboleth
 shibcheck --check-remote /etc/shibboleth
 ```
 
+### Fixing issues
+
+`shibcheck fix` repairs the issues that have one safe answer. It edits only the start tag of the element in question, so comments and formatting stay as they are.
+
+```bash
+shibcheck fix --dry-run /etc/shibboleth   # show the changes, write nothing
+shibcheck fix /etc/shibboleth             # fix, keep shibboleth2.xml.bak
+shibcheck fix --only SEC-001 .            # fix one check
+shibcheck fix --skip SEC-133 .            # fix all but one
+shibcheck fix --no-backup .               # skip the backup
+shibcheck fix --list                      # list what can be fixed
+```
+
+| Check | Fix |
+|-------|-----|
+| SEC-001 | Set `handlerSSL="true"` on `<Sessions>` |
+| SEC-002, SEC-003 | SP3: set `cookieProps="https"` (or append the missing flag to a custom value). SP2: spell out `; path=/; secure; HttpOnly` |
+| SEC-131 | Remove `externalParameters` from `<Errors>` |
+| SEC-133 | Remove `checkSpoofing="false"` from `<InProcess>` |
+| SEC-134 | Remove `normalizeRequest="false"` from `<ISAPI>` |
+
+Each run keeps the original as `shibboleth2.xml.bak`, then `.bak.1`, `.bak.2` and so on, so it never overwrites an earlier backup. Only the first `<Sessions>`, `<Errors>`, `<InProcess>` and `<ISAPI>` are edited, which are the ones the checks read. The config file is replaced in one rename, so a failed write cannot leave it half-written. Review the result before you deploy it, since a config file can hold key paths and passwords.
+
 ### Test IdP Setup
 
 Use `init-test-idp` to set up [mocksaml.com](https://mocksaml.com) as a test Identity Provider:
@@ -571,9 +594,6 @@ skip = ["XML-005", "OPS"]
 
 # Minimum severity for non-zero exit code: "error", "warning", or "info"
 severity = "error"
-
-# Auto-fix safe issues
-fix = false
 
 # Watch for file changes and re-run checks
 watch = false
