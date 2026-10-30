@@ -707,7 +707,7 @@ fn process_element(
         "RequestMap" => {
             config.request_map_root_app_id = get_attr(e, "applicationId");
         }
-        "Host" | "Path"
+        "Host" | "Path" | "HostRegex" | "PathRegex" | "Query"
             if in_request_map => {
                 if let Some(app_id) = get_attr(e, "applicationId") {
                     config.request_map_application_ids.push(app_id);

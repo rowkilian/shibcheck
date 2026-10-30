@@ -1429,7 +1429,7 @@ fn check_refresh_settings(config: &DiscoveredConfig, results: &mut Vec<CheckResu
             );
             results.push(if ok {
                 CheckResult::pass("XML-060", CAT, Severity::Error, &format!("{message} is between 0 and 1"))
-                    .at_element("MetadataProvider")
+
             } else {
                 CheckResult::fail(
                     "XML-060",
@@ -1438,7 +1438,6 @@ fn check_refresh_settings(config: &DiscoveredConfig, results: &mut Vec<CheckResu
                     &format!("{message} is not a decimal between 0 and 1 (exclusive)"),
                     Some("Use a value such as 0.75"),
                 )
-                .at_element("MetadataProvider")
                 .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696005/XMLMetadataProvider")
             });
         }
@@ -1474,7 +1473,6 @@ fn check_refresh_settings(config: &DiscoveredConfig, results: &mut Vec<CheckResu
                     Severity::Warning,
                     &format!("{label} {min_name} does not exceed {max_name}"),
                 )
-                .at_element("MetadataProvider")
             } else {
                 CheckResult::fail(
                     "XML-061",
@@ -1483,7 +1481,6 @@ fn check_refresh_settings(config: &DiscoveredConfig, results: &mut Vec<CheckResu
                     &format!("{label} sets {min_name}=\"{min_text}\" above {max_name}=\"{max_text}\""),
                     Some("Lower the minimum or raise the maximum so the refresh interval has room to move"),
                 )
-                .at_element("MetadataProvider")
                 .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399841/MetadataProviderDynamicCommonAttributes")
             });
         }
@@ -1649,7 +1646,6 @@ fn check_handler_attributes(config: &DiscoveredConfig, results: &mut Vec<CheckRe
                     &format!("{} has no {}", label, missing),
                     Some("Both type and Location are required on every <Handler>"),
                 )
-                .at_element("Handler")
                 .with_doc(DOC_HANDLER),
             );
         }
@@ -1680,15 +1676,12 @@ fn check_credential_use(config: &DiscoveredConfig, results: &mut Vec<CheckResult
             continue;
         };
         if ["signing", "TLS", "encryption"].contains(&use_attr.as_str()) {
-            results.push(
-                CheckResult::pass(
-                    "XML-052",
-                    CAT,
-                    Severity::Warning,
-                    &format!("CredentialResolver use=\"{}\" is recognized", use_attr),
-                )
-                .at_element("CredentialResolver"),
-            );
+            results.push(CheckResult::pass(
+                "XML-052",
+                CAT,
+                Severity::Warning,
+                &format!("CredentialResolver use=\"{}\" is recognized", use_attr),
+            ));
         } else {
             results.push(
                 CheckResult::fail(
@@ -1698,7 +1691,7 @@ fn check_credential_use(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                     &format!("CredentialResolver use=\"{}\" is not recognized", use_attr),
                     Some("Use \"signing\", \"TLS\" or \"encryption\" (case-sensitive), or remove use"),
                 )
-                .at_element("CredentialResolver")
+
                 .with_doc(DOC_FILE_CREDENTIAL_RESOLVER),
             );
         }

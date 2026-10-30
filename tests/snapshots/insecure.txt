@@ -42,7 +42,6 @@ OPS-055 fail shibboleth2.xml
 OPS-056 fail shibboleth2.xml
 OPS-057 pass shibboleth2.xml
 OPS-059 fail shibboleth2.xml
-OPS-060 pass shibboleth2.xml:11
 OPS-061 pass shibboleth2.xml:11
 OPS-062 fail shibboleth2.xml
 OPS-063 fail attribute-map.xml

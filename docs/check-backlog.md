@@ -221,3 +221,19 @@ A second read of about 150 pages, this time looking for rule-like wording ("Requ
 | `attributeIndex`, `sameSiteSession`, `sameSiteFallback`, `unreliableNetworks`, `retryErrors`, `expireRedirects` used under the 2.0 namespace (3.1–3.6 settings; the 2.0 schema is the V2.6 schema) (ambiguous) | ReleaseNotes (2065335693), Sessions (2065334342), TCPListener (2065334618) | "The old namespace is/was urn:mace:shibboleth:2.0:native:sp:config and the schema supported in V2.6 has been included." | Partly: `same_site_session`, `same_site_fallback`, `unreliable_networks` exist; add `@attributeIndex`, `@retryErrors`, `@expireRedirects` |
 | `Query` `AttributeResolver` present with a 3.0-namespace config (legacy behavior re-enabled; MIG-009 only looks at `subjectMatch` as an SP2 pattern) | QueryAttributeResolver (2065334466), ReleaseNotes 3.0.0 (2065335693) | "This is a means of compatibility with legacy Shibboleth behavior and is no longer enabled by default." | Yes: `AttributeResolver/@type` |
 
+## Review follow-ups (2026-10-30)
+
+Smaller items left over from a full code review; none are false positives today.
+
+| Item | Where | Notes |
+|------|-------|-------|
+| `authnContextComparison` is only validated on `SSO` (XML-050); `RelyingParty`, `SessionInitiator` and content settings also carry it | `xml_validity.rs`, parser | Needs the attribute on three more structs. |
+| `requireTransportAuth`, `requireConfidentiality`, `signing`, `encryption` on `ApplicationOverride` are not parsed (SEC-056/057 read only the defaults) | parser | Per-override attribute capture. |
+| SEC-137/138 (NullSecurity, `checkReplay`) and SEC-075 still scan text (comment-safe now); a `PolicyRule` parser in `parsers/security_policy.rs` would replace them and enable the `Policy` rule checks in the second-pass table | `security/policy.rs` | |
+| XML-048 and XML-059 resolve to the first `Notify` / `DataSealer` | `xml_validity.rs` | Quote `Location` in the message and add a locator arm. |
+| `watch` only reacts to `*.xml` in the top directory; `.shibcheckrc`, the baseline file, `.pem` and `.logger` files do not trigger a re-run | `watch.rs` | |
+| `baseline` ignores `--check`/`--skip`, so a filtered run reports the other entries as stale | `main.rs` | |
+| Several integration tests assert little (`sarif_output_is_valid` checks no result content; `diff_two_dirs` checks only the header; `severity_error_ignores_warnings` never compares the two levels) | `tests/integration_test.rs` | |
+| SARIF `artifactLocation.uri` mixes a bare file name (located results) with an absolute path (unlocated results) | `output/sarif.rs` | Use the same relative form for both. |
+| `migrate` rewrites the namespace inside `xsi:schemaLocation` too, leaving it paired with the 2.0 XSD name | `migrate.rs` | Harmless for the SP; worth a note in the output. |
+| The downloaded SP3 docs live only in the session scratchpad and were lost once; the security review re-fetched 31 pages through the Confluence REST API | process | Check them into a non-published location or script the fetch. |

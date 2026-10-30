@@ -640,39 +640,6 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // OPS-015: reloadChanges not set on external XML resources
-    if let Some(ref content) = config.shibboleth_xml_content {
-        let content = &super::without_comments(content);
-        // Check if any external resource references use reloadChanges
-        if content.contains("reloadChanges=") {
-            results.push(CheckResult::pass(
-                "OPS-015",
-                CAT,
-                Severity::Info,
-                "reloadChanges is configured on external XML resource(s)",
-            ));
-        } else {
-            // Only flag if there are external XML resources (AttributeExtractor/AttributeFilter with path)
-            let has_external = sc
-                .attribute_extractor_paths
-                .iter()
-                .chain(sc.attribute_filter_paths.iter())
-                .any(|p| !p.is_empty());
-            if has_external {
-                results.push(
-                    CheckResult::fail(
-                        "OPS-015",
-                        CAT,
-                        Severity::Info,
-                        "reloadChanges not set on external XML resources",
-                        Some("Add reloadChanges=\"true\" to AttributeExtractor/AttributeFilter to auto-reload on file changes"),
-                    )
-                    .with_doc(DOC_APP_DEFAULTS),
-                );
-            }
-        }
-    }
-
     // OPS-016: sameSiteFallback not set on Sessions
     if let Some(ref sessions) = sc.sessions {
         if sessions.same_site_fallback.is_some() {
@@ -1574,40 +1541,6 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // OPS-049: RequireValidUntil MetadataFilter without maxValidityInterval
-    for mp in &sc.metadata_providers {
-        if mp.provider_type == "Chaining" {
-            continue;
-        }
-        for filter in &mp.filters {
-            if filter.filter_type.contains("RequireValidUntil") {
-                if filter.max_validity_interval.is_some() {
-                    results.push(CheckResult::pass(
-                        "OPS-049",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "RequireValidUntil filter{} has maxValidityInterval={}",
-                            mp.label(),
-                            filter.max_validity_interval.as_deref().unwrap_or("?")
-                        ),
-                    ));
-                } else {
-                    results.push(
-                        CheckResult::fail(
-                            "OPS-049",
-                            CAT,
-                            Severity::Info,
-                            &format!("RequireValidUntil MetadataFilter{} has no maxValidityInterval (no upper cap on how far in the future validUntil can be)", mp.label()),
-                            Some("Set maxValidityInterval on RequireValidUntil filter to cap acceptable validity periods (e.g., maxValidityInterval=\"2592000\" for 30 days)"),
-                        )
-                        .with_doc(DOC_METADATA_PROVIDER),
-                    );
-                }
-            }
-        }
-    }
-
     // OPS-050: No AttributeExtractor path configured
     if sc.attribute_extractor_paths.is_empty() {
         results.push(
@@ -1688,60 +1621,6 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 sc.application_override_ids.len()
             ),
         ));
-    }
-
-    // OPS-053: Local MetadataProvider has no reloadInterval
-    {
-        let mut any_local_no_reload = false;
-        for mp in &sc.metadata_providers {
-            if mp.provider_type == "Chaining" {
-                continue;
-            }
-            let is_local =
-                mp.path.is_some() || mp.file_attr.is_some() || mp.source_directory.is_some();
-            let is_remote = mp.uri.is_some() || mp.url.is_some();
-            if is_local && !is_remote && mp.reload_interval.is_none() {
-                let source = mp
-                    .path
-                    .as_deref()
-                    .or(mp.file_attr.as_deref())
-                    .or(mp.source_directory.as_deref())
-                    .unwrap_or("(unknown)");
-                results.push(
-                    CheckResult::fail(
-                        "OPS-053",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "Local MetadataProvider{} source={} has no reloadInterval (file changes won't be detected automatically)",
-                            mp.label(),
-                            source
-                        ),
-                        Some("Set reloadInterval on local MetadataProvider to auto-detect file updates (e.g., reloadInterval=\"3600\")"),
-                    )
-                    .with_doc(DOC_METADATA_PROVIDER),
-                );
-                any_local_no_reload = true;
-            }
-        }
-        if !any_local_no_reload {
-            let has_local = sc.metadata_providers.iter().any(|mp| {
-                mp.provider_type != "Chaining"
-                    && (mp.path.is_some()
-                        || mp.file_attr.is_some()
-                        || mp.source_directory.is_some())
-                    && mp.uri.is_none()
-                    && mp.url.is_none()
-            });
-            if has_local {
-                results.push(CheckResult::pass(
-                    "OPS-053",
-                    CAT,
-                    Severity::Info,
-                    "All local MetadataProviders have reloadInterval configured",
-                ));
-            }
-        }
     }
 
     // OPS-054: No StorageService configured (in-memory session storage, lost on restart)
@@ -1928,35 +1807,6 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Some("Configure logging (e.g., log4shib) for audit trail and troubleshooting"),
                 )
                 .with_doc(DOC_SPCONFIG),
-            );
-        }
-    }
-
-    // OPS-060: consistentAddress not explicitly set on Sessions
-    if let Some(ref sessions) = sc.sessions {
-        if sessions.consistent_address.is_some() {
-            results.push(
-                CheckResult::pass(
-                    "OPS-060",
-                    CAT,
-                    Severity::Info,
-                    &format!(
-                        "consistentAddress is explicitly set: {}",
-                        sessions.consistent_address.as_deref().unwrap_or("?")
-                    ),
-                )
-                .at_element("Sessions"),
-            );
-        } else {
-            results.push(
-                CheckResult::fail(
-                    "OPS-060",
-                    CAT,
-                    Severity::Info,
-                    "consistentAddress not explicitly set on Sessions (defaults to false; sessions valid from any IP)",
-                    Some("Set consistentAddress on <Sessions> to control IP address binding behavior for sessions"),
-                ).at_element("Sessions")
-                .with_doc(DOC_SESSIONS),
             );
         }
     }

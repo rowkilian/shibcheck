@@ -94,9 +94,9 @@ pub struct Cli {
     #[arg(long, value_delimiter = ',', value_name = "CHECKS")]
     pub skip: Option<Vec<String>>,
 
-    /// Minimum severity for non-zero exit code
-    #[arg(long, default_value = "error", value_name = "LEVEL")]
-    pub severity: SeverityArg,
+    /// Minimum severity for non-zero exit code (default: error, or the .shibcheckrc value)
+    #[arg(long, value_name = "LEVEL")]
+    pub severity: Option<SeverityArg>,
 
     /// Watch for file changes and re-run checks
     #[arg(long)]

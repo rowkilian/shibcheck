@@ -13,10 +13,12 @@ const DOC_SAML2_INITIATOR: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334736/SAML2+SessionInitiator";
 
 fn host_or_path(element: &str) -> &'static str {
-    if element == "Host" {
-        "Host"
-    } else {
-        "Path"
+    match element {
+        "Host" => "Host",
+        "HostRegex" => "HostRegex",
+        "PathRegex" => "PathRegex",
+        "Query" => "Query",
+        _ => "Path",
     }
 }
 
@@ -39,7 +41,6 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                 Severity::Error,
                 &format!("{element} '{place}' redirectToSSL is a port number"),
             )
-            .at_element(element)
         } else {
             CheckResult::fail(
                 "XML-062",
@@ -48,7 +49,6 @@ pub(super) fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult
                 &format!("{element} '{place}' redirectToSSL=\"{value}\" is not a port number"),
                 Some("Use the TLS port as an integer from 1 to 65535, such as 443"),
             )
-            .at_element(element)
             .with_doc(DOC_CONTENT_SETTINGS)
         });
     }
@@ -93,23 +93,21 @@ pub(super) fn initiators(config: &DiscoveredConfig, results: &mut Vec<CheckResul
                 code,
                 CAT,
                 Severity::Error,
-                &format!("{kind} SessionInitiator{id} has no {attr} attribute"),
+                &format!("SessionInitiator type=\"{kind}\"{id} has no {attr} attribute"),
                 Some(if kind == "Form" {
                     "Set template to the path of the HTML page that asks for the entityID"
                 } else {
                     "Set URL to the absolute address of the discovery service"
                 }),
             )
-            .at_element("SessionInitiator")
             .with_doc(page(kind))
         } else {
             CheckResult::pass(
                 code,
                 CAT,
                 Severity::Error,
-                &format!("{kind} SessionInitiator{id} sets {attr}"),
+                &format!("SessionInitiator type=\"{kind}\"{id} sets {attr}"),
             )
-            .at_element("SessionInitiator")
         });
 
         // XML-065: a discovery handler that already knows the entityID ignores the request.
@@ -119,22 +117,18 @@ pub(super) fn initiators(config: &DiscoveredConfig, results: &mut Vec<CheckResul
                     "XML-065",
                     CAT,
                     Severity::Warning,
-                    &format!("{kind} SessionInitiator{id} sets entityID, so the handler ignores requests"),
+                    &format!("SessionInitiator type=\"{kind}\"{id} sets entityID, so the handler ignores requests"),
                     Some("Remove entityID from a discovery initiator, or use a SAML2 initiator if the IdP is fixed"),
                 )
-                .at_element("SessionInitiator")
                 .with_doc(page(kind)),
             );
         } else {
-            results.push(
-                CheckResult::pass(
-                    "XML-065",
-                    CAT,
-                    Severity::Warning,
-                    &format!("{kind} SessionInitiator{id} leaves the entityID to the user"),
-                )
-                .at_element("SessionInitiator"),
-            );
+            results.push(CheckResult::pass(
+                "XML-065",
+                CAT,
+                Severity::Warning,
+                &format!("SessionInitiator type=\"{kind}\"{id} leaves the entityID to the user"),
+            ));
         }
     }
 }
@@ -198,7 +192,6 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
                 Severity::Warning,
                 &format!("{element} '{place}' exportAssertion has the settings it needs"),
             )
-            .at_element(element)
         } else {
             CheckResult::fail(
                 "OPS-085",
@@ -210,7 +203,6 @@ pub(super) fn operational(config: &DiscoveredConfig, results: &mut Vec<CheckResu
                 ),
                 Some("Assertion export needs exportLocation and exportACL on Sessions, and an enabled cacheAssertions on SessionCache"),
             )
-            .at_element(element)
             .with_doc(DOC_ASSERTION_EXPORT)
         });
     }

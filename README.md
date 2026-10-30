@@ -442,7 +442,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-012 | `REMOTE_USER` has single attribute (no fallback chain) | Info |
 | OPS-013 | `clockSkew` explicitly set | Info |
 | OPS-014 | `TransportOption` TLS constraints configured | Info |
-| OPS-015 | `reloadChanges` set on external XML resources | Info |
+| OPS-015 | Retired (reloadChanges defaults to true) | n/a |
 | OPS-016 | `sameSiteFallback` set on `Sessions` | Info |
 | OPS-017 | `relayState` configured on `Sessions` | Info |
 | OPS-018 | `postData` configured on `Sessions` | Info |
@@ -476,18 +476,18 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-046 | `discoveryProtocol` explicitly set when `discoveryURL` is used | Info |
 | OPS-047 | `MetadataProvider` `validate` attribute set to `"true"` | Info |
 | OPS-048 | `signingAlg` and `digestAlg` explicitly set on `ApplicationDefaults` | Info |
-| OPS-049 | `RequireValidUntil` filter has `maxValidityInterval` set | Info |
+| OPS-049 | Retired (maxValidityInterval defaults to 7 days; SEC-026 covers the threshold) | n/a |
 | OPS-050 | `AttributeExtractor` path configured | Info |
 | OPS-051 | `CredentialResolver` `use` attribute set in multi-resolver setup | Warning |
 | OPS-052 | `ApplicationOverride` count not excessive (>3 flagged) | Info |
-| OPS-053 | Local `MetadataProvider` has `reloadInterval` | Info |
+| OPS-053 | Retired (local files are watched by default (reloadChanges)) | n/a |
 | OPS-054 | `StorageService` configured for session persistence | Info |
 | OPS-055 | `OutOfProcess` or `InProcess` extensions configured | Info |
 | OPS-056 | `ReplayCache` configured for assertion replay protection | Info |
 | OPS-057 | SSO protocols explicitly specified | Info |
 | OPS-058 | Logout protocols explicitly specified | Info |
 | OPS-059 | Logging configuration detected | Info |
-| OPS-060 | `consistentAddress` explicitly set on `Sessions` | Info |
+| OPS-060 | Retired (consistentAddress defaults to true) | n/a |
 | OPS-061 | `handlerURL` path standard or non-standard awareness | Info |
 | OPS-062 | `ArtifactMap` configured for artifact resolution state | Info |
 | OPS-063 | `attribute-map.xml` has sufficient attribute mappings (>= 3) | Info |

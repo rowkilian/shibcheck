@@ -101,18 +101,26 @@ fn locate_check<'a>(
         // MetadataProvider-related checks — try to locate the specific provider.
         // (REF-003 sets its own location at check site.)
         "SEC-011" | "SEC-012" | "SEC-014" | "SEC-026" | "SEC-055" | "SEC-070" | "SEC-073"
-        | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047" | "OPS-049" | "OPS-053" | "SEC-054"
-        | "SEC-086" | "SEC-098" | "OPS-029" | "REF-004" | "REF-009" | "REF-017" | "REF-012"
-        | "REF-020" | "REF-021" | "REF-026" | "XML-029" | "XML-033" | "XML-035" | "XML-044"
+        | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047" | "SEC-054" | "SEC-086" | "SEC-098"
+        | "OPS-029" | "REF-004" | "REF-009" | "REF-017" | "REF-012" | "REF-020" | "REF-021"
+        | "REF-026" | "XML-029" | "XML-033" | "XML-035" | "XML-044" | "XML-060" | "XML-061"
         | "XML-073" | "XML-074" | "SEC-146" => {
             let line = locate_metadata_provider(xml, message);
             (Some(shib_file), line)
         }
 
         // Checks whose message quotes the distinguishing attribute as name="value".
-        "XML-068" => (
+        "XML-063" | "XML-064" | "XML-065" | "XML-068" => (
             Some(shib_file),
             locate_by_quoted_attr(xml, "SessionInitiator", "type", message),
+        ),
+        "XML-051" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "Handler", "type", message),
+        ),
+        "XML-052" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "CredentialResolver", "use", message),
         ),
         "XML-071" => (
             Some(shib_file),
@@ -176,11 +184,12 @@ fn locate_check<'a>(
         }
 
         // ContentSetting checks
-        "SEC-093" | "SEC-101" | "OPS-044" | "OPS-045" | "OPS-065" => {
+        "SEC-093" | "SEC-101" | "OPS-044" | "OPS-045" | "OPS-065" | "XML-062" | "OPS-085" => {
             // These iterate over Host/Path elements; try to find the named one
             let line = extract_quoted_value(message).and_then(|name| {
-                find_element_line(xml, "Host", Some("name"), Some(&name))
-                    .or_else(|| find_element_line(xml, "Path", Some("name"), Some(&name)))
+                ["Host", "Path", "Query"]
+                    .iter()
+                    .find_map(|el| find_element_line(xml, el, Some("name"), Some(&name)))
             });
             (Some(shib_file), line)
         }

@@ -164,7 +164,9 @@ pub(super) fn run(
 
     // SEC-075: NameIDFormat contains emailAddress (PII in NameID)
     if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress") {
+        if super::super::without_comments(content)
+            .contains("urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress")
+        {
             results.push(
                 CheckResult::fail(
                     "SEC-075",
@@ -183,6 +185,7 @@ pub(super) fn run(
         let policy_path = config.base_dir.join("attribute-policy.xml");
         if policy_path.exists() {
             if let Ok(policy_content) = std::fs::read_to_string(&policy_path) {
+                let policy_content = super::super::without_comments(&policy_content);
                 if policy_content.contains("type=\"ANY\"")
                     && (policy_content.contains("scope=\"any\"")
                         || policy_content.contains("Scope=\"any\""))
@@ -257,7 +260,8 @@ pub(super) fn run(
                 ];
                 let mut found: Vec<&str> = Vec::new();
                 // Listing a weak algorithm in an exclusion list is the point of the list.
-                let outside_exclusions = without_exclusion_lists(&content);
+                let outside_exclusions =
+                    without_exclusion_lists(&super::super::without_comments(&content));
                 for (uri, label) in &weak_algos {
                     if outside_exclusions.contains(uri) {
                         found.push(label);
@@ -359,14 +363,20 @@ fn check_policy_rules(
     };
     let mut sources: Vec<(String, String)> = Vec::new();
     if let Some(ref content) = config.shibboleth_xml_content {
-        sources.push((file_name(&config.shibboleth_xml_path), content.clone()));
+        sources.push((
+            file_name(&config.shibboleth_xml_path),
+            super::super::without_comments(content),
+        ));
     }
     let policy_path = match sc.security_policy_provider_path {
         Some(ref p) => config.resolve_path(p),
         None => config.base_dir.join("security-policy.xml"),
     };
     if let Ok(content) = std::fs::read_to_string(&policy_path) {
-        sources.push((file_name(&policy_path), content));
+        sources.push((
+            file_name(&policy_path),
+            super::super::without_comments(&content),
+        ));
     }
     if sources.is_empty() {
         return;

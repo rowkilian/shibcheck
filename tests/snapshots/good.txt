@@ -32,17 +32,14 @@ OPS-041 pass shibboleth2.xml:13
 OPS-043 fail shibboleth2.xml:47
 OPS-047 pass shibboleth2.xml:28
 OPS-048 fail shibboleth2.xml:7
-OPS-049 pass shibboleth2.xml:28
 OPS-050 fail shibboleth2.xml
 OPS-051 pass shibboleth2.xml:37
-OPS-053 fail shibboleth2.xml:28
 OPS-054 fail shibboleth2.xml
 OPS-055 fail shibboleth2.xml
 OPS-056 fail shibboleth2.xml
 OPS-057 pass shibboleth2.xml
 OPS-058 pass shibboleth2.xml:23
 OPS-059 fail shibboleth2.xml
-OPS-060 fail shibboleth2.xml:13
 OPS-061 pass shibboleth2.xml:13
 OPS-062 fail shibboleth2.xml
 OPS-063 pass attribute-map.xml
@@ -185,6 +182,6 @@ XML-048 pass shibboleth2.xml:25
 XML-049 pass shibboleth2.xml:13
 XML-051 pass shibboleth2.xml:49
 XML-052 pass shibboleth2.xml:37
-XML-052 pass shibboleth2.xml:37
+XML-052 pass shibboleth2.xml:42
 XML-053 pass shibboleth2.xml:7
 XML-053 pass shibboleth2.xml:7

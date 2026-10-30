@@ -661,21 +661,15 @@ fn determine_format(cli: &Cli, rc: &rc_config::RcConfig) -> OutputFormat {
 }
 
 fn determine_severity(cli: &Cli, rc: &rc_config::RcConfig) -> Severity {
-    // CLI always wins
+    // An explicit --severity wins, then .shibcheckrc, then "error".
     match cli.severity {
-        SeverityArg::Info => Severity::Info,
-        SeverityArg::Warning => Severity::Warning,
-        SeverityArg::Error => {
-            // "error" is the default — check if rc has something else
-            if let Some(ref s) = rc.severity {
-                match s.to_lowercase().as_str() {
-                    "info" => Severity::Info,
-                    "warning" => Severity::Warning,
-                    _ => Severity::Error,
-                }
-            } else {
-                Severity::Error
-            }
-        }
+        Some(SeverityArg::Info) => Severity::Info,
+        Some(SeverityArg::Warning) => Severity::Warning,
+        Some(SeverityArg::Error) => Severity::Error,
+        None => match rc.severity.as_deref().map(str::to_lowercase).as_deref() {
+            Some("info") => Severity::Info,
+            Some("warning") => Severity::Warning,
+            _ => Severity::Error,
+        },
     }
 }

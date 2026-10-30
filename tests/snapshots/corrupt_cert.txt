@@ -20,7 +20,6 @@ OPS-055 fail shibboleth2.xml
 OPS-056 fail shibboleth2.xml
 OPS-057 pass shibboleth2.xml
 OPS-059 fail shibboleth2.xml
-OPS-060 fail shibboleth2.xml:3
 OPS-061 pass shibboleth2.xml:3
 OPS-062 fail shibboleth2.xml
 OPS-067 fail shibboleth2.xml

@@ -20,6 +20,11 @@ All notable changes to shibcheck are documented in this file.
 - `docs/check-backlog.md` gained a second pass over the SP3 documentation with about 140 further leads.
 
 ### Changed
+- Retired OPS-015, OPS-049, OPS-053 and OPS-060: each flagged a default the docs already set the safe way (`reloadChanges` true, `maxValidityInterval` 7 days, `consistentAddress` true).
+- `--severity` on the command line now wins over the `.shibcheckrc` value even when it is `error`.
+- The request-map parser also reads `HostRegex`, `PathRegex` and `Query` content elements.
+- SEC-075, SEC-085, SEC-110, SEC-137 and SEC-138 ignore XML comments.
+- XML-051/052/060/061/062/063/064/065 and OPS-085 point at the element named in the message.
 - Retired checks whose claim the SP3 docs do not support: SEC-035 (merged into SEC-097), SEC-069, SEC-080, SEC-096, SEC-100, SEC-102, SEC-103, SEC-115, REF-032 (duplicate of SEC-055), MIG-009, MIG-016, MIG-017 and MIG-023.
 - SEC-097 tokenises the OpenSSL cipher expression, so `!RC4` style exclusions no longer count as weak ciphers, and it also reads `RelyingParty` `cipherSuites`.
 - Defaults the docs give are no longer findings: SEC-006/007 accept `conditional` and an unset value; SEC-026 treats a missing `maxValidityInterval` as the 7-day default; SEC-059 treats a missing `exportACL` as loopback; SEC-062/063 only flag an acl wider than loopback; SEC-060 only flags `signing="false"`; SEC-027 says nothing when the element is absent.
