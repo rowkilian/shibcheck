@@ -139,7 +139,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-065)
+### XML Validity (XML-001 to XML-071)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -208,6 +208,12 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-063 | `SAMLDS` and `WAYF` session initiators set `URL` | Error |
 | XML-064 | `Form` session initiator sets `template` | Error |
 | XML-065 | Discovery session initiators do not set `entityID` (the handler would ignore requests) | Warning |
+| XML-066 | `ApplicationDefaults` `id`, when set, is `default` | Error |
+| XML-067 | Elements the docs allow once (`Extensions`, `OutOfProcess`, `InProcess`, `DataSealer`, `SessionCache`, `ReplayCache`, `ArtifactMap`, `RequestMapper`, `Sessions`, `Errors` and others) appear once | Warning |
+| XML-068 | A `Chaining` session initiator has at least one child initiator | Error |
+| XML-069 | An `AttributeChecker` handler sets `template` | Error |
+| XML-070 | A `KeyDescriptor` attribute extractor sets `signingId`, `encryptionId` or `hashId` | Error |
+| XML-071 | `TrustEngine` `checkRevocation` is `off`, `entityOnly` or `fullChain` | Error |
 
 ### Cross-file References (REF-001 to REF-043)
 

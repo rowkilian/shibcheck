@@ -174,6 +174,14 @@ fn process_element(
     if get_attr(e, "acsByIndex").is_some_and(|v| v.trim() == "true") {
         config.acs_by_index.push(name.to_string());
     }
+    let singleton_parent = match stack.last().map(String::as_str) {
+        Some("SPConfig") => &SPCONFIG_SINGLETONS[..],
+        Some("ApplicationDefaults") => &DEFAULTS_SINGLETONS[..],
+        _ => &[],
+    };
+    if singleton_parent.contains(&name) {
+        *config.singleton_counts.entry(name.to_string()).or_insert(0) += 1;
+    }
     if name == "Policy" {
         if let Some(id) = get_attr(e, "id") {
             config.policy_ids_defined.push(id);
@@ -256,6 +264,7 @@ fn process_element(
         "ApplicationDefaults" => {
             config.has_application_defaults = true;
             config.entity_id = get_attr(e, "entityID");
+            config.application_defaults_id = get_attr(e, "id");
             config.application_defaults = Some(ApplicationDefaults {
                 remote_user: get_attr(e, "REMOTE_USER"),
                 signing: get_attr(e, "signing"),
@@ -342,7 +351,21 @@ fn process_element(
                     url: get_attr(e, "URL"),
                     template: get_attr(e, "template"),
                     entity_id: get_attr(e, "entityID"),
+                    depth: stack.len(),
+                    children: 0,
                 });
+            // A nested initiator belongs to the closest enclosing one, one level up.
+            if parent_is(stack, "SessionInitiator") {
+                let parent_depth = stack.len() - 1;
+                let n = config.session_initiators.len() - 1;
+                if let Some(parent) = config.session_initiators[..n]
+                    .iter_mut()
+                    .rev()
+                    .find(|i| i.depth == parent_depth)
+                {
+                    parent.children += 1;
+                }
+            }
         }
         "Logout" | "LogoutInitiator" => {
             if let Some(ref mut sessions) = config.sessions {
@@ -409,15 +432,19 @@ fn process_element(
                 mp.filters.push(filter);
             }
         }
-        "TrustEngine"
-            // If inside a MetadataFilter, mark the parent filter as having a TrustEngine
-            if parent_is(stack, "MetadataFilter") => {
-                if let Some(mp) = mp_stack.last_mut() {
-                    if let Some(filter) = mp.filters.last_mut() {
-                        filter.has_trust_engine = true;
-                    }
+        "TrustEngine" => {
+            if let Some(value) = get_attr(e, "checkRevocation") {
+                config
+                    .trust_engine_revocation
+                    .push((get_attr(e, "type").unwrap_or_default(), value));
+            }
+            // Inside a MetadataFilter, mark the parent filter as having a TrustEngine
+            if parent_is(stack, "MetadataFilter") {
+                if let Some(filter) = mp_stack.last_mut().and_then(|mp| mp.filters.last_mut()) {
+                    filter.has_trust_engine = true;
                 }
             }
+        }
         "CredentialResolver" => {
             let cr = CredentialResolver {
                 resolver_type: get_attr(e, "type").unwrap_or_default(),
@@ -444,6 +471,13 @@ fn process_element(
                 .push(get_attr(e, "type").unwrap_or_default());
             if let Some(path) = get_attr(e, "path") {
                 config.attribute_extractor_paths.push(path);
+            }
+            if get_attr(e, "type").as_deref() == Some("KeyDescriptor")
+                && ["signingId", "encryptionId", "hashId"]
+                    .iter()
+                    .all(|a| get_attr(e, a).is_none())
+            {
+                config.key_descriptor_extractors_without_ids += 1;
             }
         }
         "AttributeFilter"
@@ -501,6 +535,7 @@ fn process_element(
                 location,
                 show_attribute_values: show_attr_values,
                 acl,
+                template: get_attr(e, "template"),
             });
         }
         "StorageService" => {
@@ -558,6 +593,24 @@ fn process_element(
         _ => {}
     }
 }
+
+/// Children of `<SPConfig>` the docs allow at most once.
+pub(crate) const SPCONFIG_SINGLETONS: [&str; 11] = [
+    "Extensions",
+    "OutOfProcess",
+    "InProcess",
+    "DataSealer",
+    "SessionCache",
+    "ReplayCache",
+    "ArtifactMap",
+    "RequestMapper",
+    "ApplicationDefaults",
+    "SecurityPolicyProvider",
+    "ProtocolProvider",
+];
+
+/// Children of `<ApplicationDefaults>` the docs allow at most once.
+pub(crate) const DEFAULTS_SINGLETONS: [&str; 2] = ["Sessions", "Errors"];
 
 fn parent_is(stack: &[String], name: &str) -> bool {
     stack.last().is_some_and(|s| s == name)

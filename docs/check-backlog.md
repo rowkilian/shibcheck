@@ -20,17 +20,13 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 
 | Idea | Page (id) | Notes |
 |------|-----------|-------|
-| `AttributeChecker` handler without `template` | Attribute Checker Handler (2065334881) | Needs handler attributes. |
 | Explicit `AssertionConsumerService`, `SingleLogoutService`, `ArtifactResolutionService`: missing `Location` / `Binding`, unknown binding, duplicate `index` | ACSCommonAttributes (2067399700), SingleLogoutCommonAttributes (2067399796) | These elements are not parsed. |
-| Duplicate singleton elements (`Extensions`, `OutOfProcess`, `InProcess`, `DataSealer`, `SessionCache`, `RequestMapper`, a second `Sessions` or `Errors`) | SPConfig (2063695926), ApplicationDefaults (2063695997) | Needs element counts. |
-| `ApplicationDefaults` `id` must be `default`; `Sessions` then `Errors` must come first | ApplicationDefaults (2063695997) | Needs element order. |
+| `Sessions` then `Errors` must come first in `ApplicationDefaults` | ApplicationDefaults (2063695997) | Needs element order. |
 | `ApplicationOverride` nested in another override | ApplicationDefaults (2063695997) | Cardinality table. |
 | `Path` names with uppercase, `Host` without `name`, overlapping sibling `Path` elements | Path (2065335408), HowToRequestMap (2065335006) | Needs a request-map tree. |
-| `Chaining` initiator with no children | Chaining SessionInitiator (2065334780) | Needs child counts. |
-| `TrustEngine` `type` and `checkRevocation` values | TrustEngine (2063695951), PKIX pages (2065335188) | Needs parsing. |
+| `TrustEngine` `type` values | TrustEngine (2063695951) | Plugins can add types, so keep it Info. |
 | `Dynamic` provider needs exactly one `Subst` or `Regex` child; `MDQ` / `Dynamic` without `TrustEngine` and without `ignoreTransport` | DynamicMetadataProvider (2060616138), MetadataProviderNetworkChildElements (2067399851) | Needs child names. |
 | Metadata filters missing required children (`EntityRole` without `RetainedRole`, `UIInfo` without `Entity`) | EntityRoleMetadataFilter (2063696218), UIInfoMetadataFilter (2107539866) | Needs filter children. |
-| `KeyDescriptor` extractor with none of `signingId`, `encryptionId`, `hashId` | KeyDescriptorAttributeExtractor (2065334438) | Needs extractor attributes. |
 | Content setting values: `encoding` and boolean values | ContentSettings (2065334723) | Needs parsing. |
 
 ## Cross-file references

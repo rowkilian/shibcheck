@@ -48,6 +48,15 @@ pub struct ShibbolethConfig {
     pub policy_ids_used: Vec<String>,
     /// Names of elements that set `acsByIndex="true"`.
     pub acs_by_index: Vec<String>,
+    /// `id` written on `<ApplicationDefaults>`.
+    pub application_defaults_id: Option<String>,
+    /// How often each element the docs allow once appears under its parent
+    /// (`SPConfig` or `ApplicationDefaults`).
+    pub singleton_counts: std::collections::BTreeMap<String, usize>,
+    /// (`type`, `checkRevocation`) of every `<TrustEngine>` that sets `checkRevocation`.
+    pub trust_engine_revocation: Vec<(String, String)>,
+    /// `<AttributeExtractor type="KeyDescriptor">` with none of signingId, encryptionId, hashId.
+    pub key_descriptor_extractors_without_ids: usize,
     pub policy_ids_defined: Vec<String>,
     /// An ODBC `ConnectionString` embeds a password (the password itself is never stored).
     pub odbc_connection_has_password: bool,
@@ -228,6 +237,7 @@ pub struct HandlerInfo {
     pub location: Option<String>,
     pub show_attribute_values: Option<String>,
     pub acl: Option<String>,
+    pub template: Option<String>,
 }
 
 #[derive(Debug)]
@@ -238,6 +248,10 @@ pub struct SessionInitiatorInfo {
     pub url: Option<String>,
     pub template: Option<String>,
     pub entity_id: Option<String>,
+    /// Number of ancestor elements, to pair nested initiators with their parent.
+    pub depth: usize,
+    /// Number of `<SessionInitiator>` elements directly inside this one.
+    pub children: usize,
 }
 
 /// A reference from a plugin element to a <StorageService> id.
