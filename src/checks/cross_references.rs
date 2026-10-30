@@ -217,6 +217,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     check_storage_references(sc, v, &mut results);
     check_plugin_storage_references(sc, v, &mut results);
     check_session_recovery_sealer(sc, &mut results);
+    check_require_session_with(sc, &mut results);
     super::acl::references(config, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
@@ -1526,6 +1527,62 @@ fn check_session_recovery_sealer(
     }
 }
 
+/// REF-042: `requireSessionWith` names a `<SessionInitiator>` by its `id`.
+fn check_require_session_with(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    results: &mut Vec<CheckResult>,
+) {
+    let known: HashSet<&str> = sc
+        .session_initiators
+        .iter()
+        .filter_map(|i| i.id.as_deref())
+        .collect();
+    for setting in &sc.request_map_content_settings {
+        let Some(wanted) = setting.require_session_with.as_deref() else {
+            continue;
+        };
+        // An empty value unsets the setting at a lower level of the map.
+        if wanted.is_empty() {
+            continue;
+        }
+        let place = setting.name.as_deref().unwrap_or("(unnamed)");
+        let element = if setting.element == "Host" {
+            "Host"
+        } else {
+            "Path"
+        };
+        if known.contains(wanted) {
+            results.push(
+                CheckResult::pass(
+                    "REF-042",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} '{place}' requireSessionWith=\"{wanted}\" names a SessionInitiator",
+                        setting.element
+                    ),
+                )
+                .at_element(element),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-042",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} '{place}' requireSessionWith=\"{wanted}\" matches no SessionInitiator id",
+                        setting.element
+                    ),
+                    Some("Add id=\"...\" to the intended <SessionInitiator>, or fix the name in the request map"),
+                )
+                .at_element(element)
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334723/ContentSettings"),
+            );
+        }
+    }
+}
+
 /// REF-038: `postData` and `relayState` of the form `ss:<id>` must name a configured
 /// StorageService. SP3 provides an in-memory one, id "mem", when none is configured.
 fn check_storage_references(
@@ -1984,5 +2041,35 @@ mod tests {
             false,
         );
         assert_absent(&with("<ReplayCache/>"), "REF-039");
+    }
+
+    #[test]
+    fn require_session_with_must_name_an_initiator() {
+        let results = |attrs: &str| {
+            let xml = format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <Sessions><SessionInitiator type="SAML2" id="Intranet" entityID="https://idp.example.org/idp"/></Sessions>
+  </ApplicationDefaults>
+  <RequestMapper type="Native"><RequestMap><Host name="a.example.org"><Path name="x" requireSession="true" {attrs}/></Host></RequestMap></RequestMapper>
+</SPConfig>"#
+            );
+            let sc = crate::parsers::shibboleth_xml::parse_str(&xml).unwrap();
+            let mut out = Vec::new();
+            check_require_session_with(&sc, &mut out);
+            out
+        };
+        assert_outcome(
+            &results(r#"requireSessionWith="Intranet""#),
+            "REF-042",
+            true,
+        );
+        assert_outcome(
+            &results(r#"requireSessionWith="Missing""#),
+            "REF-042",
+            false,
+        );
+        assert!(results(r#"requireSessionWith="""#).is_empty());
+        assert!(results("").is_empty());
     }
 }

@@ -67,6 +67,7 @@ mod handlers;
 mod metadata;
 mod policy;
 mod sessions;
+mod transport;
 mod web_server;
 
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
@@ -82,6 +83,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     metadata::run(config, sc, v, &mut results);
     handlers::run(sc, v, &mut results);
     policy::run(config, sc, v, &mut results);
+    transport::run(sc, v, &mut results);
     web_server::run(config, sc, v, &mut results);
     application::run(config, sc, v, &mut results);
 

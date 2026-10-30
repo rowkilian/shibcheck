@@ -116,7 +116,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-058)
+### XML Validity (XML-001 to XML-061)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -178,8 +178,11 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-056 | Time access control values are valid (`operator`, `TimeSinceAuthn`, `Time`, `Hour`, `Month`, `DayOfWeek` and the other time rules) | Error |
 | XML-057 | Every `Rule` and `RuleRegex` has a `require` attribute | Error |
 | XML-058 | `RelyingParty` has a `Name` or a `type`, so it can match an IdP | Error |
+| XML-059 | Static `DataSealer` `key` is base64 that decodes to 16, 24 or 32 bytes | Error |
+| XML-060 | `refreshDelayFactor` is a decimal between 0 and 1, exclusive | Error |
+| XML-061 | `minRefreshDelay` / `minCacheDuration` does not exceed its maximum | Warning |
 
-### Cross-file References (REF-001 to REF-041)
+### Cross-file References (REF-001 to REF-042)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -223,8 +226,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-039 | `SessionCache` / `ReplayCache` / `ArtifactMap` `StorageService` names a defined service | Error |
 | REF-040 | `SessionCache` `persistedAttributes` has a `DataSealer` to encrypt the recovery cookie | Error |
 | REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
+| REF-042 | `requireSessionWith` names a `SessionInitiator` `id` | Warning |
 
-### Security (SEC-001 to SEC-145)
+### Security (SEC-001 to SEC-147)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -372,6 +376,8 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-143 | `RelyingParty` keeps no `authPassword` in `shibboleth2.xml` | Warning |
 | SEC-144 | `RelyingParty` does not turn off `signing` or `encryption` | Warning |
 | SEC-145 | `RelyingParty` `signingAlg` / `digestAlg` do not use SHA-1 | Warning |
+| SEC-146 | `MDQ` / `Dynamic` providers do not set `verifyHost="false"` | Warning |
+| SEC-147 | ODBC `ConnectionString` does not carry a password | Info |
 
 ### Operational (OPS-001 to OPS-083)
 

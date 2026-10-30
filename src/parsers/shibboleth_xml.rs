@@ -83,7 +83,8 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
                 if name == "RequestMap" {
                     state.in_request_map = true;
                 }
-                text_target = matches!(name.as_str(), "SSO" | "Logout").then(|| name.clone());
+                text_target = matches!(name.as_str(), "SSO" | "Logout" | "ConnectionString")
+                    .then(|| name.clone());
                 state.stack.push(name);
             }
             Ok(Event::Empty(e)) => {
@@ -98,7 +99,9 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
                         Ok(t) => t.trim().to_string(),
                         Err(_) => String::from_utf8_lossy(e.as_ref()).trim().to_string(),
                     };
-                    if !text.is_empty() {
+                    if target == "ConnectionString" {
+                        state.config.odbc_connection_has_password |= has_password(&text);
+                    } else if !text.is_empty() {
                         state.set_protocols(target, text);
                     }
                 }
@@ -122,6 +125,33 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
 }
 
 use super::{get_attr, local_name};
+
+/// Whether an ODBC connection string sets a password (`PWD=` or `PASSWORD=`).
+fn has_password(connection: &str) -> bool {
+    connection.split(';').any(|part| {
+        let key = part.split('=').next().unwrap_or("").trim();
+        part.contains('=')
+            && (key.eq_ignore_ascii_case("PWD") || key.eq_ignore_ascii_case("PASSWORD"))
+    })
+}
+
+/// Decoded size of standard base64 text (padding and whitespace allowed), or `None` if invalid.
+fn base64_len(text: &str) -> Option<usize> {
+    let body: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let data: Vec<&char> = body.iter().take_while(|c| **c != '=').collect();
+    let padding = body.len() - data.len();
+    if padding > 2
+        || body[data.len()..].iter().any(|c| *c != '=')
+        || !data
+            .iter()
+            .all(|c| c.is_ascii_alphanumeric() || **c == '+' || **c == '/')
+        || data.len() % 4 == 1
+        || (padding > 0 && body.len() & 3 != 0)
+    {
+        return None;
+    }
+    Some(data.len() * 3 / 4)
+}
 
 fn process_element(
     name: &str,
@@ -331,6 +361,11 @@ fn process_element(
                 validate_attr: get_attr(e, "validate"),
                 ignore_transport: get_attr(e, "ignoreTransport"),
                 base_url: get_attr(e, "baseUrl"),
+                verify_host: get_attr(e, "verifyHost"),
+                refresh_delay_factor: get_attr(e, "refreshDelayFactor"),
+                min_cache_duration: get_attr(e, "minCacheDuration"),
+                max_cache_duration: get_attr(e, "maxCacheDuration"),
+                min_refresh_delay: get_attr(e, "minRefreshDelay"),
             };
             if is_empty {
                 // If there's a parent Chaining MP on the stack, increment its count
@@ -463,6 +498,7 @@ fn process_element(
                 .push(crate::model::shibboleth_config::DataSealerInfo {
                     sealer_type: get_attr(e, "type").unwrap_or_default(),
                     has_key: get_attr(e, "key").is_some(),
+                    key_bytes: get_attr(e, "key").and_then(|k| base64_len(&k)),
                     path: get_attr(e, "path"),
                     url: get_attr(e, "url"),
                     backing_file_path: get_attr(e, "backingFilePath"),
@@ -498,6 +534,7 @@ fn process_element(
                         is_passive: get_attr(e, "isPassive"),
                         force_authn: get_attr(e, "forceAuthn"),
                         redirect_to_ssl: get_attr(e, "redirectToSSL"),
+                        require_session_with: get_attr(e, "requireSessionWith"),
                     },
                 );
             }

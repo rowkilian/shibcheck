@@ -1299,6 +1299,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     super::acl::structure(config, &mut results);
     super::relying_party::structure(config, &mut results);
     check_unreliable_networks(config, &mut results);
+    check_static_sealer_key(config, &mut results);
+    check_refresh_settings(config, &mut results);
 
     results
 }
@@ -1351,6 +1353,128 @@ fn check_unreliable_networks(config: &DiscoveredConfig, results: &mut Vec<CheckR
             .at_element("SessionCache")
             .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
         );
+    }
+}
+
+/// XML-059: a Static DataSealer key is base64 text that decodes to 16, 24 or 32 bytes (AES-128/192/256).
+fn check_static_sealer_key(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for sealer in sc
+        .data_sealers
+        .iter()
+        .filter(|d| d.sealer_type == "Static" && d.has_key)
+    {
+        match sealer.key_bytes {
+            Some(16 | 24 | 32) => results.push(
+                CheckResult::pass(
+                    "XML-059",
+                    CAT,
+                    Severity::Error,
+                    "Static DataSealer key has a valid AES key size",
+                )
+                .at_element("DataSealer"),
+            ),
+            other => {
+                let problem = match other {
+                    Some(n) => format!("decodes to {n} bytes"),
+                    None => "is not valid base64".to_string(),
+                };
+                results.push(
+                    CheckResult::fail(
+                        "XML-059",
+                        CAT,
+                        Severity::Error,
+                        &format!("Static DataSealer key {problem}, but AES needs 16, 24 or 32 bytes"),
+                        Some("Generate a random key of 16, 24 or 32 bytes and base64-encode it, or switch to a Versioned DataSealer"),
+                    )
+                    .at_element("DataSealer")
+                    .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2070413452/StaticDataSealer"),
+                );
+            }
+        }
+    }
+}
+
+/// XML-060 and XML-061: `refreshDelayFactor` is strictly between 0 and 1, and a minimum
+/// delay or cache duration must not exceed its maximum.
+fn check_refresh_settings(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for mp in &sc.metadata_providers {
+        if let Some(factor) = mp.refresh_delay_factor.as_deref() {
+            let ok = factor
+                .trim()
+                .parse::<f64>()
+                .is_ok_and(|f| f > 0.0 && f < 1.0);
+            let message = format!(
+                "MetadataProvider type='{}'{} refreshDelayFactor=\"{}\"",
+                mp.provider_type,
+                mp.label(),
+                factor
+            );
+            results.push(if ok {
+                CheckResult::pass("XML-060", CAT, Severity::Error, &format!("{message} is between 0 and 1"))
+                    .at_element("MetadataProvider")
+            } else {
+                CheckResult::fail(
+                    "XML-060",
+                    CAT,
+                    Severity::Error,
+                    &format!("{message} is not a decimal between 0 and 1 (exclusive)"),
+                    Some("Use a value such as 0.75"),
+                )
+                .at_element("MetadataProvider")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696005/XMLMetadataProvider")
+            });
+        }
+        let pairs = [
+            (
+                "minRefreshDelay",
+                &mp.min_refresh_delay,
+                "maxRefreshDelay",
+                &mp.max_refresh_delay,
+            ),
+            (
+                "minCacheDuration",
+                &mp.min_cache_duration,
+                "maxCacheDuration",
+                &mp.max_cache_duration,
+            ),
+        ];
+        for (min_name, min, max_name, max) in pairs {
+            let (Some(min_text), Some(max_text)) = (min.as_deref(), max.as_deref()) else {
+                continue;
+            };
+            let (Ok(lo), Ok(hi)) = (
+                min_text.trim().parse::<u64>(),
+                max_text.trim().parse::<u64>(),
+            ) else {
+                continue;
+            };
+            let label = format!("MetadataProvider type='{}'{}", mp.provider_type, mp.label());
+            results.push(if lo <= hi {
+                CheckResult::pass(
+                    "XML-061",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{label} {min_name} does not exceed {max_name}"),
+                )
+                .at_element("MetadataProvider")
+            } else {
+                CheckResult::fail(
+                    "XML-061",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{label} sets {min_name}=\"{min_text}\" above {max_name}=\"{max_text}\""),
+                    Some("Lower the minimum or raise the maximum so the refresh interval has room to move"),
+                )
+                .at_element("MetadataProvider")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399841/MetadataProviderDynamicCommonAttributes")
+            });
+        }
     }
 }
 
@@ -1614,7 +1738,7 @@ fn check_signing_encryption_values(config: &DiscoveredConfig, results: &mut Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::config_from_xml;
+    use crate::testutil::{assert_outcome, config_from_xml};
 
     fn notify_results(notify: &str) -> Vec<CheckResult> {
         let xml = format!(
@@ -1799,5 +1923,67 @@ mod tests {
         assert_outcome(&run_nets("office"), "XML-054", false);
         let (_dir, config) = config_from_xml(&sp3_app("", ""));
         assert_absent(&run(&config), "XML-054");
+    }
+
+    #[test]
+    fn static_sealer_key_size() {
+        let run_key = |key: &str| {
+            let xml = crate::testutil::sp3_app(
+                "",
+                &format!(r#"<DataSealer type="Static" key="{key}"/>"#),
+            );
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+        };
+        // 16, 24 and 32 bytes
+        assert_outcome(&run_key("AAAAAAAAAAAAAAAAAAAAAA=="), "XML-059", true);
+        assert_outcome(
+            &run_key("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            "XML-059",
+            true,
+        );
+        assert_outcome(
+            &run_key("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+            "XML-059",
+            true,
+        );
+        // 12 bytes, and text that is not base64
+        assert_outcome(&run_key("AAAAAAAAAAAAAAAA"), "XML-059", false);
+        assert_outcome(&run_key("not base64!"), "XML-059", false);
+    }
+
+    #[test]
+    fn refresh_settings() {
+        let run_mp = |attrs: &str| {
+            let xml = crate::testutil::sp3_app(
+                "",
+                &format!(
+                    r#"<MetadataProvider type="XML" url="https://x.example.org/m.xml" {attrs}/>"#
+                ),
+            );
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+        };
+        assert_outcome(&run_mp(r#"refreshDelayFactor="0.75""#), "XML-060", true);
+        assert_outcome(&run_mp(r#"refreshDelayFactor="1""#), "XML-060", false);
+        assert_outcome(&run_mp(r#"refreshDelayFactor="0""#), "XML-060", false);
+        assert_outcome(&run_mp(r#"refreshDelayFactor="half""#), "XML-060", false);
+        assert_outcome(
+            &run_mp(r#"minRefreshDelay="600" maxRefreshDelay="3600""#),
+            "XML-061",
+            true,
+        );
+        assert_outcome(
+            &run_mp(r#"minRefreshDelay="7200" maxRefreshDelay="3600""#),
+            "XML-061",
+            false,
+        );
+        assert_outcome(
+            &run_mp(r#"minCacheDuration="9000" maxCacheDuration="60""#),
+            "XML-061",
+            false,
+        );
+        crate::testutil::assert_absent(&run_mp(r#"maxRefreshDelay="3600""#), "XML-061");
+        crate::testutil::assert_absent(&run_mp(""), "XML-060");
     }
 }

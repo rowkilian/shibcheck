@@ -5,6 +5,11 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **SEC-146**: `verifyHost="false"` on a `MDQ` or `Dynamic` metadata provider turns off the TLS host name check.
+- **SEC-147**: an ODBC `ConnectionString` that carries a password. The password is never stored or printed.
+- **XML-059**: a Static `DataSealer` key must be base64 that decodes to 16, 24 or 32 bytes.
+- **XML-060** / **XML-061**: `refreshDelayFactor` must be between 0 and 1, and a minimum refresh delay or cache duration must not exceed its maximum.
+- **REF-042**: `requireSessionWith` must name a `SessionInitiator` `id`.
 - **OPS-077**: Sessions `lifetime`/`timeout`/`maxTimeSinceAuthn` internal consistency check — warns when `maxTimeSinceAuthn` or `timeout` exceeds `lifetime`, since the session cannot outlive its absolute lifetime.
 - **OPS-078**: Transient `NameIDFormat` preference check — flags persistent, unspecified, X509SubjectName, kerberos, or WindowsDomainQualifiedName NameID requests, since transient is the recommended privacy default.
 - **REF-036**: Cross-file attribute coverage check — flags attributes declared in `attribute-map.xml` that have no matching rule in `attribute-policy.xml` (silently filtered out under deny-all).

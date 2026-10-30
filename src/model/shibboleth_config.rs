@@ -44,6 +44,8 @@ pub struct ShibbolethConfig {
     /// `id` of every <StorageService> element
     pub storage_service_ids: Vec<String>,
     pub data_sealers: Vec<DataSealerInfo>,
+    /// An ODBC `ConnectionString` embeds a password (the password itself is never stored).
+    pub odbc_connection_has_password: bool,
     pub session_cache: Option<SessionCacheInfo>,
     pub relying_parties: Vec<RelyingPartyInfo>,
     pub security_policy_provider_validate: Option<String>,
@@ -123,6 +125,11 @@ pub struct MetadataProvider {
     pub validate_attr: Option<String>,
     pub ignore_transport: Option<String>,
     pub base_url: Option<String>,
+    pub verify_host: Option<String>,
+    pub refresh_delay_factor: Option<String>,
+    pub min_cache_duration: Option<String>,
+    pub max_cache_duration: Option<String>,
+    pub min_refresh_delay: Option<String>,
 }
 
 impl MetadataProvider {
@@ -259,6 +266,9 @@ pub struct SessionCacheInfo {
 pub struct DataSealerInfo {
     pub sealer_type: String,
     pub has_key: bool,
+    /// Size of the `key` attribute after base64 decoding, or `None` when it isn't valid base64.
+    /// The key itself is never stored.
+    pub key_bytes: Option<usize>,
     pub path: Option<String>,
     pub url: Option<String>,
     pub backing_file_path: Option<String>,
@@ -289,4 +299,5 @@ pub struct ContentSetting {
     pub is_passive: Option<String>,
     pub force_authn: Option<String>,
     pub redirect_to_ssl: Option<String>,
+    pub require_session_with: Option<String>,
 }
