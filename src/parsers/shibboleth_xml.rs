@@ -165,6 +165,22 @@ fn process_element(
                 .site_use_headers
                 .push(get_attr(e, "id").unwrap_or_default());
         }
+        "RelyingParty" => {
+            config
+                .relying_parties
+                .push(crate::model::shibboleth_config::RelyingPartyInfo {
+                    name: get_attr(e, "Name"),
+                    matcher_type: get_attr(e, "type"),
+                    auth_type: get_attr(e, "authType"),
+                    has_auth_password: get_attr(e, "authPassword").is_some(),
+                    require_transport_auth: get_attr(e, "requireTransportAuth"),
+                    require_confidentiality: get_attr(e, "requireConfidentiality"),
+                    signing: get_attr(e, "signing"),
+                    encryption: get_attr(e, "encryption"),
+                    signing_alg: get_attr(e, "signingAlg"),
+                    digest_alg: get_attr(e, "digestAlg"),
+                });
+        }
         "SessionCache" | "ReplayCache" | "ArtifactMap" => {
             let element = match name {
                 "SessionCache" => "SessionCache",

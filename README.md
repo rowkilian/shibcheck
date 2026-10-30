@@ -116,7 +116,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-057)
+### XML Validity (XML-001 to XML-058)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -177,6 +177,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-055 | XML access control policy is well formed: one root rule, two or more children under `AND` / `OR`, one under `NOT` | Error |
 | XML-056 | Time access control values are valid (`operator`, `TimeSinceAuthn`, `Time`, `Hour`, `Month`, `DayOfWeek` and the other time rules) | Error |
 | XML-057 | Every `Rule` and `RuleRegex` has a `require` attribute | Error |
+| XML-058 | `RelyingParty` has a `Name` or a `type`, so it can match an IdP | Error |
 
 ### Cross-file References (REF-001 to REF-041)
 
@@ -223,7 +224,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-040 | `SessionCache` `persistedAttributes` has a `DataSealer` to encrypt the recovery cookie | Error |
 | REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
 
-### Security (SEC-001 to SEC-139)
+### Security (SEC-001 to SEC-145)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -365,6 +366,12 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-137 | No `NullSecurity` policy rule | Error |
 | SEC-138 | No policy rule sets `checkReplay="false"` | Warning |
 | SEC-139 | `SessionCache` does not enable session recovery (`persistedAttributes`), which skips the timeout and survives logout | Warning |
+| SEC-140 | `RelyingParty` does not set `requireTransportAuth="false"` | Warning |
+| SEC-141 | `RelyingParty` does not set `requireConfidentiality="false"` | Warning |
+| SEC-142 | `RelyingParty` does not use `authType="basic"` (cleartext password) | Info |
+| SEC-143 | `RelyingParty` keeps no `authPassword` in `shibboleth2.xml` | Warning |
+| SEC-144 | `RelyingParty` does not turn off `signing` or `encryption` | Warning |
+| SEC-145 | `RelyingParty` `signingAlg` / `digestAlg` do not use SHA-1 | Warning |
 
 ### Operational (OPS-001 to OPS-083)
 

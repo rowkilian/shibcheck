@@ -45,6 +45,7 @@ pub struct ShibbolethConfig {
     pub storage_service_ids: Vec<String>,
     pub data_sealers: Vec<DataSealerInfo>,
     pub session_cache: Option<SessionCacheInfo>,
+    pub relying_parties: Vec<RelyingPartyInfo>,
     pub security_policy_provider_validate: Option<String>,
     pub tcp_listener_address: Option<String>,
     pub request_map_application_ids: Vec<String>,
@@ -230,6 +231,21 @@ pub struct StorageReference {
     pub element: &'static str,
     pub attribute: &'static str,
     pub id: String,
+}
+
+/// A `<RelyingParty>` override. The password is never stored, only whether one is set.
+#[derive(Debug, Default)]
+pub struct RelyingPartyInfo {
+    pub name: Option<String>,
+    pub matcher_type: Option<String>,
+    pub auth_type: Option<String>,
+    pub has_auth_password: bool,
+    pub require_transport_auth: Option<String>,
+    pub require_confidentiality: Option<String>,
+    pub signing: Option<String>,
+    pub encryption: Option<String>,
+    pub signing_alg: Option<String>,
+    pub digest_alg: Option<String>,
 }
 
 #[derive(Debug)]

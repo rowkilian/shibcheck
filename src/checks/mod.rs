@@ -2,6 +2,7 @@ mod acl;
 pub mod cross_references;
 pub mod migration;
 pub mod operational;
+mod relying_party;
 pub mod security;
 pub mod xml_validity;
 

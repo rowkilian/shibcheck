@@ -41,9 +41,9 @@ EXIT CODES:
 
 CHECKS:
   330+ checks across five categories:
-    XML-001..057   XML validity and required elements
+    XML-001..058   XML validity and required elements
     REF-001..041   Cross-file reference validation
-    SEC-001..139   Security best practices
+    SEC-001..145   Security best practices
     MIG-001..024   SP2 to SP3 migration
     OPS-001..083   Operational best practices
 

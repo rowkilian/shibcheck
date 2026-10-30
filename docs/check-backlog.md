@@ -13,7 +13,6 @@ These came from a first pass over the docs. Each idea cites a page, but treat th
 | `MDQ` / `Dynamic` provider `verifyHost="false"` | MetadataProviderRemoteDynamicCommonAttributes (2067399842) | Needs parsing. |
 | ODBC `ConnectionString` containing a password | ODBCStorageService (2065334638) | Needs parsing. |
 | ODBC storage in use (SQL injection advisory for SP < 3.5.1) | SecurityAdvisories (2067399654) | The SP version is not visible in the config. |
-| `RelyingParty` / `authType="basic"` over cleartext; SEC-056 and SEC-057 for `RelyingParty` | RelyingParty (2065334363) | Needs a `RelyingParty` model. |
 | `SPConfig` `allowedSchemes` adding `javascript`, `data`, `file` | SPConfig (2063695926) | The page does not list risky schemes; keep severity low. |
 | `PKIX` / `StaticPKIX` trust engine in use, or no explicit trust engine | ReleaseNotes (2065335693), TrustEngine (2063695951) | Needs application-level `TrustEngine` parsing. |
 | `MetadataGenerator` handler signing with SHA-1 defaults | Metadata Generation Handler (2065334858) | Needs handler attributes. |
