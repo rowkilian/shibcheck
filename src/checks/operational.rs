@@ -147,6 +147,13 @@ fn describe_parent_metadata(sc: &ShibbolethConfig) -> String {
     )
 }
 
+/// The text of every `<!-- ... -->` comment in `xml`.
+fn comments(xml: &str) -> impl Iterator<Item = &str> {
+    xml.split("<!--")
+        .skip(1)
+        .map(|rest| rest.split("-->").next().unwrap_or(""))
+}
+
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     let mut results = Vec::new();
 
@@ -412,9 +419,23 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // OPS-007: idpHistory enabled without idpHistoryDays
+    // OPS-007: idpHistory enabled without idpHistoryDays, or the reverse
     if let Some(ref sessions) = sc.sessions {
-        if sessions.idp_history.as_deref().is_some_and(|v| v == "true") {
+        let enabled = sessions.idp_history.as_deref().is_some_and(|v| v == "true");
+        if !enabled && sessions.idp_history_days.is_some() {
+            results.push(
+                CheckResult::fail(
+                    "OPS-007",
+                    CAT,
+                    Severity::Info,
+                    "idpHistoryDays is set but idpHistory is not true, so it has no effect",
+                    Some("Set idpHistory=\"true\" on <Sessions>, or remove idpHistoryDays"),
+                )
+                .at_element("Sessions")
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+        if enabled {
             if sessions.idp_history_days.is_some() {
                 results.push(CheckResult::pass(
                     "OPS-007",
@@ -597,6 +618,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-014: No TransportOption TLS constraints configured
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         if content.contains("TransportOption") {
             results.push(CheckResult::pass(
                 "OPS-014",
@@ -620,6 +642,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-015: reloadChanges not set on external XML resources
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         // Check if any external resource references use reloadChanges
         if content.contains("reloadChanges=") {
             results.push(CheckResult::pass(
@@ -1063,8 +1086,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-031: DataSealer type="Static" (no key rotation for session recovery)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("DataSealer") && content.contains("type=\"Static\"") {
+    if !sc.data_sealers.is_empty() {
+        if sc.data_sealers.iter().any(|d| d.sealer_type == "Static") {
             results.push(
                 CheckResult::fail(
                     "OPS-031",
@@ -1075,7 +1098,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 )
                 .with_doc(DOC_SESSIONS),
             );
-        } else if content.contains("DataSealer") {
+        } else {
             results.push(CheckResult::pass(
                 "OPS-031",
                 CAT,
@@ -1722,8 +1745,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-054: No StorageService configured (in-memory session storage, lost on restart)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("StorageService") {
+    {
+        if !sc.storage_service_types.is_empty() {
             results.push(CheckResult::pass(
                 "OPS-054",
                 CAT,
@@ -1745,9 +1768,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-055: OutOfProcess/InProcess extensions not configured
-    if let Some(ref content) = config.shibboleth_xml_content {
-        let has_oop = content.contains("<OutOfProcess") || content.contains("< OutOfProcess");
-        let has_ip = content.contains("<InProcess") || content.contains("< InProcess");
+    {
+        let has_oop = sc.has_out_of_process;
+        let has_ip = sc.has_in_process;
         if has_oop || has_ip {
             let mut parts = Vec::new();
             if has_oop {
@@ -1777,8 +1800,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-056: No ReplayCache configured (assertion replay protection)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("ReplayCache") {
+    {
+        if sc.singleton_counts.contains_key("ReplayCache") {
             results.push(CheckResult::pass(
                 "OPS-056",
                 CAT,
@@ -1883,6 +1906,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-059: Logging configuration not present
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         let has_logging = content.contains("log4j")
             || content.contains("log4shib")
             || content.contains("Logging")
@@ -1969,8 +1993,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-062: ArtifactMap not configured (artifact resolution state not persistent)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("ArtifactMap") {
+    {
+        if sc.singleton_counts.contains_key("ArtifactMap") {
             results.push(CheckResult::pass(
                 "OPS-062",
                 CAT,
@@ -2121,6 +2145,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-067: No AccessControl elements configured
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         if content.contains("AccessControl") || content.contains("htaccess") {
             results.push(CheckResult::pass(
                 "OPS-067",
@@ -2349,14 +2374,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-075: Configuration contains TODO/FIXME comments (incomplete setup)
     if let Some(ref content) = config.shibboleth_xml_content {
-        let upper = content.to_uppercase();
-        let has_todo = upper.contains("TODO") || upper.contains("FIXME") || upper.contains("XXX");
+        // Only comments count, and only as whole words, so key material or host names
+        // that happen to contain "xxx" do not trip it.
+        let has_todo = comments(content).any(|c| {
+            c.split(|ch: char| !ch.is_ascii_alphanumeric())
+                .any(|w| matches!(w.to_ascii_uppercase().as_str(), "TODO" | "FIXME" | "XXX"))
+        });
         if has_todo {
             results.push(
                 CheckResult::fail(
                     "OPS-075",
                     CAT,
-                    Severity::Warning,
+                    Severity::Info,
                     "Configuration contains TODO/FIXME/XXX comments (may indicate incomplete setup)",
                     Some("Review and resolve all TODO/FIXME comments in the configuration before production deployment"),
                 )
@@ -2366,7 +2395,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             results.push(CheckResult::pass(
                 "OPS-075",
                 CAT,
-                Severity::Warning,
+                Severity::Info,
                 "No TODO/FIXME/XXX comments found in configuration",
             ));
         }
@@ -2463,6 +2492,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // Scans for explicit NameIDFormat requests in the config; transient is the recommended
     // default unless the deployment needs a correlatable identifier.
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         let non_transient_formats = [
             (
                 "persistent",
@@ -2530,158 +2560,78 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // OPS-032 to OPS-035: ApplicationOverride child element replacement checks
-    if let Some(ref content) = config.shibboleth_xml_content {
-        let mut current_override_id: Option<String> = None;
-        let mut has_sessions = false;
-        let mut has_errors = false;
-        let mut has_credential_resolver = false;
-        let mut has_metadata_provider = false;
-        let mut any_override_found = false;
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-
-            if let Some(pos) = trimmed.find("<ApplicationOverride") {
-                let rest = &trimmed[pos..];
-                let override_id = rest
-                    .find("id=\"")
-                    .and_then(|start| {
-                        let after = &rest[start + 4..];
-                        after.find('"').map(|end| after[..end].to_string())
-                    })
-                    .or_else(|| {
-                        rest.find("id='").and_then(|start| {
-                            let after = &rest[start + 4..];
-                            after.find('\'').map(|end| after[..end].to_string())
-                        })
-                    })
-                    .unwrap_or_else(|| "unknown".to_string());
-                current_override_id = Some(override_id);
-                has_sessions = false;
-                has_errors = false;
-                has_credential_resolver = false;
-                has_metadata_provider = false;
-                any_override_found = true;
-                if trimmed.contains("/>") {
-                    current_override_id = None;
-                }
-                continue;
+    // OPS-032 to OPS-035: an override's child element replaces the parent's, it is not merged
+    if !sc.overrides.is_empty() {
+        // (code, element, parent summary, effect, advice)
+        type Rule = (
+            &'static str,
+            &'static str,
+            fn(&ShibbolethConfig) -> String,
+            &'static str,
+            &'static str,
+        );
+        let rules: [Rule; 4] = [
+            (
+                "OPS-032",
+                "Sessions",
+                describe_parent_sessions,
+                "parent Sessions settings are replaced, not merged",
+                "None of these are inherited; set all required attributes in the override",
+            ),
+            (
+                "OPS-033",
+                "Errors",
+                describe_parent_errors,
+                "parent error config is replaced",
+                "These are lost in the override; replicate any needed attributes",
+            ),
+            (
+                "OPS-034",
+                "CredentialResolver",
+                describe_parent_credentials,
+                "parent credentials are replaced",
+                "The override must provide its own signing/encryption credentials",
+            ),
+            (
+                "OPS-035",
+                "MetadataProvider",
+                describe_parent_metadata,
+                "parent metadata sources are replaced",
+                "The override must include all required Identity Providers",
+            ),
+        ];
+        for (code, element, describe, effect, advice) in rules {
+            let mut any = false;
+            for ov in sc
+                .overrides
+                .iter()
+                .filter(|o| o.children.iter().any(|c| c == element))
+            {
+                any = true;
+                results.push(
+                    CheckResult::fail(
+                        code,
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "ApplicationOverride '{}' defines own <{element}>: {effect}",
+                            ov.id
+                        ),
+                        Some(&format!("Parent has {}. {advice}", describe(sc))),
+                    )
+                    .with_doc(DOC_APP_OVERRIDE),
+                );
             }
-
-            if current_override_id.is_some() {
-                if trimmed.contains("<Sessions") {
-                    has_sessions = true;
-                }
-                if trimmed.contains("<Errors") {
-                    has_errors = true;
-                }
-                if trimmed.contains("<CredentialResolver") {
-                    has_credential_resolver = true;
-                }
-                if trimmed.contains("<MetadataProvider") {
-                    has_metadata_provider = true;
-                }
-
-                if trimmed.contains("</ApplicationOverride") {
-                    let override_id = current_override_id.take().unwrap();
-
-                    if has_sessions {
-                        let parent_summary = describe_parent_sessions(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-032",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <Sessions> — parent Sessions settings are replaced, not merged", override_id),
-                                Some(&format!("Parent <Sessions> has {}. None of these are inherited — set all required attributes in the override", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                    if has_errors {
-                        let parent_summary = describe_parent_errors(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-033",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <Errors> — parent error config is replaced", override_id),
-                                Some(&format!("Parent <Errors> has {}. These are lost in the override — replicate any needed attributes", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                    if has_credential_resolver {
-                        let parent_summary = describe_parent_credentials(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-034",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <CredentialResolver> — parent credentials are replaced", override_id),
-                                Some(&format!("Parent has {}. The override must provide its own signing/encryption credentials", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                    if has_metadata_provider {
-                        let parent_summary = describe_parent_metadata(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-035",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <MetadataProvider> — parent metadata sources are replaced", override_id),
-                                Some(&format!("Parent has {}. The override must include all required Identity Providers", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                }
-            }
-        }
-
-        if any_override_found {
-            let ops032_emitted = results.iter().any(|r| r.code == "OPS-032");
-            if !ops032_emitted {
+            if !any {
                 results.push(CheckResult::pass(
-                    "OPS-032",
+                    code,
                     CAT,
                     Severity::Info,
-                    "No ApplicationOverride redefines <Sessions>",
-                ));
-            }
-            let ops033_emitted = results.iter().any(|r| r.code == "OPS-033");
-            if !ops033_emitted {
-                results.push(CheckResult::pass(
-                    "OPS-033",
-                    CAT,
-                    Severity::Info,
-                    "No ApplicationOverride redefines <Errors>",
-                ));
-            }
-            let ops034_emitted = results.iter().any(|r| r.code == "OPS-034");
-            if !ops034_emitted {
-                results.push(CheckResult::pass(
-                    "OPS-034",
-                    CAT,
-                    Severity::Info,
-                    "No ApplicationOverride redefines <CredentialResolver>",
-                ));
-            }
-            let ops035_emitted = results.iter().any(|r| r.code == "OPS-035");
-            if !ops035_emitted {
-                results.push(CheckResult::pass(
-                    "OPS-035",
-                    CAT,
-                    Severity::Info,
-                    "No ApplicationOverride redefines <MetadataProvider>",
+                    &format!("No ApplicationOverride redefines <{element}>"),
                 ));
             }
         }
     }
-
     // OPS-081 / OPS-082: SessionCache settings that conflict with other configuration
     if let Some(ref cache) = sc.session_cache {
         let reverse_index_off = cache.maintain_reverse_index.as_deref() == Some("false");
@@ -2807,6 +2757,68 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 mod tests {
     use super::*;
     use crate::testutil::{assert_outcome, config_from_xml};
+
+    fn run_top(top: &str, body: &str) -> Vec<CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth">{body}</ApplicationDefaults></SPConfig>"#
+        );
+        let (_dir, c) = config_from_xml(&xml);
+        run(&c)
+    }
+
+    #[test]
+    fn raw_text_checks_use_parsed_elements() {
+        // OPS-031: a Static elsewhere is not a Static sealer.
+        let r = run_top(
+            r#"<DataSealer type="Versioned" path="k"/>"#,
+            r#"<Sessions/><AccessControlProvider type="Static"/>"#,
+        );
+        assert_outcome(&r, "OPS-031", true);
+        // OPS-054: SessionCache type="StorageService" is not a StorageService.
+        assert_outcome(
+            &run_top(r#"<SessionCache type="StorageService"/>"#, "<Sessions/>"),
+            "OPS-054",
+            false,
+        );
+        assert_outcome(
+            &run_top(r#"<StorageService type="Memory" id="mem"/>"#, "<Sessions/>"),
+            "OPS-054",
+            true,
+        );
+        // Comments do not count.
+        let r = run_top(
+            "<!-- <ReplayCache/> <ArtifactMap/> <TransportOption/> <OutOfProcess/> -->",
+            "<Sessions/>",
+        );
+        for code in ["OPS-014", "OPS-055", "OPS-056", "OPS-062"] {
+            assert_outcome(&r, code, false);
+        }
+        // OPS-032: an override with its children on one line.
+        let r = run_top(
+            "",
+            r#"<Sessions/><ApplicationOverride id="one"><Sessions handlerSSL="false"/></ApplicationOverride>"#,
+        );
+        assert_outcome(&r, "OPS-032", false);
+        assert_outcome(&r, "OPS-033", true);
+        // OPS-075: comments only, whole words only.
+        assert_outcome(
+            &run_top("", r#"<Sessions cookieProps="xxx"/>"#),
+            "OPS-075",
+            true,
+        );
+        assert_outcome(
+            &run_top("<!-- TODO: finish -->", "<Sessions/>"),
+            "OPS-075",
+            false,
+        );
+        // OPS-007: idpHistoryDays without idpHistory.
+        assert_outcome(
+            &run_top("", r#"<Sessions idpHistoryDays="7"/>"#),
+            "OPS-007",
+            false,
+        );
+    }
 
     fn run_with_errors(attrs: &str) -> Vec<CheckResult> {
         let xml = format!(

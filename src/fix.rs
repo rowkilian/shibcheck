@@ -267,14 +267,9 @@ pub(crate) fn tag_name(tag: &str) -> &str {
 
 /// Byte range of the first start tag named `name`.
 fn find_start_tag(content: &str, name: &str) -> Option<(usize, usize)> {
-    start_tags(content).into_iter().find(|&(start, _)| {
-        let after_name = &content[start + 1..];
-        after_name.starts_with(name)
-            && after_name[name.len()..]
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_whitespace() || c == '>' || c == '/')
-    })
+    start_tags(content)
+        .into_iter()
+        .find(|&(start, end)| tag_name(&content[start..end]) == name)
 }
 
 /// Index just past the `>` that closes the tag starting at `start`.
@@ -381,11 +376,27 @@ pub(crate) fn set_attr(tag: &str, name: &str, value: &str) -> String {
     )
 }
 
+/// Remove an attribute. The whitespace before it goes too, except that newlines are kept
+/// so the tag still spans the same lines.
 pub(crate) fn remove_attr(tag: &str, name: &str) -> String {
-    match find_attr(tag, name) {
-        Some(span) => format!("{}{}", &tag[..span.full.0], &tag[span.full.1..]),
-        None => tag.to_string(),
-    }
+    let Some(span) = find_attr(tag, name) else {
+        return tag.to_string();
+    };
+    let before = &tag[span.full.0..];
+    let ws = &before[..before.len() - before.trim_start().len()];
+    let after = &tag[span.full.1..];
+    let keep = if !ws.contains('\n') {
+        ""
+    } else if after.starts_with(|c: char| c.is_whitespace())
+        && after.trim_start().len() < after.len()
+        && after[..after.len() - after.trim_start().len()].contains('\n')
+    {
+        // The next token brings its own line break and indent; keep only our newlines.
+        &ws[..ws.rfind('\n').map_or(0, |p| p + 1)]
+    } else {
+        ws
+    };
+    format!("{}{}{}", &tag[..span.full.0], keep, after)
 }
 
 /// Rename attribute `from` to `to`, keeping its value and quotes. `None` when `from` is
@@ -441,8 +452,12 @@ pub fn attach_edits(results: &mut [CheckResult], content: &str, file: &str, vers
         let [edit] = single.applied.as_slice() else {
             continue;
         };
-        let (start_line, start_column) = position(content, edit.start);
-        let (end_line, end_column) = position(content, edit.end);
+        // Narrow the edit to the part of the tag that changed, so unrelated attributes
+        // (which can hold a spoofKey or a password) stay out of the JSON and SARIF output.
+        let old = &content[edit.start..edit.end];
+        let (prefix, suffix) = common_affixes(old, &edit.new_text);
+        let (start_line, start_column) = position(content, edit.start + prefix);
+        let (end_line, end_column) = position(content, edit.end - suffix);
         r.fix = Some(FixEdit {
             description: edit.description.clone(),
             file: file.to_string(),
@@ -450,19 +465,91 @@ pub fn attach_edits(results: &mut [CheckResult], content: &str, file: &str, vers
             start_column,
             end_line,
             end_column,
-            new_text: edit.new_text.clone(),
+            new_text: edit.new_text[prefix..edit.new_text.len() - suffix].to_string(),
         });
     }
 }
 
-/// Render the changed lines as `-old` / `+new` pairs with line numbers.
+/// Lengths of the longest common prefix and suffix of two strings, on char boundaries,
+/// with the two never overlapping.
+fn common_affixes(old: &str, new: &str) -> (usize, usize) {
+    let prefix = old
+        .char_indices()
+        .zip(new.char_indices())
+        .take_while(|((_, a), (_, b))| a == b)
+        .last()
+        .map_or(0, |((i, a), _)| i + a.len_utf8());
+    let limit = old.len().min(new.len()) - prefix;
+    let suffix = old
+        .char_indices()
+        .rev()
+        .zip(new.char_indices().rev())
+        .take_while(|((i, a), (j, b))| a == b && old.len() - i <= limit && new.len() - j <= limit)
+        .last()
+        .map_or(0, |((i, _), _)| old.len() - i);
+    // Snap to attribute boundaries so a value is replaced whole ("false" to "true", not
+    // "fals" to "tru").
+    let boundary = |c: u8| matches!(c, b'"' | b'\'' | b' ' | b'\t' | b'\n' | b'\r');
+    let bytes = old.as_bytes();
+    let mut prefix = prefix;
+    while prefix > 0
+        && !boundary(bytes[prefix - 1])
+        && bytes.get(prefix).is_none_or(|c| !boundary(*c))
+    {
+        prefix -= 1;
+    }
+    let mut suffix = suffix.min(old.len() - prefix);
+    while suffix > 0 {
+        let at = old.len() - suffix;
+        let starts_on_quote = matches!(bytes[at], b'"' | b'\'');
+        let after_boundary = at > 0 && boundary(bytes[at - 1]);
+        if starts_on_quote || after_boundary {
+            break;
+        }
+        suffix -= 1;
+    }
+    (prefix, suffix)
+}
+
+/// Attributes whose values are secrets. Diff output replaces them with `***`.
+const SECRET_ATTRS: [&str; 4] = ["spoofKey", "authPassword", "password", "key"];
+
+fn redact_secrets(line: &str) -> String {
+    let mut out = line.to_string();
+    for attr in SECRET_ATTRS {
+        let mut from = 0;
+        while let Some(pos) = out[from..].find(&format!("{attr}=")) {
+            let eq = from + pos + attr.len() + 1;
+            let Some(quote) = out[eq..].chars().next().filter(|c| *c == '"' || *c == '\'') else {
+                from = eq;
+                continue;
+            };
+            let value_start = eq + 1;
+            let Some(len) = out[value_start..].find(quote) else {
+                break;
+            };
+            out.replace_range(value_start..value_start + len, "***");
+            from = value_start + 3;
+        }
+    }
+    out
+}
+
+/// Render the changed lines as `-old` / `+new` pairs with line numbers. Values of secret
+/// attributes on those lines are masked.
 ///
 /// Fixes never add or remove newlines, so the two texts line up one to one.
 pub fn render_diff(plan: &FixPlan) -> String {
     let mut out = String::new();
     for (n, (old, new)) in plan.original.lines().zip(plan.fixed.lines()).enumerate() {
         if old != new {
-            out.push_str(&format!("{:>5} - {}\n{:>5} + {}\n", n + 1, old, n + 1, new));
+            out.push_str(&format!(
+                "{:>5} - {}\n{:>5} + {}\n",
+                n + 1,
+                redact_secrets(old),
+                n + 1,
+                redact_secrets(new)
+            ));
         }
     }
     out
@@ -487,6 +574,10 @@ pub fn backup_path(path: &Path) -> PathBuf {
 /// The new file replaces the old one in a single rename, so a failure cannot leave
 /// a half-written config. Returns the backup path when one was made.
 pub fn write_plan(path: &Path, plan: &FixPlan, backup: bool) -> Result<Option<PathBuf>> {
+    // Follow symlinks so the real file changes and the link stays a link.
+    let resolved =
+        fs::canonicalize(path).with_context(|| format!("cannot resolve {}", path.display()))?;
+    let path = resolved.as_path();
     let backup_file = if backup {
         let target = backup_path(path);
         fs::write(&target, &plan.original)
@@ -517,6 +608,58 @@ mod tests {
     const ALL: &[&str] = &[
         "SEC-001", "SEC-002", "SEC-003", "SEC-131", "SEC-133", "SEC-134",
     ];
+
+    #[test]
+    fn removing_a_multiline_attribute_keeps_the_line_count() {
+        let xml = "<SPConfig xmlns=\"urn:mace:shibboleth:3.0:native:sp:config\">\n<ApplicationDefaults entityID=\"https://sp.example.org/shibboleth\">\n<Errors\n        externalParameters=\"true\"\n        supportContact=\"root@example.org\"/>\n</ApplicationDefaults></SPConfig>\n";
+        let p = plan(xml, &["SEC-131"], SpVersion::V3);
+        assert_eq!(p.applied.len(), 1);
+        assert_eq!(p.original.lines().count(), p.fixed.lines().count());
+        assert!(!p.fixed.contains("externalParameters"));
+        assert!(p.fixed.contains("supportContact"));
+        // The single-line form drops the attribute and its leading space.
+        assert_eq!(
+            remove_attr(
+                r#"<InProcess checkSpoofing="false" spoofKey="k"/>"#,
+                "checkSpoofing"
+            ),
+            r#"<InProcess spoofKey="k"/>"#
+        );
+    }
+
+    #[test]
+    fn namespace_prefixed_tags_are_fixed() {
+        let xml = "<conf:SPConfig xmlns:conf=\"urn:mace:shibboleth:3.0:native:sp:config\">\n<conf:ApplicationDefaults entityID=\"https://sp.example.org/shibboleth\">\n<conf:Sessions handlerSSL=\"false\"/>\n</conf:ApplicationDefaults></conf:SPConfig>\n";
+        let p = plan(xml, &["SEC-001"], SpVersion::V3);
+        assert_eq!(p.applied.len(), 1);
+        assert!(p.fixed.contains(r#"<conf:Sessions handlerSSL="true"/>"#));
+    }
+
+    #[test]
+    fn edits_cover_only_the_changed_attribute() {
+        let xml = "<SPConfig xmlns=\"urn:mace:shibboleth:3.0:native:sp:config\">\n<InProcess checkSpoofing=\"false\" spoofKey=\"SUPERSECRET\"/>\n<ApplicationDefaults entityID=\"https://sp.example.org/shibboleth\"><Sessions/></ApplicationDefaults></SPConfig>\n";
+        let mut results = vec![CheckResult::fail(
+            "SEC-133",
+            crate::result::CheckCategory::Security,
+            crate::result::Severity::Warning,
+            "InProcess checkSpoofing is disabled",
+            None,
+        )];
+        attach_edits(&mut results, xml, "shibboleth2.xml", SpVersion::V3);
+        let fix = results[0].fix.as_ref().expect("an edit");
+        assert!(!fix.new_text.contains("SUPERSECRET"), "{}", fix.new_text);
+        assert_eq!((fix.start_line, fix.end_line), (2, 2));
+        // The diff masks the key.
+        let p = plan(xml, &["SEC-133"], SpVersion::V3);
+        let diff = render_diff(&p);
+        assert!(diff.contains("spoofKey=\"***\""), "{diff}");
+        assert!(!diff.contains("SUPERSECRET"));
+        assert_eq!(common_affixes(r#"a="false"/>"#, r#"a="true"/>"#), (3, 3));
+        assert_eq!(
+            common_affixes("<S a=\"1\"/>", "<S b=\"2\" a=\"1\"/>"),
+            (3, 7)
+        );
+    }
 
     fn fix(xml: &str, codes: &[&str], v: SpVersion) -> FixPlan {
         plan(xml, codes, v)
@@ -672,11 +815,12 @@ mod tests {
         ];
         attach_edits(&mut results, xml, "shibboleth2.xml", SpVersion::V3);
         let e = results[0].fix.as_ref().unwrap();
-        assert_eq!((e.start_line, e.start_column), (2, 3));
-        assert_eq!((e.end_line, e.end_column), (2, 27));
-        assert_eq!(e.new_text, r#"<Sessions handlerSSL="true" lifetime="1"/>"#);
-        // SEC-002 is planned alone, so its edit also starts at the original tag
-        assert_eq!(results[1].fix.as_ref().unwrap().start_column, 3);
+        // The edit covers only the inserted attribute, just after the element name.
+        assert_eq!((e.start_line, e.start_column), (2, 13));
+        assert_eq!((e.end_line, e.end_column), (2, 13));
+        assert_eq!(e.new_text, r#"handlerSSL="true" "#);
+        // SEC-002 is planned alone, so its edit also sits in the original tag
+        assert_eq!(results[1].fix.as_ref().unwrap().start_line, 2);
         assert!(results[2].fix.is_none());
         assert!(results[3].fix.is_none());
     }

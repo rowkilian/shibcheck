@@ -670,10 +670,12 @@ fn json_and_sarif_carry_the_fix_edit() {
         .find(|r| r["code"] == "SEC-001" && r["passed"] == false)
         .expect("insecure fixture fails SEC-001");
     let fix = &sec001["fix"];
-    assert!(fix["new_text"]
-        .as_str()
-        .unwrap()
-        .contains("handlerSSL=\"true\""));
+    // The edit covers only the changed attribute, not the whole tag.
+    let text = fix["new_text"].as_str().unwrap();
+    assert!(
+        text.contains("true") && !text.contains("<Sessions"),
+        "{text}"
+    );
     assert_eq!(fix["file"], "shibboleth2.xml");
 
     let out = shibcheck()
@@ -689,10 +691,11 @@ fn json_and_sarif_carry_the_fix_edit() {
         .unwrap();
     let replacement = &result["fixes"][0]["artifactChanges"][0]["replacements"][0];
     assert!(replacement["deletedRegion"]["startLine"].as_u64().unwrap() > 0);
-    assert!(replacement["insertedContent"]["text"]
-        .as_str()
-        .unwrap()
-        .starts_with("<Sessions"));
+    let inserted = replacement["insertedContent"]["text"].as_str().unwrap();
+    assert!(
+        inserted.contains("true") && !inserted.contains("<Sessions"),
+        "{inserted}"
+    );
 
     // A passing config has no fixes to offer
     let out = shibcheck()

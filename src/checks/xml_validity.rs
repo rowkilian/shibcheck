@@ -605,7 +605,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-027: SSO protocol text is valid (SAML2/SAML1/empty)
         if let Some(ref sessions) = sc.sessions {
             if let Some(ref protocols) = sessions.sso_protocols {
-                let valid = ["SAML2", "SAML1"];
+                let valid = ["SAML2", "SAML1", "ADFS"];
                 let parts: Vec<&str> = protocols.split_whitespace().collect();
                 let all_valid = parts.iter().all(|p| valid.contains(p));
                 if all_valid {
@@ -633,7 +633,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-028: Logout protocol text is valid (SAML2/Local/empty)
         if let Some(ref sessions) = sc.sessions {
             if let Some(ref protocols) = sessions.logout_protocols {
-                let valid = ["SAML2", "Local"];
+                let valid = ["SAML2", "ADFS", "Local"];
                 let parts: Vec<&str> = protocols.split_whitespace().collect();
                 let all_valid = parts.iter().all(|p| valid.contains(p));
                 if all_valid {
@@ -661,7 +661,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-029: MetadataProvider has a source (path/url/uri/sourceDirectory)
         for mp in &sc.metadata_providers {
             // Chaining has child providers; Dynamic names its sources in Subst/Regex children
-            if mp.provider_type == "Chaining" || mp.provider_type == "Dynamic" {
+            // A Null provider takes no source at all.
+            if matches!(mp.provider_type.as_str(), "Chaining" | "Dynamic" | "Null") {
                 continue;
             }
             let has_source = if mp.provider_type == "MDQ" {
@@ -921,6 +922,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "NameIDFormat",
                 "Predicate",
                 "Algorithm",
+                "UIInfo",
+                "InlineLogo",
             ];
             for mp in &sc.metadata_providers {
                 for filter in &mp.filters {
@@ -1038,7 +1041,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-039: SSO discoveryProtocol not a recognized value
         if let Some(ref sessions) = sc.sessions {
             if let Some(ref proto) = sessions.sso_discovery_protocol {
-                if proto == "SAMLDS" {
+                if proto == "SAMLDS" || proto == "WAYF" {
                     results.push(CheckResult::pass(
                         "XML-039",
                         CAT,
@@ -1083,7 +1086,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     CheckResult::fail(
                         "XML-041",
                         CAT,
-                        Severity::Warning,
+                        Severity::Info,
                         &format!(
                             "ApplicationOverride '{}' has no entityID attribute",
                             id
@@ -1096,7 +1099,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 results.push(CheckResult::pass(
                     "XML-041",
                     CAT,
-                    Severity::Warning,
+                    Severity::Info,
                     &format!("ApplicationOverride '{}' has entityID set", id),
                 ));
             }
@@ -1157,7 +1160,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
         // XML-044: MetadataProvider has no validate attribute (schema validation off)
         for mp in &sc.metadata_providers {
-            if mp.provider_type == "Chaining" {
+            // Chaining has no document of its own and Null loads nothing.
+            if matches!(mp.provider_type.as_str(), "Chaining" | "Null") {
                 continue;
             }
             if mp.validate_attr.is_some() {
@@ -1215,7 +1219,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
         // XML-046: requireSession="true" without authType="shibboleth" (SP ignores resource)
         for cs in &sc.request_map_content_settings {
-            if cs.require_session.as_deref() == Some("true") && cs.auth_type.is_none() {
+            // IIS does not use authType; the setting matters for Apache.
+            if cs.require_session.as_deref() == Some("true")
+                && cs.auth_type.is_none()
+                && !sc.has_isapi
+            {
                 results.push(
                     CheckResult::fail(
                         "XML-046",
@@ -1697,31 +1705,49 @@ fn check_credential_use(config: &DiscoveredConfig, results: &mut Vec<CheckResult
     }
 }
 
-/// XML-053: `signing` and `encryption` on ApplicationDefaults take one of five values.
+/// XML-053: `signing` and `encryption` take one of five values, wherever they appear.
 fn check_signing_encryption_values(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
-    let Some(defaults) = config
-        .shibboleth_config
-        .as_ref()
-        .and_then(|sc| sc.application_defaults.as_ref())
-    else {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
         return;
     };
-    for (name, value) in [
-        ("signing", defaults.signing.as_deref()),
-        ("encryption", defaults.encryption.as_deref()),
-    ] {
-        let Some(value) = value else {
-            continue;
+    // (element for the line number, owner shown in the message, attribute, value)
+    let mut settings: Vec<(&'static str, String, &str, &str)> = Vec::new();
+    if let Some(defaults) = sc.application_defaults.as_ref() {
+        for (name, value) in [
+            ("signing", &defaults.signing),
+            ("encryption", &defaults.encryption),
+        ] {
+            if let Some(v) = value.as_deref() {
+                settings.push(("ApplicationDefaults", "ApplicationDefaults".into(), name, v));
+            }
+        }
+    }
+    for rp in &sc.relying_parties {
+        let owner = match rp.name.as_deref() {
+            Some(n) => format!("RelyingParty Name=\"{n}\""),
+            None => "RelyingParty".to_string(),
         };
+        for (name, value) in [("signing", &rp.signing), ("encryption", &rp.encryption)] {
+            if let Some(v) = value.as_deref() {
+                settings.push(("RelyingParty", owner.clone(), name, v));
+            }
+        }
+    }
+    for li in &sc.logout_initiators {
+        if let Some(v) = li.signing.as_deref() {
+            settings.push(("LogoutInitiator", "LogoutInitiator".into(), "signing", v));
+        }
+    }
+    for (element, owner, name, value) in settings {
         if ["conditional", "true", "false", "front", "back"].contains(&value) {
             results.push(
                 CheckResult::pass(
                     "XML-053",
                     CAT,
                     Severity::Warning,
-                    &format!("{}=\"{}\" is a recognized value", name, value),
+                    &format!("{owner} {name}=\"{value}\" is a recognized value"),
                 )
-                .at_element("ApplicationDefaults"),
+                .at_element(element),
             );
         } else {
             results.push(
@@ -1729,10 +1755,10 @@ fn check_signing_encryption_values(config: &DiscoveredConfig, results: &mut Vec<
                     "XML-053",
                     CAT,
                     Severity::Warning,
-                    &format!("{}=\"{}\" is not a recognized value", name, value),
+                    &format!("{owner} {name}=\"{value}\" is not a recognized value"),
                     Some("Use one of conditional, true, false, front or back"),
                 )
-                .at_element("ApplicationDefaults")
+                .at_element(element)
                 .with_doc(DOC_SIGNING_ENCRYPTION),
             );
         }
@@ -1743,6 +1769,47 @@ fn check_signing_encryption_values(config: &DiscoveredConfig, results: &mut Vec<
 mod tests {
     use super::*;
     use crate::testutil::{assert_outcome, config_from_xml};
+
+    #[test]
+    fn protocol_lists_accept_adfs_and_null_providers_need_no_source() {
+        use crate::testutil::{assert_absent, sp3_app};
+        let (_dir, c) = config_from_xml(&sp3_app(
+            "",
+            r#"<Sessions><SSO>SAML2 ADFS</SSO><Logout>SAML2 ADFS Local</Logout></Sessions>
+<MetadataProvider type="Null"/>
+<RelyingParty Name="https://idp.example.org/idp" signing="always"/>
+<RelyingParty Name="https://idp2.example.org/idp" encryption="front"/>"#,
+        ));
+        let r = run(&c);
+        assert_outcome(&r, "XML-027", true);
+        assert_outcome(&r, "XML-028", true);
+        assert_absent(&r, "XML-029");
+        assert_absent(&r, "XML-044");
+        let xml053 = crate::testutil::with_code(&r, "XML-053");
+        assert_eq!(xml053.len(), 2);
+        assert!(xml053
+            .iter()
+            .any(|x| !x.passed && x.message.contains("always")));
+        assert!(xml053
+            .iter()
+            .any(|x| x.passed && x.message.contains("front")));
+    }
+
+    #[test]
+    fn require_session_without_auth_type_is_fine_on_iis() {
+        use crate::testutil::assert_absent;
+        let cfg = |top: &str| {
+            format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions/></ApplicationDefaults>
+<RequestMapper type="Native"><RequestMap><Host name="a.example.org" requireSession="true"/></RequestMap></RequestMapper></SPConfig>"#
+            )
+        };
+        let (_dir, c) = config_from_xml(&cfg("<InProcess><ISAPI/></InProcess>"));
+        assert_absent(&run(&c), "XML-046");
+        let (_dir, c) = config_from_xml(&cfg(""));
+        assert_outcome(&run(&c), "XML-046", false);
+    }
 
     fn notify_results(notify: &str) -> Vec<CheckResult> {
         let xml = format!(

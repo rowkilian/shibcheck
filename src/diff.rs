@@ -47,20 +47,45 @@ pub fn run(dir1: &Path, dir2: &Path, check_remote: bool) {
 
     let mut changes = 0;
     for code in &all_codes {
-        let r1 = map1.get(*code);
-        let r2 = map2.get(*code);
-        match (r1, r2) {
-            (Some(a), Some(b)) if a.passed != b.passed => {
-                changes += 1;
-                let arrow = if b.passed {
-                    format!("{} → {}", status_label(a), "PASS".green().bold())
-                } else {
-                    format!("{} → {}", status_label(a), fail_label(b.severity))
-                };
-                println!("  {} [{}] {}", arrow, code.dimmed(), b.message);
-            }
-            _ => {}
+        let (a, b) = (map1.get(*code), map2.get(*code));
+        // A code can report several elements; compare the whole set, not the first result.
+        fn outcomes<'a>(rs: Option<&Vec<&'a CheckResult>>) -> Vec<(bool, &'a str)> {
+            let mut v: Vec<(bool, &str)> = rs
+                .map(|rs| rs.iter().map(|r| (r.passed, r.message.as_str())).collect())
+                .unwrap_or_default();
+            v.sort_unstable();
+            v
         }
+        if outcomes(a) == outcomes(b) {
+            continue;
+        }
+        changes += 1;
+        let label = |rs: Option<&Vec<&CheckResult>>| match rs {
+            None => "none".dimmed(),
+            Some(rs) => match rs.iter().find(|r| !r.passed) {
+                Some(worst) => fail_label(
+                    rs.iter()
+                        .filter(|r| !r.passed)
+                        .map(|r| r.severity)
+                        .max()
+                        .unwrap_or(worst.severity),
+                ),
+                None => "PASS".green().bold(),
+            },
+        };
+        let message = b
+            .and_then(|rs| rs.iter().find(|r| !r.passed))
+            .or_else(|| a.and_then(|rs| rs.iter().find(|r| !r.passed)))
+            .or_else(|| b.and_then(|rs| rs.first()))
+            .or_else(|| a.and_then(|rs| rs.first()))
+            .map_or("", |r| r.message.as_str());
+        println!(
+            "  {} → {} [{}] {}",
+            label(a),
+            label(b),
+            code.dimmed(),
+            message
+        );
     }
 
     if changes == 0 {
@@ -70,20 +95,15 @@ pub fn run(dir1: &Path, dir2: &Path, check_remote: bool) {
     }
 }
 
-fn results_by_code(results: &[CheckResult]) -> std::collections::HashMap<String, &CheckResult> {
-    let mut map = std::collections::HashMap::new();
+fn results_by_code(
+    results: &[CheckResult],
+) -> std::collections::HashMap<String, Vec<&CheckResult>> {
+    let mut map: std::collections::HashMap<String, Vec<&CheckResult>> =
+        std::collections::HashMap::new();
     for r in results {
-        map.entry(r.code.clone()).or_insert(r);
+        map.entry(r.code.clone()).or_default().push(r);
     }
     map
-}
-
-fn status_label(r: &CheckResult) -> colored::ColoredString {
-    if r.passed {
-        "PASS".green().bold()
-    } else {
-        fail_label(r.severity)
-    }
 }
 
 fn fail_label(severity: Severity) -> colored::ColoredString {

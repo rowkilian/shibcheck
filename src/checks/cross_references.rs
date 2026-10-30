@@ -22,6 +22,8 @@ const REMOTE_BODY_LIMIT: u64 = 64 * 1024 * 1024;
 // Shibboleth SP3 documentation URLs
 const DOC_CREDENTIAL_RESOLVER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver";
+const DOC_SESSIONS: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions";
 const DOC_METADATA_PROVIDER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider";
 const DOC_METADATA_FILTER: &str =
@@ -374,10 +376,14 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
 
     // REF-010: Local metadata files contain valid SAML root element
     for mp in &sc.metadata_providers {
+        // A Folder provider's path is a directory, not a metadata file.
+        if mp.provider_type == "Folder" {
+            continue;
+        }
         if let Some(ref path) = mp.path {
             if !path.starts_with("http://") && !path.starts_with("https://") {
                 let full_path = config.base_dir.join(path);
-                if full_path.exists() {
+                if full_path.is_file() {
                     check_local_metadata_saml(&full_path, path, &mut results, v);
                 }
             }
@@ -797,35 +803,32 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     }
 
     // REF-022: postTemplate file path doesn't exist
-    if let Some(ref content) = config.shibboleth_xml_content {
-        // Scan for postTemplate="..." in raw XML
-        if let Some(start) = content.find("postTemplate=\"") {
-            let rest = &content[start + 14..];
-            if let Some(end) = rest.find('"') {
-                let template_path = &rest[..end];
-                if !template_path.is_empty() {
-                    let full_path = config.base_dir.join(template_path);
-                    if full_path.exists() {
-                        results.push(CheckResult::pass(
-                            "REF-022",
-                            CAT,
-                            Severity::Info,
-                            &format!("postTemplate file exists: {}", template_path),
-                        ));
-                    } else {
-                        results.push(
-                            CheckResult::fail(
-                                "REF-022",
-                                CAT,
-                                Severity::Info,
-                                &format!("postTemplate file not found: {}", template_path),
-                                Some("Ensure the postTemplate file path is correct and the file exists"),
-                            )
-                            .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
-                        );
-                    }
-                }
-            }
+    if let Some(template_path) = sc
+        .sessions
+        .as_ref()
+        .and_then(|s| s.post_template.as_deref())
+        .filter(|t| !t.is_empty())
+    {
+        let full_path = config.base_dir.join(template_path);
+        if full_path.exists() {
+            results.push(CheckResult::pass(
+                "REF-022",
+                CAT,
+                Severity::Info,
+                &format!("postTemplate file exists: {}", template_path),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-022",
+                    CAT,
+                    Severity::Info,
+                    &format!("postTemplate file not found: {}", template_path),
+                    Some("Ensure the postTemplate file path is correct and the file exists"),
+                )
+                .at_element("Sessions")
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
         }
     }
 
@@ -1087,6 +1090,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     if let (Some(ref map), Some(ref content)) =
         (&config.attribute_map, &config.shibboleth_xml_content)
     {
+        let content = &super::without_comments(content);
         // Look for persistent NameID source configuration in shibboleth2.xml:
         //   <SSO ... nameIdSources="..."/>  or  attribute references for persistent IDs.
         // A broad heuristic: scan for `source` attributes on persistent-id generators.
@@ -1653,7 +1657,29 @@ fn check_storage_references(
         ("postData", sessions.post_data.as_deref()),
         ("relayState", sessions.relay_state.as_deref()),
     ] {
-        let Some(id) = value.and_then(|v| v.strip_prefix("ss:")) else {
+        let Some(value) = value else {
+            continue;
+        };
+        // relayState also takes "cookie" or "cookie:<n>"; postData must name a store.
+        if attr == "relayState"
+            && (value == "cookie"
+                || value
+                    .strip_prefix("cookie:")
+                    .is_some_and(|n| n.parse::<u32>().is_ok()))
+        {
+            continue;
+        }
+        let Some(id) = value.strip_prefix("ss:") else {
+            results.push(
+                CheckResult::fail(
+                    "REF-038",
+                    CAT,
+                    Severity::Error,
+                    &format!("{attr}=\"{value}\" must take the form ss:<id> of a StorageService"),
+                    Some("Point the setting at a <StorageService> id, such as ss:mem"),
+                )
+                .at_element("Sessions"),
+            );
             continue;
         };
         if storage_id_defined(sc, id) {
@@ -2062,6 +2088,30 @@ mod tests {
             false,
         );
         assert_absent(&run_storage(r#"relayState="cookie""#, ""), "REF-038");
+    }
+
+    #[test]
+    fn post_data_must_name_a_store() {
+        use crate::testutil::assert_absent;
+        assert_outcome(&run_storage(r#"postData="mem""#, ""), "REF-038", false);
+        assert_absent(&run_storage(r#"relayState="cookie:2""#, ""), "REF-038");
+        assert_outcome(&run_storage(r#"relayState="other""#, ""), "REF-038", false);
+    }
+
+    #[test]
+    fn post_template_in_a_comment_and_folder_providers_are_ignored() {
+        use crate::testutil::assert_absent;
+        let r = run_storage(
+            "",
+            r#"<!-- <Sessions postTemplate="commented.html"/> --><MetadataProvider type="Folder" path="metadir"/>"#,
+        );
+        assert_absent(&r, "REF-022");
+        assert_absent(&r, "REF-010");
+        assert_outcome(
+            &run_storage(r#"postTemplate="missing.html""#, ""),
+            "REF-022",
+            false,
+        );
     }
 
     #[test]

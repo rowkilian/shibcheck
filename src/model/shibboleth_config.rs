@@ -36,6 +36,8 @@ pub struct ShibbolethConfig {
     pub sso_authn_context_comparison: Option<String>,
     pub in_process_check_spoofing: Option<String>,
     pub isapi_normalize_request: Option<String>,
+    /// An `<ISAPI>` element is present (IIS deployment).
+    pub has_isapi: bool,
     pub isapi_use_headers: Option<String>,
     /// `id` of each IIS <Site> with useHeaders="true" (empty if it has no id)
     pub site_use_headers: Vec<String>,
@@ -56,6 +58,10 @@ pub struct ShibbolethConfig {
     pub storage_service_types: Vec<String>,
     /// `<OutOfProcess>` is present.
     pub has_out_of_process: bool,
+    /// `<InProcess>` is present.
+    pub has_in_process: bool,
+    /// Each `<ApplicationOverride>` with the names of its direct child elements.
+    pub overrides: Vec<OverrideInfo>,
     pub out_of_process_tran_log_format: Option<String>,
     pub out_of_process_catch_all: Option<String>,
     pub in_process_catch_all: Option<String>,
@@ -287,6 +293,13 @@ pub struct SessionInitiatorInfo {
     pub depth: usize,
     /// Number of `<SessionInitiator>` elements directly inside this one.
     pub children: usize,
+}
+
+/// An `<ApplicationOverride>` and what it redefines.
+#[derive(Debug, Default)]
+pub struct OverrideInfo {
+    pub id: String,
+    pub children: Vec<String>,
 }
 
 /// A `<Library>` extension.

@@ -393,6 +393,28 @@ fn locate_handler(xml: &str, message: &str) -> Option<usize> {
     find_element_line(xml, "Handler", None, None)
 }
 
+/// The XML text with every `<!-- ... -->` comment removed, for checks that still scan
+/// raw text. Line breaks inside comments are kept so line numbers stay valid.
+pub(crate) fn without_comments(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    while let Some(start) = rest.find("<!--") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 4..];
+        match after.find("-->") {
+            Some(end) => {
+                out.extend(after[..end].chars().filter(|c| *c == '\n'));
+                rest = &after[end + 3..];
+            }
+            None => {
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Line of the first `<element attr="value">` where `attr="value"` is quoted verbatim in
 /// the message, falling back to the first `<element>`.
 fn locate_by_quoted_attr(xml: &str, element: &str, attr: &str, message: &str) -> Option<usize> {

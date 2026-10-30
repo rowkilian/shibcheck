@@ -369,6 +369,21 @@ fn run_migrate(base_dir: &std::path::Path, opts: &MigrateOptions) -> i32 {
             eprintln!("Error: cannot create {}: {}", dir.display(), e);
             return 2;
         }
+        // --output writes without a backup, so it must not land on the originals.
+        let out = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let clobbers = changed.iter().any(|f| {
+            f.path
+                .parent()
+                .and_then(|p| std::fs::canonicalize(p).ok())
+                .is_some_and(|p| p == out)
+        });
+        if clobbers {
+            eprintln!(
+                "Error: --output {} is the directory of the original files; omit --output to migrate in place with a backup",
+                dir.display()
+            );
+            return 2;
+        }
         for f in &changed {
             let target = dir.join(f.path.file_name().unwrap_or_default());
             if let Err(e) = std::fs::write(&target, &f.migration.plan.fixed) {
@@ -587,7 +602,10 @@ fn run_multi(cli: &Cli, dirs: &[PathBuf]) {
                     continue;
                 }
             };
-        let baseline = rc.baseline.as_ref().map(|b| base_dir.join(b));
+        let baseline = cli
+            .baseline
+            .clone()
+            .or_else(|| rc.baseline.as_ref().map(|b| base_dir.join(b)));
         let results = match hide_accepted(results, &discovered, baseline.as_deref(), cli.no_ignore)
         {
             Ok(r) => r,

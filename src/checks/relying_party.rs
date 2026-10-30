@@ -44,8 +44,30 @@ pub fn structure(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
         return;
     };
     for rp in &sc.relying_parties {
-        let ok = rp.name.is_some() || rp.matcher_type.is_some();
         let cat = CheckCategory::XmlValidity;
+        // The EntityMatcher types the SP ships with.
+        if let Some(kind) = rp
+            .matcher_type
+            .as_deref()
+            .filter(|t| !matches!(*t, "Name" | "EntityAttributes" | "RegistrationAuthority"))
+        {
+            results.push(
+                CheckResult::fail(
+                    "XML-058",
+                    cat,
+                    Severity::Error,
+                    &format!(
+                        "{} has type=\"{kind}\", which is not an EntityMatcher type",
+                        label(rp)
+                    ),
+                    Some("Use Name, EntityAttributes or RegistrationAuthority"),
+                )
+                .with_location(&file(config), locate(config, rp))
+                .with_doc(DOC),
+            );
+            continue;
+        }
+        let ok = rp.name.is_some() || rp.matcher_type.is_some();
         if ok {
             results.push(
                 CheckResult::pass(
@@ -192,7 +214,8 @@ mod tests {
             "XML-058",
             true,
         );
-        assert_outcome(&run_rp(r#"type="Whatever""#), "XML-058", true);
+        assert_outcome(&run_rp(r#"type="EntityAttributes""#), "XML-058", true);
+        assert_outcome(&run_rp(r#"type="Whatever""#), "XML-058", false);
         assert_outcome(&run_rp(r#"authType="basic""#), "XML-058", false);
     }
 

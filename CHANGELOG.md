@@ -20,6 +20,13 @@ All notable changes to shibcheck are documented in this file.
 - `docs/check-backlog.md` gained a second pass over the SP3 documentation with about 140 further leads.
 
 ### Changed
+- The parser now keeps an `ApplicationOverride`'s `SSO`, `Logout`, `Errors` and protocol text apart from the defaults, and joins protocol text split by a comment. Several checks (XML-022/023/027/028/032/050/077, OPS-057/058/089 and others) misreported when an override existed.
+- `fix`: removing a multi-line attribute keeps the line count; namespace-prefixed tags (`<conf:Sessions>`) are found; the JSON and SARIF edit covers only the changed attribute, so unrelated values such as `spoofKey` stay out of the output; the dry-run diff masks `spoofKey`, `authPassword`, `password` and `key` values; writing follows symlinks instead of replacing them.
+- `migrate --output` refuses a directory that holds the originals, since it writes without a backup.
+- `multi` honours `--baseline`.
+- `diff` compares every result of a code, not only the first, and reports codes present on one side.
+- OPS-007 also reports `idpHistoryDays` without `idpHistory`; REF-038 reports `postData` values that are not `ss:<id>`; XML-027/028 accept `ADFS`; XML-029 and XML-044 skip `Null` providers; XML-035 knows `UIInfo` and `InlineLogo`; XML-039 accepts `WAYF`; XML-041 is Info; XML-046 is skipped on IIS; XML-053 also validates `RelyingParty` and `LogoutInitiator` values; XML-058 rejects unknown `RelyingParty` types.
+- OPS-014/015/031/032..035/054/055/056/059/062/067/075/078, REF-010/022/037 no longer scan raw text that comments or unrelated elements could match; OPS-075 is Info and looks at comments only.
 - **SEC-121** now reads the parsed `catchAll` attribute on both `OutOfProcess` and `InProcess` instead of searching the file text, and names the element.
 - **SEC-055** suggests a `TrustEngine` instead of just removing `ignoreTransport` on `MDQ` and `Dynamic` providers, since those need one (XML-074).
 - Messages about `MDQ` providers now show the `baseUrl`.

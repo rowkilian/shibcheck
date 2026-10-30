@@ -57,16 +57,25 @@ impl ParseState {
         }
     }
 
+    /// Record the protocol list of the defaults' `<SSO>` or `<Logout>`. Text arrives in
+    /// chunks when a comment sits inside the element, so chunks are joined.
     fn set_protocols(&mut self, target: &str, text: String) {
         if text.split_whitespace().any(|p| p == "ADFS") {
             self.config.uses_adfs = true;
         }
+        if !self.override_ids.is_empty() {
+            return;
+        }
         if let Some(ref mut sessions) = self.config.sessions {
-            match target {
-                "SSO" => sessions.sso_protocols = Some(text),
-                "Logout" => sessions.logout_protocols = Some(text),
-                _ => {}
-            }
+            let slot = match target {
+                "SSO" => &mut sessions.sso_protocols,
+                "Logout" => &mut sessions.logout_protocols,
+                _ => return,
+            };
+            *slot = Some(match slot.take() {
+                Some(prev) => format!("{prev} {text}"),
+                None => text,
+            });
         }
     }
 }
@@ -186,6 +195,11 @@ fn process_element(
             filter.child_names.push(name.to_string());
         }
     }
+    if parent_is(stack, "ApplicationOverride") {
+        if let Some(ov) = config.overrides.last_mut() {
+            ov.children.push(name.to_string());
+        }
+    }
     if get_attr(e, "type").as_deref() == Some("ADFS")
         || get_attr(e, "Binding").as_deref() == Some(ADFS_BINDING)
     {
@@ -238,6 +252,7 @@ fn process_element(
                 config.tcp_listener_acl = get_attr(e, "acl");
             }
         "InProcess" => {
+            config.has_in_process = true;
             config.in_process_check_spoofing = get_attr(e, "checkSpoofing");
             config.in_process_catch_all = get_attr(e, "catchAll");
         }
@@ -261,6 +276,7 @@ fn process_element(
             }
         }
         "ISAPI" => {
+            config.has_isapi = true;
             config.isapi_normalize_request = get_attr(e, "normalizeRequest");
             config.isapi_use_headers = get_attr(e, "useHeaders");
         }
@@ -373,7 +389,8 @@ fn process_element(
             if parent_is(stack, "Sessions") {
                 config.sso_shorthand_in.push(application.clone());
             }
-            if let Some(ref mut sessions) = config.sessions {
+            // Only the defaults' <SSO> fills the shared fields; an override has its own.
+            if let Some(sessions) = config.sessions.as_mut().filter(|_| application.is_none()) {
                 sessions.has_sso = true;
                 if sessions.sso_entity_id.is_none() {
                     sessions.sso_entity_id = get_attr(e, "entityID");
@@ -385,13 +402,13 @@ fn process_element(
                     sessions.sso_discovery_protocol = get_attr(e, "discoveryProtocol");
                 }
             }
-            if config.sso_authn_context_class_ref.is_none() {
+            if application.is_none() && config.sso_authn_context_class_ref.is_none() {
                 config.sso_authn_context_class_ref = get_attr(e, "authnContextClassRef");
             }
-            if config.sso_ecp.is_none() {
+            if application.is_none() && config.sso_ecp.is_none() {
                 config.sso_ecp = get_attr(e, "ECP");
             }
-            if config.sso_authn_context_comparison.is_none() {
+            if application.is_none() && config.sso_authn_context_comparison.is_none() {
                 config.sso_authn_context_comparison = get_attr(e, "authnContextComparison");
             }
         }
@@ -430,7 +447,7 @@ fn process_element(
             if name == "Logout" && parent_is(stack, "Sessions") {
                 config.logout_shorthand_in.push(application.clone());
             }
-            if let Some(ref mut sessions) = config.sessions {
+            if let Some(sessions) = config.sessions.as_mut().filter(|_| application.is_none()) {
                 sessions.has_logout = true;
                 if sessions.logout_outgoing_bindings.is_none() {
                     sessions.logout_outgoing_bindings = get_attr(e, "outgoingBindings");
@@ -555,8 +572,10 @@ fn process_element(
             }
         }
         "AttributeFilter"
-            // Only capture path attribute if it's the AttributeFilter element, not the filter rules
-            if (parent_is(stack, "ApplicationDefaults") || stack.is_empty()) => {
+            // The application-level element, not a filter embedded in an extractor
+            if (parent_is(stack, "ApplicationDefaults")
+                || parent_is(stack, "ApplicationOverride")
+                || stack.is_empty()) => {
                 if let Some(path) = get_attr(e, "path") {
                     config.attribute_filter_paths.push(path);
                 }
@@ -566,6 +585,10 @@ fn process_element(
                 && config.singleton_counts.get("Sessions").copied().unwrap_or(0) == 0
             {
                 config.errors_before_sessions = true;
+            }
+            if application.is_some() || config.errors.is_some() {
+                // An override's <Errors> is its own; the defaults' is the one checks read.
+                return;
             }
             config.errors = Some(crate::model::shibboleth_config::ErrorsConfig {
                 support_contact: get_attr(e, "supportContact"),
@@ -588,6 +611,12 @@ fn process_element(
         "ApplicationOverride" => {
             let id = get_attr(e, "id");
             override_ids.push(id.clone().unwrap_or_default());
+            config
+                .overrides
+                .push(crate::model::shibboleth_config::OverrideInfo {
+                    id: id.clone().unwrap_or_else(|| "unknown".to_string()),
+                    children: Vec::new(),
+                });
             let entity_id = get_attr(e, "entityID");
             if let Some(ref id_val) = id {
                 config.application_override_ids.push(id_val.clone());
@@ -724,6 +753,52 @@ pub fn check_well_formed(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn override_elements_do_not_replace_the_defaults() {
+        let c = parse_str(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+<Sessions><SSO authnContextComparison="exact">SAML2 <!-- legacy --> ADFS</SSO><Logout>SAML2 <!-- x --> Local</Logout></Sessions>
+<Errors supportContact="root@example.org"/>
+<ApplicationOverride id="other"><Sessions><SSO entityID="https://idp2.example.org/idp" discoveryProtocol="WAYF">SAML1</SSO><Logout>Local</Logout></Sessions><Errors session="o.html"/></ApplicationOverride>
+</ApplicationDefaults></SPConfig>"#,
+        )
+        .unwrap();
+        let words = |t: &Option<String>| -> Vec<String> {
+            t.as_deref()
+                .unwrap_or("")
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        };
+        let s = c.sessions.as_ref().unwrap();
+        assert_eq!(words(&s.sso_protocols), ["SAML2", "ADFS"]);
+        assert_eq!(words(&s.logout_protocols), ["SAML2", "Local"]);
+        assert!(s.sso_entity_id.is_none());
+        assert!(s.sso_discovery_protocol.is_none());
+        assert_eq!(c.sso_authn_context_comparison.as_deref(), Some("exact"));
+        assert_eq!(
+            c.errors.as_ref().unwrap().support_contact.as_deref(),
+            Some("root@example.org")
+        );
+        assert_eq!(c.overrides.len(), 1);
+        assert_eq!(c.overrides[0].children, ["Sessions", "Errors"]);
+        assert!(c.uses_adfs);
+        assert_eq!(c.sso_shorthand_in, [None, Some("other".to_string())]);
+    }
+
+    #[test]
+    fn adfs_endpoint_binding_marks_adfs_use() {
+        let c = parse_str(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config" xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions>
+<md:AssertionConsumerService Location="/ADFS" index="5" Binding="http://schemas.xmlsoap.org/ws/2003/07/secext"/>
+</Sessions></ApplicationDefaults></SPConfig>"#,
+        )
+        .unwrap();
+        assert!(c.uses_adfs);
+    }
 
     #[test]
     fn test_parse_minimal_config() {
