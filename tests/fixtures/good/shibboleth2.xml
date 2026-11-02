@@ -17,12 +17,12 @@
             redirectLimit="exact"
             sameSiteFallback="true"
             maxTimeSinceAuthn="28800"
-            redirectAllow="https://sp.example.org">
+            redirectAllow="https://sp.example.org/">
 
             <SSO entityID="https://idp.example.org/idp/shibboleth">SAML2</SSO>
             <Logout outgoingBindings="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect">SAML2 Local</Logout>
 
-            <Notify Channel="https://app.example.org/notify"/>
+            <Notify Channel="back" Location="https://app.example.org/notify"/>
         </Sessions>
 
         <MetadataProvider type="XML"

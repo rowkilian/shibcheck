@@ -21,6 +21,18 @@ const DOC_ATTR_EXTRACTOR: &str =
 const DOC_ATTR_FILTER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
 
+const DOC_NOTIFY: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334394/Notify";
+
+const DOC_SAML2_SESSION_INITIATOR: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334736/SAML2+SessionInitiator";
+
+const DOC_HANDLER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399676/HandlerCommonAttributes";
+const DOC_SIGNING_ENCRYPTION: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334379/SigningEncryption";
+const DOC_FILE_CREDENTIAL_RESOLVER: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335213/FileCredentialResolver";
+
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
 /// Return the SP2 wiki root for V2 configs, otherwise the SP3-specific page URL.
@@ -411,19 +423,22 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-020: SP version detection
         match v {
             SpVersion::V3 => {
-                results.push(CheckResult::pass(
-                    "XML-020",
-                    CAT,
-                    Severity::Info,
-                    "Shibboleth SP3 configuration detected",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "XML-020",
+                        CAT,
+                        Severity::Info,
+                        "Shibboleth SP3 configuration detected",
+                    )
+                    .at_element("SPConfig"),
+                );
             }
             SpVersion::V2 => {
                 results.push(CheckResult::fail(
                     "XML-020", CAT, Severity::Info,
                     "Shibboleth SP2 configuration detected",
                     Some("SP2 is end-of-life; consider upgrading to SP3"),
-                ).with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335062/Upgrading"));
+                ).at_element("SPConfig").with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067400004/UpgradingFromV2"));
             }
             SpVersion::Unknown => {
                 results.push(
@@ -434,6 +449,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "SP version could not be determined from SPConfig xmlns",
                         Some("Ensure <SPConfig> has a valid xmlns attribute"),
                     )
+                    .at_element("SPConfig")
                     .with_doc(DOC_SPCONFIG),
                 );
             }
@@ -442,18 +458,21 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-021: REMOTE_USER attribute set
         if let Some(ref app) = sc.application_defaults {
             if app.remote_user.is_some() {
-                results.push(CheckResult::pass(
-                    "XML-021",
-                    CAT,
-                    Severity::Warning,
-                    "REMOTE_USER attribute is set on ApplicationDefaults",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "XML-021",
+                        CAT,
+                        Severity::Warning,
+                        "REMOTE_USER attribute is set on ApplicationDefaults",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             } else {
                 results.push(CheckResult::fail(
                     "XML-021", CAT, Severity::Warning,
                     "REMOTE_USER not set on ApplicationDefaults",
                     Some("Set REMOTE_USER on <ApplicationDefaults> (e.g., REMOTE_USER=\"eppn\") so applications can identify users"),
-                ).with_doc(doc_for(DOC_APP_DEFAULTS, v)));
+                ).at_element("ApplicationDefaults").with_doc(doc_for(DOC_APP_DEFAULTS, v)));
             }
         }
 
@@ -586,7 +605,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-027: SSO protocol text is valid (SAML2/SAML1/empty)
         if let Some(ref sessions) = sc.sessions {
             if let Some(ref protocols) = sessions.sso_protocols {
-                let valid = ["SAML2", "SAML1"];
+                let valid = ["SAML2", "SAML1", "ADFS"];
                 let parts: Vec<&str> = protocols.split_whitespace().collect();
                 let all_valid = parts.iter().all(|p| valid.contains(p));
                 if all_valid {
@@ -614,7 +633,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-028: Logout protocol text is valid (SAML2/Local/empty)
         if let Some(ref sessions) = sc.sessions {
             if let Some(ref protocols) = sessions.logout_protocols {
-                let valid = ["SAML2", "Local"];
+                let valid = ["SAML2", "ADFS", "Local"];
                 let parts: Vec<&str> = protocols.split_whitespace().collect();
                 let all_valid = parts.iter().all(|p| valid.contains(p));
                 if all_valid {
@@ -641,14 +660,20 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
         // XML-029: MetadataProvider has a source (path/url/uri/sourceDirectory)
         for mp in &sc.metadata_providers {
-            if mp.provider_type == "Chaining" {
+            // Chaining has child providers; Dynamic names its sources in Subst/Regex children
+            // A Null provider takes no source at all.
+            if matches!(mp.provider_type.as_str(), "Chaining" | "Dynamic" | "Null") {
                 continue;
             }
-            let has_source = mp.path.is_some()
-                || mp.uri.is_some()
-                || mp.url.is_some()
-                || mp.source_directory.is_some()
-                || mp.file_attr.is_some();
+            let has_source = if mp.provider_type == "MDQ" {
+                mp.base_url.is_some()
+            } else {
+                mp.path.is_some()
+                    || mp.uri.is_some()
+                    || mp.url.is_some()
+                    || mp.source_directory.is_some()
+                    || mp.file_attr.is_some()
+            };
             if has_source {
                 results.push(CheckResult::pass(
                     "XML-029",
@@ -670,7 +695,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "MetadataProvider type={}{} has no data source (path/url/uri/file/sourceDirectory)",
                             mp.provider_type, mp.label()
                         ),
-                        Some("Add a path, url, uri, file, or sourceDirectory attribute to the MetadataProvider"),
+                        Some(if mp.provider_type == "MDQ" {
+                            "Add baseUrl, the root of the MDQ server, to the MDQ MetadataProvider"
+                        } else {
+                            "Add a path, url, uri, file, or sourceDirectory attribute to the MetadataProvider"
+                        }),
                     )
                     .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
                 );
@@ -893,6 +922,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 "NameIDFormat",
                 "Predicate",
                 "Algorithm",
+                "UIInfo",
+                "InlineLogo",
             ];
             for mp in &sc.metadata_providers {
                 for filter in &mp.filters {
@@ -1010,7 +1041,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         // XML-039: SSO discoveryProtocol not a recognized value
         if let Some(ref sessions) = sc.sessions {
             if let Some(ref proto) = sessions.sso_discovery_protocol {
-                if proto == "SAMLDS" {
+                if proto == "SAMLDS" || proto == "WAYF" {
                     results.push(CheckResult::pass(
                         "XML-039",
                         CAT,
@@ -1055,7 +1086,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     CheckResult::fail(
                         "XML-041",
                         CAT,
-                        Severity::Warning,
+                        Severity::Info,
                         &format!(
                             "ApplicationOverride '{}' has no entityID attribute",
                             id
@@ -1068,7 +1099,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 results.push(CheckResult::pass(
                     "XML-041",
                     CAT,
-                    Severity::Warning,
+                    Severity::Info,
                     &format!("ApplicationOverride '{}' has entityID set", id),
                 ));
             }
@@ -1129,7 +1160,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
         // XML-044: MetadataProvider has no validate attribute (schema validation off)
         for mp in &sc.metadata_providers {
-            if mp.provider_type == "Chaining" {
+            // Chaining has no document of its own and Null loads nothing.
+            if matches!(mp.provider_type.as_str(), "Chaining" | "Null") {
                 continue;
             }
             if mp.validate_attr.is_some() {
@@ -1187,7 +1219,11 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
         // XML-046: requireSession="true" without authType="shibboleth" (SP ignores resource)
         for cs in &sc.request_map_content_settings {
-            if cs.require_session.as_deref() == Some("true") && cs.auth_type.is_none() {
+            // IIS does not use authType; the setting matters for Apache.
+            if cs.require_session.as_deref() == Some("true")
+                && cs.auth_type.is_none()
+                && !sc.has_isapi
+            {
                 results.push(
                     CheckResult::fail(
                         "XML-046",
@@ -1262,5 +1298,756 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
+    check_notify(config, &mut results);
+    check_redirect_limit(config, &mut results);
+    check_authn_context_comparison(config, &mut results);
+    check_handler_attributes(config, &mut results);
+    check_credential_use(config, &mut results);
+    check_signing_encryption_values(config, &mut results);
+    super::acl::structure(config, &mut results);
+    super::relying_party::structure(config, &mut results);
+    check_unreliable_networks(config, &mut results);
+    check_static_sealer_key(config, &mut results);
+    super::elements::structure(config, &mut results);
+    super::elements::metadata_providers(config, &mut results);
+    super::settings::structure(config, &mut results);
+    super::settings::initiators(config, &mut results);
+    check_refresh_settings(config, &mut results);
+
     results
+}
+/// True for an IPv4 or IPv6 address with an optional `/prefix` that fits the address family.
+fn is_valid_cidr(value: &str) -> bool {
+    let (addr, prefix) = match value.split_once('/') {
+        Some((a, p)) => (a, Some(p)),
+        None => (value, None),
+    };
+    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    let max = if ip.is_ipv4() { 32 } else { 128 };
+    prefix.is_none_or(|p| p.parse::<u8>().is_ok_and(|n| n <= max))
+}
+
+/// XML-054: `unreliableNetworks` on SessionCache is a list of CIDR masks.
+fn check_unreliable_networks(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(networks) = config
+        .shibboleth_config
+        .as_ref()
+        .and_then(|sc| sc.session_cache.as_ref())
+        .and_then(|c| c.unreliable_networks.as_deref())
+    else {
+        return;
+    };
+    let bad: Vec<&str> = networks
+        .split_whitespace()
+        .filter(|n| !is_valid_cidr(n))
+        .collect();
+    if bad.is_empty() {
+        results.push(
+            CheckResult::pass(
+                "XML-054",
+                CAT,
+                Severity::Error,
+                "SessionCache unreliableNetworks lists valid CIDR masks",
+            )
+            .at_element("SessionCache"),
+        );
+    } else {
+        results.push(
+            CheckResult::fail(
+                "XML-054",
+                CAT,
+                Severity::Error,
+                &format!("SessionCache unreliableNetworks has invalid CIDR masks: {}", bad.join(", ")),
+                Some("Use whitespace-separated addresses with an optional prefix length, such as 10.0.0.0/8"),
+            )
+            .at_element("SessionCache")
+            .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+        );
+    }
+}
+
+/// XML-059: a Static DataSealer key is base64 text that decodes to 16, 24 or 32 bytes (AES-128/192/256).
+fn check_static_sealer_key(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for sealer in sc
+        .data_sealers
+        .iter()
+        .filter(|d| d.sealer_type == "Static" && d.has_key)
+    {
+        match sealer.key_bytes {
+            Some(16 | 24 | 32) => results.push(
+                CheckResult::pass(
+                    "XML-059",
+                    CAT,
+                    Severity::Error,
+                    "Static DataSealer key has a valid AES key size",
+                )
+                .at_element("DataSealer"),
+            ),
+            other => {
+                let problem = match other {
+                    Some(n) => format!("decodes to {n} bytes"),
+                    None => "is not valid base64".to_string(),
+                };
+                results.push(
+                    CheckResult::fail(
+                        "XML-059",
+                        CAT,
+                        Severity::Error,
+                        &format!("Static DataSealer key {problem}, but AES needs 16, 24 or 32 bytes"),
+                        Some("Generate a random key of 16, 24 or 32 bytes and base64-encode it, or switch to a Versioned DataSealer"),
+                    )
+                    .at_element("DataSealer")
+                    .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2070413452/StaticDataSealer"),
+                );
+            }
+        }
+    }
+}
+
+/// XML-060 and XML-061: `refreshDelayFactor` is strictly between 0 and 1, and a minimum
+/// delay or cache duration must not exceed its maximum.
+fn check_refresh_settings(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for mp in &sc.metadata_providers {
+        if let Some(factor) = mp.refresh_delay_factor.as_deref() {
+            let ok = factor
+                .trim()
+                .parse::<f64>()
+                .is_ok_and(|f| f > 0.0 && f < 1.0);
+            let message = format!(
+                "MetadataProvider type='{}'{} refreshDelayFactor=\"{}\"",
+                mp.provider_type,
+                mp.label(),
+                factor
+            );
+            results.push(if ok {
+                CheckResult::pass("XML-060", CAT, Severity::Error, &format!("{message} is between 0 and 1"))
+
+            } else {
+                CheckResult::fail(
+                    "XML-060",
+                    CAT,
+                    Severity::Error,
+                    &format!("{message} is not a decimal between 0 and 1 (exclusive)"),
+                    Some("Use a value such as 0.75"),
+                )
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696005/XMLMetadataProvider")
+            });
+        }
+        let pairs = [
+            (
+                "minRefreshDelay",
+                &mp.min_refresh_delay,
+                "maxRefreshDelay",
+                &mp.max_refresh_delay,
+            ),
+            (
+                "minCacheDuration",
+                &mp.min_cache_duration,
+                "maxCacheDuration",
+                &mp.max_cache_duration,
+            ),
+        ];
+        for (min_name, min, max_name, max) in pairs {
+            let (Some(min_text), Some(max_text)) = (min.as_deref(), max.as_deref()) else {
+                continue;
+            };
+            let (Ok(lo), Ok(hi)) = (
+                min_text.trim().parse::<u64>(),
+                max_text.trim().parse::<u64>(),
+            ) else {
+                continue;
+            };
+            let label = format!("MetadataProvider type='{}'{}", mp.provider_type, mp.label());
+            results.push(if lo <= hi {
+                CheckResult::pass(
+                    "XML-061",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{label} {min_name} does not exceed {max_name}"),
+                )
+            } else {
+                CheckResult::fail(
+                    "XML-061",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{label} sets {min_name}=\"{min_text}\" above {max_name}=\"{max_text}\""),
+                    Some("Lower the minimum or raise the maximum so the refresh interval has room to move"),
+                )
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067399841/MetadataProviderDynamicCommonAttributes")
+            });
+        }
+    }
+}
+
+/// XML-048: each <Notify> needs Channel="front"|"back" and an absolute Location.
+fn check_notify(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for notify in &sc.notify_elements {
+        let problem = match (notify.channel.as_deref(), notify.location.as_deref()) {
+            (None, _) => Some((
+                Severity::Error,
+                "Notify has no Channel attribute".to_string(),
+                "Set Channel=\"front\" or Channel=\"back\"",
+            )),
+            (Some(c), _) if c != "front" && c != "back" => Some((
+                Severity::Warning,
+                format!("Notify Channel '{}' is not \"front\" or \"back\"", c),
+                "Set Channel=\"front\" or Channel=\"back\"",
+            )),
+            (_, None) => Some((
+                Severity::Warning,
+                "Notify has no Location attribute".to_string(),
+                "Set Location to the absolute URL that receives the notification",
+            )),
+            (_, Some(l)) if !l.starts_with("http://") && !l.starts_with("https://") => Some((
+                Severity::Warning,
+                format!("Notify Location is not an absolute URL: {}", l),
+                "Use an absolute http(s) URL for Location",
+            )),
+            _ => None,
+        };
+        let result = match problem {
+            Some((severity, message, suggestion)) => {
+                CheckResult::fail("XML-048", CAT, severity, &message, Some(suggestion))
+                    .with_doc(DOC_NOTIFY)
+            }
+            None => CheckResult::pass(
+                "XML-048",
+                CAT,
+                Severity::Warning,
+                "Notify has a valid Channel and absolute Location",
+            ),
+        };
+        results.push(result.at_element("Notify"));
+    }
+}
+
+const REDIRECT_LIMITS: &[&str] = &[
+    "none",
+    "exact",
+    "host",
+    "allow",
+    "exact+allow",
+    "host+allow",
+    // names used before SP 3.2
+    "whitelist",
+    "exact+whitelist",
+    "host+whitelist",
+];
+
+/// XML-049: redirectLimit must be one of the documented values.
+fn check_redirect_limit(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    let Some(limit) = sc
+        .sessions
+        .as_ref()
+        .and_then(|s| s.redirect_limit.as_deref())
+    else {
+        return;
+    };
+    let result = if REDIRECT_LIMITS.contains(&limit) {
+        CheckResult::pass(
+            "XML-049",
+            CAT,
+            Severity::Warning,
+            "redirectLimit is a recognized value",
+        )
+    } else {
+        CheckResult::fail(
+            "XML-049",
+            CAT,
+            Severity::Warning,
+            &format!("redirectLimit has unrecognized value '{}'", limit),
+            Some("Use one of none, exact, host, allow, exact+allow or host+allow"),
+        )
+        .with_doc(doc_for(DOC_SESSIONS, sc.sp_version))
+    };
+    results.push(result.at_element("Sessions"));
+}
+
+/// XML-050: authnContextComparison takes four values and is ignored without
+/// authnContextClassRef.
+fn check_authn_context_comparison(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    let Some(ref comparison) = sc.sso_authn_context_comparison else {
+        return;
+    };
+    let result = if !["exact", "minimum", "maximum", "better"].contains(&comparison.as_str()) {
+        CheckResult::fail(
+            "XML-050",
+            CAT,
+            Severity::Warning,
+            &format!(
+                "SSO authnContextComparison has unrecognized value '{}'",
+                comparison
+            ),
+            Some("Use one of exact, minimum, maximum or better"),
+        )
+        .with_doc(DOC_SAML2_SESSION_INITIATOR)
+    } else if sc.sso_authn_context_class_ref.is_none() {
+        CheckResult::fail(
+            "XML-050",
+            CAT,
+            Severity::Info,
+            "SSO authnContextComparison is set without authnContextClassRef, so it is ignored",
+            Some("Set authnContextClassRef too, or remove authnContextComparison"),
+        )
+        .with_doc(DOC_SAML2_SESSION_INITIATOR)
+    } else {
+        CheckResult::pass(
+            "XML-050",
+            CAT,
+            Severity::Warning,
+            "SSO authnContextComparison is valid and has an authnContextClassRef",
+        )
+    };
+    results.push(result.at_element("SSO"));
+}
+
+/// XML-051: every <Handler> needs `type` and `Location`.
+fn check_handler_attributes(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    let mut any_bad = false;
+    for handler in &sc.handlers {
+        let missing = match (handler.handler_type.is_empty(), handler.location.is_none()) {
+            (true, true) => Some("type and Location"),
+            (true, false) => Some("type"),
+            (false, true) => Some("Location"),
+            (false, false) => None,
+        };
+        if let Some(missing) = missing {
+            any_bad = true;
+            let label = if handler.handler_type.is_empty() {
+                "Handler".to_string()
+            } else {
+                format!("Handler type=\"{}\"", handler.handler_type)
+            };
+            results.push(
+                CheckResult::fail(
+                    "XML-051",
+                    CAT,
+                    Severity::Error,
+                    &format!("{} has no {}", label, missing),
+                    Some("Both type and Location are required on every <Handler>"),
+                )
+                .with_doc(DOC_HANDLER),
+            );
+        }
+    }
+    if !any_bad && !sc.handlers.is_empty() {
+        results.push(
+            CheckResult::pass(
+                "XML-051",
+                CAT,
+                Severity::Error,
+                "All Handler elements have type and Location",
+            )
+            .at_element("Handler"),
+        );
+    }
+}
+
+/// XML-052: a File CredentialResolver `use` is one of signing, TLS or encryption.
+fn check_credential_use(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    for resolver in &sc.credential_resolvers {
+        if resolver.resolver_type != "File" {
+            continue;
+        }
+        let Some(ref use_attr) = resolver.use_attr else {
+            continue;
+        };
+        if ["signing", "TLS", "encryption"].contains(&use_attr.as_str()) {
+            results.push(CheckResult::pass(
+                "XML-052",
+                CAT,
+                Severity::Warning,
+                &format!("CredentialResolver use=\"{}\" is recognized", use_attr),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "XML-052",
+                    CAT,
+                    Severity::Warning,
+                    &format!("CredentialResolver use=\"{}\" is not recognized", use_attr),
+                    Some("Use \"signing\", \"TLS\" or \"encryption\" (case-sensitive), or remove use"),
+                )
+
+                .with_doc(DOC_FILE_CREDENTIAL_RESOLVER),
+            );
+        }
+    }
+}
+
+/// XML-053: `signing` and `encryption` take one of five values, wherever they appear.
+fn check_signing_encryption_values(config: &DiscoveredConfig, results: &mut Vec<CheckResult>) {
+    let Some(sc) = config.shibboleth_config.as_ref() else {
+        return;
+    };
+    // (element for the line number, owner shown in the message, attribute, value)
+    let mut settings: Vec<(&'static str, String, &str, &str)> = Vec::new();
+    if let Some(defaults) = sc.application_defaults.as_ref() {
+        for (name, value) in [
+            ("signing", &defaults.signing),
+            ("encryption", &defaults.encryption),
+        ] {
+            if let Some(v) = value.as_deref() {
+                settings.push(("ApplicationDefaults", "ApplicationDefaults".into(), name, v));
+            }
+        }
+    }
+    for rp in &sc.relying_parties {
+        let owner = match rp.name.as_deref() {
+            Some(n) => format!("RelyingParty Name=\"{n}\""),
+            None => "RelyingParty".to_string(),
+        };
+        for (name, value) in [("signing", &rp.signing), ("encryption", &rp.encryption)] {
+            if let Some(v) = value.as_deref() {
+                settings.push(("RelyingParty", owner.clone(), name, v));
+            }
+        }
+    }
+    for li in &sc.logout_initiators {
+        if let Some(v) = li.signing.as_deref() {
+            settings.push(("LogoutInitiator", "LogoutInitiator".into(), "signing", v));
+        }
+    }
+    for (element, owner, name, value) in settings {
+        if ["conditional", "true", "false", "front", "back"].contains(&value) {
+            results.push(
+                CheckResult::pass(
+                    "XML-053",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{owner} {name}=\"{value}\" is a recognized value"),
+                )
+                .at_element(element),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "XML-053",
+                    CAT,
+                    Severity::Warning,
+                    &format!("{owner} {name}=\"{value}\" is not a recognized value"),
+                    Some("Use one of conditional, true, false, front or back"),
+                )
+                .at_element(element)
+                .with_doc(DOC_SIGNING_ENCRYPTION),
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_outcome, config_from_xml};
+
+    #[test]
+    fn protocol_lists_accept_adfs_and_null_providers_need_no_source() {
+        use crate::testutil::{assert_absent, sp3_app};
+        let (_dir, c) = config_from_xml(&sp3_app(
+            "",
+            r#"<Sessions><SSO>SAML2 ADFS</SSO><Logout>SAML2 ADFS Local</Logout></Sessions>
+<MetadataProvider type="Null"/>
+<RelyingParty Name="https://idp.example.org/idp" signing="always"/>
+<RelyingParty Name="https://idp2.example.org/idp" encryption="front"/>"#,
+        ));
+        let r = run(&c);
+        assert_outcome(&r, "XML-027", true);
+        assert_outcome(&r, "XML-028", true);
+        assert_absent(&r, "XML-029");
+        assert_absent(&r, "XML-044");
+        let xml053 = crate::testutil::with_code(&r, "XML-053");
+        assert_eq!(xml053.len(), 2);
+        assert!(xml053
+            .iter()
+            .any(|x| !x.passed && x.message.contains("always")));
+        assert!(xml053
+            .iter()
+            .any(|x| x.passed && x.message.contains("front")));
+    }
+
+    #[test]
+    fn require_session_without_auth_type_is_fine_on_iis() {
+        use crate::testutil::assert_absent;
+        let cfg = |top: &str| {
+            format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions/></ApplicationDefaults>
+<RequestMapper type="Native"><RequestMap><Host name="a.example.org" requireSession="true"/></RequestMap></RequestMapper></SPConfig>"#
+            )
+        };
+        let (_dir, c) = config_from_xml(&cfg("<InProcess><ISAPI/></InProcess>"));
+        assert_absent(&run(&c), "XML-046");
+        let (_dir, c) = config_from_xml(&cfg(""));
+        assert_outcome(&run(&c), "XML-046", false);
+    }
+
+    fn notify_results(notify: &str) -> Vec<CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <Sessions>{notify}</Sessions>
+  </ApplicationDefaults>
+</SPConfig>"#
+        );
+        let (_dir, config) = config_from_xml(&xml);
+        run(&config)
+            .into_iter()
+            .filter(|r| r.code == "XML-048")
+            .collect()
+    }
+
+    #[test]
+    fn valid_notify_passes() {
+        let r = notify_results(r#"<Notify Channel="back" Location="https://app.example.org/n"/>"#);
+        assert_eq!(r.len(), 1);
+        assert!(r[0].passed);
+    }
+
+    #[test]
+    fn notify_problems_are_reported() {
+        for (notify, severity) in [
+            (
+                r#"<Notify Location="https://a.example/n"/>"#,
+                Severity::Error,
+            ),
+            (
+                r#"<Notify Channel="sideways" Location="https://a.example/n"/>"#,
+                Severity::Warning,
+            ),
+            (r#"<Notify Channel="back"/>"#, Severity::Warning),
+            (
+                r#"<Notify Channel="back" Location="/relative"/>"#,
+                Severity::Warning,
+            ),
+        ] {
+            let r = notify_results(notify);
+            assert_eq!(r.len(), 1, "{notify}");
+            assert!(!r[0].passed, "{notify}");
+            assert_eq!(r[0].severity, severity, "{notify}");
+        }
+    }
+
+    fn run_app(body: &str, sso_attrs: &str) -> Vec<CheckResult> {
+        let xml = crate::testutil::sp3_app(
+            "",
+            &format!(
+                r#"<Sessions {body}><SSO entityID="https://idp.example.org/idp" {sso_attrs}>SAML2</SSO></Sessions>"#
+            ),
+        );
+        let (_dir, config) = config_from_xml(&xml);
+        run(&config)
+    }
+
+    #[test]
+    fn redirect_limit_values() {
+        for (value, passed) in [
+            ("exact", true),
+            ("host+allow", true),
+            ("exact+whitelist", true),
+            ("Exact", false),
+            ("strict", false),
+        ] {
+            let r = run_app(&format!(r#"redirectLimit="{value}""#), "");
+            crate::testutil::assert_outcome(&r, "XML-049", passed);
+        }
+        crate::testutil::assert_absent(&run_app("", ""), "XML-049");
+    }
+
+    #[test]
+    fn authn_context_comparison_values() {
+        let class = r#"authnContextClassRef="urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport""#;
+        let r = run_app("", &format!(r#"{class} authnContextComparison="exact""#));
+        crate::testutil::assert_outcome(&r, "XML-050", true);
+        let r = run_app("", &format!(r#"{class} authnContextComparison="roughly""#));
+        crate::testutil::assert_outcome(&r, "XML-050", false);
+        let r = run_app("", r#"authnContextComparison="exact""#);
+        crate::testutil::assert_outcome(&r, "XML-050", false);
+        crate::testutil::assert_absent(&run_app("", ""), "XML-050");
+    }
+
+    #[test]
+    fn mdq_provider_needs_base_url_not_a_path() {
+        let provider = |attrs: &str| {
+            let xml = crate::testutil::sp3_app(
+                "",
+                &format!(r#"<Sessions><SSO>SAML2</SSO></Sessions><MetadataProvider {attrs}/>"#),
+            );
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+        };
+        crate::testutil::assert_outcome(
+            &provider(r#"type="MDQ" baseUrl="https://mdq.example.org/""#),
+            "XML-029",
+            true,
+        );
+        crate::testutil::assert_outcome(&provider(r#"type="MDQ""#), "XML-029", false);
+        // Dynamic providers name their sources in child elements
+        crate::testutil::assert_absent(&provider(r#"type="Dynamic""#), "XML-029");
+        crate::testutil::assert_outcome(&provider(r#"type="XML""#), "XML-029", false);
+    }
+
+    #[test]
+    fn handlers_need_type_and_location() {
+        let handlers = |body: &str| {
+            let xml = crate::testutil::sp3_app("", &format!("<Sessions>{body}</Sessions>"));
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+                .into_iter()
+                .filter(|r| r.code == "XML-051")
+                .collect::<Vec<_>>()
+        };
+        let ok = handlers(r#"<Handler type="Status" Location="/Status"/>"#);
+        assert_eq!(ok.len(), 1);
+        assert!(ok[0].passed);
+        for bad in [
+            r#"<Handler Location="/Status"/>"#,
+            r#"<Handler type="Status"/>"#,
+            r#"<Handler/>"#,
+        ] {
+            let r = handlers(bad);
+            assert_eq!(r.len(), 1, "{bad}");
+            assert!(!r[0].passed, "{bad}");
+        }
+        assert!(handlers("").is_empty());
+    }
+
+    #[test]
+    fn credential_use_and_signing_values() {
+        let run_app2 = |defaults: &str, body: &str| {
+            let (_dir, config) = config_from_xml(&crate::testutil::sp3_app(
+                defaults,
+                &format!("<Sessions><SSO>SAML2</SSO></Sessions>{body}"),
+            ));
+            run(&config)
+        };
+        let r = run_app2(
+            "",
+            r#"<CredentialResolver type="File" use="TLS" key="k.pem" certificate="c.pem"/>"#,
+        );
+        crate::testutil::assert_outcome(&r, "XML-052", true);
+        let r = run_app2(
+            "",
+            r#"<CredentialResolver type="File" use="tls" key="k.pem" certificate="c.pem"/>"#,
+        );
+        crate::testutil::assert_outcome(&r, "XML-052", false);
+        crate::testutil::assert_absent(
+            &run_app2(
+                "",
+                r#"<CredentialResolver type="File" key="k.pem" certificate="c.pem"/>"#,
+            ),
+            "XML-052",
+        );
+
+        let r = run_app2(r#"signing="front""#, "");
+        crate::testutil::assert_outcome(&r, "XML-053", true);
+        let r = run_app2(r#"signing="always""#, "");
+        crate::testutil::assert_outcome(&r, "XML-053", false);
+        crate::testutil::assert_absent(&run_app2("", ""), "XML-053");
+    }
+
+    #[test]
+    fn unreliable_networks_must_be_cidr() {
+        use crate::testutil::{assert_absent, assert_outcome, config_from_xml, sp3_app};
+        let run_nets = |value: &str| {
+            let cache =
+                format!(r#"<SessionCache type="StorageService" unreliableNetworks="{value}"/>"#);
+            let (_dir, config) = config_from_xml(&sp3_app("", &cache));
+            run(&config)
+        };
+        assert_outcome(
+            &run_nets("10.0.0.0/8 192.168.1.1 2001:db8::/32"),
+            "XML-054",
+            true,
+        );
+        assert_outcome(&run_nets("10.0.0.0/33"), "XML-054", false);
+        assert_outcome(&run_nets("10.0.0/8"), "XML-054", false);
+        assert_outcome(&run_nets("office"), "XML-054", false);
+        let (_dir, config) = config_from_xml(&sp3_app("", ""));
+        assert_absent(&run(&config), "XML-054");
+    }
+
+    #[test]
+    fn static_sealer_key_size() {
+        let run_key = |key: &str| {
+            let xml = crate::testutil::sp3_app(
+                "",
+                &format!(r#"<DataSealer type="Static" key="{key}"/>"#),
+            );
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+        };
+        // 16, 24 and 32 bytes
+        assert_outcome(&run_key("AAAAAAAAAAAAAAAAAAAAAA=="), "XML-059", true);
+        assert_outcome(
+            &run_key("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            "XML-059",
+            true,
+        );
+        assert_outcome(
+            &run_key("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+            "XML-059",
+            true,
+        );
+        // 12 bytes, and text that is not base64
+        assert_outcome(&run_key("AAAAAAAAAAAAAAAA"), "XML-059", false);
+        assert_outcome(&run_key("not base64!"), "XML-059", false);
+    }
+
+    #[test]
+    fn refresh_settings() {
+        let run_mp = |attrs: &str| {
+            let xml = crate::testutil::sp3_app(
+                "",
+                &format!(
+                    r#"<MetadataProvider type="XML" url="https://x.example.org/m.xml" {attrs}/>"#
+                ),
+            );
+            let (_dir, config) = config_from_xml(&xml);
+            run(&config)
+        };
+        assert_outcome(&run_mp(r#"refreshDelayFactor="0.75""#), "XML-060", true);
+        assert_outcome(&run_mp(r#"refreshDelayFactor="1""#), "XML-060", false);
+        assert_outcome(&run_mp(r#"refreshDelayFactor="0""#), "XML-060", false);
+        assert_outcome(&run_mp(r#"refreshDelayFactor="half""#), "XML-060", false);
+        assert_outcome(
+            &run_mp(r#"minRefreshDelay="600" maxRefreshDelay="3600""#),
+            "XML-061",
+            true,
+        );
+        assert_outcome(
+            &run_mp(r#"minRefreshDelay="7200" maxRefreshDelay="3600""#),
+            "XML-061",
+            false,
+        );
+        assert_outcome(
+            &run_mp(r#"minCacheDuration="9000" maxCacheDuration="60""#),
+            "XML-061",
+            false,
+        );
+        crate::testutil::assert_absent(&run_mp(r#"maxRefreshDelay="3600""#), "XML-061");
+        crate::testutil::assert_absent(&run_mp(""), "XML-060");
+    }
 }

@@ -22,6 +22,8 @@ const REMOTE_BODY_LIMIT: u64 = 64 * 1024 * 1024;
 // Shibboleth SP3 documentation URLs
 const DOC_CREDENTIAL_RESOLVER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334414/CredentialResolver";
+const DOC_SESSIONS: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334342/Sessions";
 const DOC_METADATA_PROVIDER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider";
 const DOC_METADATA_FILTER: &str =
@@ -32,7 +34,10 @@ const DOC_ATTR_FILTER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334516/AttributeFilter";
 const DOC_ATTR_ACCESS: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335257/AttributeAccess";
-const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors";
+const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334361/Errors";
+
+const DOC_STORAGE_SERVICE: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334626/StorageService";
 
 const DOC_SP2_WIKI: &str = "https://shibboleth.atlassian.net/wiki/spaces/SHIB2/";
 
@@ -202,15 +207,22 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     // REF-009: Remote metadata URL reachable and valid SAML metadata
     if check_remote {
         let agent = http::build_agent(REMOTE_FETCH_TIMEOUT);
-        for mp in &sc.metadata_providers {
-            let remote_url = mp.uri.as_deref().or(mp.url.as_deref());
-            if let Some(url) = remote_url {
-                if url.starts_with("http://") || url.starts_with("https://") {
-                    check_remote_metadata(&agent, url, &mut results, v);
-                }
-            }
-        }
+        let urls: Vec<&str> = sc
+            .metadata_providers
+            .iter()
+            .filter_map(|mp| mp.uri.as_deref().or(mp.url.as_deref()))
+            .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+            .collect();
+        results.extend(check_remote_metadata_all(&agent, &urls, v));
     }
+
+    check_storage_references(sc, v, &mut results);
+    check_plugin_storage_references(sc, v, &mut results);
+    check_session_recovery_sealer(sc, &mut results);
+    check_require_session_with(sc, &mut results);
+    check_policy_ids(config, sc, &mut results);
+    super::acl::references(config, &mut results);
+    super::elements::references(config, &mut results);
 
     // REF-004: MetadataFilter certificate files exist
     for mp in &sc.metadata_providers {
@@ -364,10 +376,14 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
 
     // REF-010: Local metadata files contain valid SAML root element
     for mp in &sc.metadata_providers {
+        // A Folder provider's path is a directory, not a metadata file.
+        if mp.provider_type == "Folder" {
+            continue;
+        }
         if let Some(ref path) = mp.path {
             if !path.starts_with("http://") && !path.starts_with("https://") {
                 let full_path = config.base_dir.join(path);
-                if full_path.exists() {
+                if full_path.is_file() {
                     check_local_metadata_saml(&full_path, path, &mut results, v);
                 }
             }
@@ -787,35 +803,32 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     }
 
     // REF-022: postTemplate file path doesn't exist
-    if let Some(ref content) = config.shibboleth_xml_content {
-        // Scan for postTemplate="..." in raw XML
-        if let Some(start) = content.find("postTemplate=\"") {
-            let rest = &content[start + 14..];
-            if let Some(end) = rest.find('"') {
-                let template_path = &rest[..end];
-                if !template_path.is_empty() {
-                    let full_path = config.base_dir.join(template_path);
-                    if full_path.exists() {
-                        results.push(CheckResult::pass(
-                            "REF-022",
-                            CAT,
-                            Severity::Info,
-                            &format!("postTemplate file exists: {}", template_path),
-                        ));
-                    } else {
-                        results.push(
-                            CheckResult::fail(
-                                "REF-022",
-                                CAT,
-                                Severity::Info,
-                                &format!("postTemplate file not found: {}", template_path),
-                                Some("Ensure the postTemplate file path is correct and the file exists"),
-                            )
-                            .with_doc(doc_for(DOC_ATTR_EXTRACTOR, v)),
-                        );
-                    }
-                }
-            }
+    if let Some(template_path) = sc
+        .sessions
+        .as_ref()
+        .and_then(|s| s.post_template.as_deref())
+        .filter(|t| !t.is_empty())
+    {
+        let full_path = config.base_dir.join(template_path);
+        if full_path.exists() {
+            results.push(CheckResult::pass(
+                "REF-022",
+                CAT,
+                Severity::Info,
+                &format!("postTemplate file exists: {}", template_path),
+            ));
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-022",
+                    CAT,
+                    Severity::Info,
+                    &format!("postTemplate file not found: {}", template_path),
+                    Some("Ensure the postTemplate file path is correct and the file exists"),
+                )
+                .at_element("Sessions")
+                .with_doc(doc_for(DOC_SESSIONS, v)),
+            );
         }
     }
 
@@ -1077,6 +1090,7 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
     if let (Some(ref map), Some(ref content)) =
         (&config.attribute_map, &config.shibboleth_xml_content)
     {
+        let content = &super::without_comments(content);
         // Look for persistent NameID source configuration in shibboleth2.xml:
         //   <SSO ... nameIdSources="..."/>  or  attribute references for persistent IDs.
         // A broad heuristic: scan for `source` attributes on persistent-id generators.
@@ -1200,42 +1214,6 @@ pub fn run(config: &DiscoveredConfig, check_remote: bool) -> Vec<CheckResult> {
                     )
                     .with_doc(doc_for(DOC_METADATA_PROVIDER, v)),
                 );
-            }
-        }
-    }
-
-    // REF-032: MetadataProvider ignoreTransport="true" without compensating Signature filter
-    for mp in &sc.metadata_providers {
-        if mp.provider_type == "Chaining" {
-            continue;
-        }
-        if mp.ignore_transport.as_deref() == Some("true") {
-            let has_sig_filter = mp.filters.iter().any(|f| f.filter_type == "Signature");
-            if !has_sig_filter {
-                results.push(
-                    CheckResult::fail(
-                        "REF-032",
-                        CAT,
-                        Severity::Warning,
-                        &format!(
-                            "MetadataProvider type='{}'{} has ignoreTransport=\"true\" but no Signature filter to compensate",
-                            mp.provider_type, mp.label()
-                        ),
-                        Some("Add a SignatureMetadataFilter to verify metadata integrity when transport security is disabled"),
-                    )
-                    .with_doc(doc_for(DOC_METADATA_FILTER, v)),
-                );
-            } else {
-                results.push(CheckResult::pass(
-                    "REF-032",
-                    CAT,
-                    Severity::Warning,
-                    &format!(
-                        "MetadataProvider type='{}'{} has ignoreTransport with Signature filter",
-                        mp.provider_type,
-                        mp.label()
-                    ),
-                ));
             }
         }
     }
@@ -1369,7 +1347,7 @@ fn check_local_metadata_saml(
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
-            Ok(Event::Start(e)) if root_element.is_none() => {
+            Ok(Event::Start(e) | Event::Empty(e)) if root_element.is_none() => {
                 let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let local = full_name
                     .rsplit(':')
@@ -1435,6 +1413,286 @@ fn check_local_metadata_saml(
     }
 }
 
+/// A StorageService id is defined if some <StorageService> has it, or it is the built-in
+/// in-memory "mem" service that exists when none is configured.
+fn storage_id_defined(sc: &crate::model::shibboleth_config::ShibbolethConfig, id: &str) -> bool {
+    sc.storage_service_ids.iter().any(|s| s == id)
+        || (id == "mem" && sc.storage_service_ids.is_empty())
+}
+
+/// REF-039: SessionCache, ReplayCache and ArtifactMap `StorageService` references.
+fn check_plugin_storage_references(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    v: SpVersion,
+    results: &mut Vec<CheckResult>,
+) {
+    for reference in &sc.storage_references {
+        if storage_id_defined(sc, &reference.id) {
+            results.push(
+                CheckResult::pass(
+                    "REF-039",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "{} {} references StorageService '{}'",
+                        reference.element, reference.attribute, reference.id
+                    ),
+                )
+                .at_element(reference.element),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-039",
+                    CAT,
+                    Severity::Error,
+                    &format!(
+                        "{} {} references StorageService '{}', which is not defined",
+                        reference.element, reference.attribute, reference.id
+                    ),
+                    Some("Define a <StorageService> with this id, or point the attribute at an existing one"),
+                )
+                .at_element(reference.element)
+                .with_doc(doc_for(DOC_STORAGE_SERVICE, v)),
+            );
+        }
+    }
+}
+
+/// REF-040: session recovery (`persistedAttributes`) encrypts its cookie with the DataSealer.
+fn check_session_recovery_sealer(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    results: &mut Vec<CheckResult>,
+) {
+    let persisted = sc
+        .session_cache
+        .as_ref()
+        .and_then(|c| c.persisted_attributes.as_deref())
+        .is_some_and(|a| !a.trim().is_empty());
+    if !persisted {
+        return;
+    }
+    if sc.data_sealers.is_empty() {
+        results.push(
+            CheckResult::fail(
+                "REF-040",
+                CAT,
+                Severity::Error,
+                "SessionCache persistedAttributes is set but no <DataSealer> is defined",
+                Some("Add a <DataSealer> to supply the keys that encrypt the recovery cookie, or remove persistedAttributes"),
+            )
+            .at_element("SessionCache")
+            .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+        );
+    } else {
+        results.push(
+            CheckResult::pass(
+                "REF-040",
+                CAT,
+                Severity::Error,
+                "SessionCache persistedAttributes has a DataSealer to encrypt the recovery cookie",
+            )
+            .at_element("SessionCache"),
+        );
+    }
+}
+
+/// REF-042: `requireSessionWith` names a `<SessionInitiator>` by its `id`.
+fn check_require_session_with(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    results: &mut Vec<CheckResult>,
+) {
+    let known: HashSet<&str> = sc
+        .session_initiators
+        .iter()
+        .filter_map(|i| i.id.as_deref())
+        .collect();
+    for setting in &sc.request_map_content_settings {
+        let Some(wanted) = setting.require_session_with.as_deref() else {
+            continue;
+        };
+        // An empty value unsets the setting at a lower level of the map.
+        if wanted.is_empty() {
+            continue;
+        }
+        let place = setting.name.as_deref().unwrap_or("(unnamed)");
+        let element = if setting.element == "Host" {
+            "Host"
+        } else {
+            "Path"
+        };
+        if known.contains(wanted) {
+            results.push(
+                CheckResult::pass(
+                    "REF-042",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} '{place}' requireSessionWith=\"{wanted}\" names a SessionInitiator",
+                        setting.element
+                    ),
+                )
+                .at_element(element),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-042",
+                    CAT,
+                    Severity::Warning,
+                    &format!(
+                        "{} '{place}' requireSessionWith=\"{wanted}\" matches no SessionInitiator id",
+                        setting.element
+                    ),
+                    Some("Add id=\"...\" to the intended <SessionInitiator>, or fix the name in the request map"),
+                )
+                .at_element(element)
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334723/ContentSettings"),
+            );
+        }
+    }
+}
+
+/// REF-043: a `policyId` must name a `<Policy>` in `security-policy.xml` or written inline.
+fn check_policy_ids(
+    config: &DiscoveredConfig,
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    results: &mut Vec<CheckResult>,
+) {
+    if sc.policy_ids_used.is_empty() {
+        return;
+    }
+    let mut defined: HashSet<&str> = sc.policy_ids_defined.iter().map(String::as_str).collect();
+    let loaded = crate::parsers::security_policy::load_for(config);
+    if let Some(ref l) = loaded {
+        defined.extend(l.policy.policy_ids.iter().map(String::as_str));
+    } else if defined.is_empty() {
+        // The policy file is missing or unreadable, which other checks report.
+        return;
+    }
+    let mut seen = HashSet::new();
+    for id in &sc.policy_ids_used {
+        if !seen.insert(id.as_str()) {
+            continue;
+        }
+        if defined.contains(id.as_str()) {
+            results.push(CheckResult::pass(
+                "REF-043",
+                CAT,
+                Severity::Error,
+                &format!("policyId=\"{id}\" names a defined Policy"),
+            ));
+            continue;
+        }
+        let line = config
+            .shibboleth_xml_content
+            .as_deref()
+            .and_then(|c| crate::location::find_line(c, &format!("policyId=\"{id}\"")));
+        let file = config
+            .shibboleth_xml_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        results.push(
+            CheckResult::fail(
+                "REF-043",
+                CAT,
+                Severity::Error,
+                &format!("policyId=\"{id}\" matches no <Policy> id"),
+                Some("Add the policy to security-policy.xml (the CSRF page says to copy blockUnsolicited from the distributed file), or fix the name"),
+            )
+            .with_location(&file, line)
+            .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334425/SecurityPolicies"),
+        );
+    }
+}
+
+/// REF-038: `postData` and `relayState` of the form `ss:<id>` must name a configured
+/// StorageService. SP3 provides an in-memory one, id "mem", when none is configured.
+fn check_storage_references(
+    sc: &crate::model::shibboleth_config::ShibbolethConfig,
+    v: SpVersion,
+    results: &mut Vec<CheckResult>,
+) {
+    let Some(ref sessions) = sc.sessions else {
+        return;
+    };
+    for (attr, value) in [
+        ("postData", sessions.post_data.as_deref()),
+        ("relayState", sessions.relay_state.as_deref()),
+    ] {
+        let Some(value) = value else {
+            continue;
+        };
+        // relayState also takes "cookie" or "cookie:<n>"; postData must name a store.
+        if attr == "relayState"
+            && (value == "cookie"
+                || value
+                    .strip_prefix("cookie:")
+                    .is_some_and(|n| n.parse::<u32>().is_ok()))
+        {
+            continue;
+        }
+        let Some(id) = value.strip_prefix("ss:") else {
+            results.push(
+                CheckResult::fail(
+                    "REF-038",
+                    CAT,
+                    Severity::Error,
+                    &format!("{attr}=\"{value}\" must take the form ss:<id> of a StorageService"),
+                    Some("Point the setting at a <StorageService> id, such as ss:mem"),
+                )
+                .at_element("Sessions"),
+            );
+            continue;
+        };
+        if storage_id_defined(sc, id) {
+            results.push(
+                CheckResult::pass(
+                    "REF-038",
+                    CAT,
+                    Severity::Error,
+                    &format!("{} references StorageService '{}'", attr, id),
+                )
+                .at_element("Sessions"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "REF-038",
+                    CAT,
+                    Severity::Error,
+                    &format!("{} references StorageService '{}', which is not defined", attr, id),
+                    Some("Define a <StorageService> with this id, or point the setting at an existing one (the default is ss:mem)"),
+                )
+                .at_element("Sessions")
+                .with_doc(doc_for(DOC_STORAGE_SERVICE, v)),
+            );
+        }
+    }
+}
+
+/// Fetch and validate each URL concurrently so slow hosts don't add up.
+/// Results come back in the order of `urls`.
+fn check_remote_metadata_all(agent: &ureq::Agent, urls: &[&str], v: SpVersion) -> Vec<CheckResult> {
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = urls
+            .iter()
+            .map(|url| {
+                scope.spawn(move || {
+                    let mut results = Vec::new();
+                    check_remote_metadata(agent, url, &mut results, v);
+                    results
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    })
+}
+
 fn check_remote_metadata(
     agent: &ureq::Agent,
     url: &str,
@@ -1486,7 +1744,7 @@ fn check_remote_metadata(
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
-            Ok(Event::Start(e)) if root_element.is_none() => {
+            Ok(Event::Start(e) | Event::Empty(e)) if root_element.is_none() => {
                 let full_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let local = full_name
                     .rsplit(':')
@@ -1674,5 +1932,232 @@ fn check_metadata_valid_until(
             Err(_) => return, // REF-010 already handles parse errors
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_outcome, TestDir};
+
+    const SHIB_WITH_EXTRACTOR: &str = r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <AttributeExtractor type="XML" validate="true" path="attribute-map.xml"/>
+  </ApplicationDefaults>
+</SPConfig>"#;
+
+    #[test]
+    fn attribute_extractor_path_must_exist() {
+        let dir = TestDir::new();
+        dir.write("shibboleth2.xml", SHIB_WITH_EXTRACTOR);
+        assert_outcome(&run(&dir.discover(), false), "REF-005", false);
+
+        dir.write("attribute-map.xml", "<Attributes/>");
+        assert_outcome(&run(&dir.discover(), false), "REF-005", true);
+    }
+
+    /// Serve `body` once per connection on a local port; returns the URL.
+    fn serve(body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/metadata", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+            }
+        });
+        url
+    }
+
+    fn remote_results(urls: &[String]) -> Vec<CheckResult> {
+        let agent = crate::http::build_agent(std::time::Duration::from_secs(5));
+        let refs: Vec<&str> = urls.iter().map(String::as_str).collect();
+        check_remote_metadata_all(&agent, &refs, SpVersion::V3)
+    }
+
+    #[test]
+    fn remote_metadata_results_keep_url_order() {
+        let saml =
+            serve(r#"<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"/>"#);
+        let other = serve("<html/>");
+        let results = remote_results(&[saml.clone(), other.clone()]);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].passed, "{}", results[0].message);
+        assert!(results[0].message.contains(&saml));
+        assert!(!results[1].passed && results[1].message.contains(&other));
+    }
+
+    #[test]
+    fn unreachable_remote_metadata_fails() {
+        // Port 1 on loopback refuses connections
+        let results = remote_results(&["http://127.0.0.1:1/metadata".to_string()]);
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].passed);
+        assert_eq!(results[0].code, "REF-009");
+    }
+
+    fn run_storage(sessions_attrs: &str, extra: &str) -> Vec<CheckResult> {
+        let xml = crate::testutil::sp3_app(
+            "",
+            &format!("<Sessions {sessions_attrs}><SSO>SAML2</SSO></Sessions>{extra}"),
+        );
+        let (_dir, config) = crate::testutil::config_from_xml(&xml);
+        run(&config, false)
+    }
+
+    #[test]
+    fn session_recovery_needs_data_sealer() {
+        let cache = r#"<SessionCache type="StorageService" persistedAttributes="uid"/>"#;
+        let sealer = r#"<DataSealer type="Versioned" path="sealer.keys"/>"#;
+        assert_outcome(&run_storage("", cache), "REF-040", false);
+        assert_outcome(
+            &run_storage("", &format!("{sealer}{cache}")),
+            "REF-040",
+            true,
+        );
+        crate::testutil::assert_absent(
+            &run_storage("", r#"<SessionCache type="StorageService"/>"#),
+            "REF-040",
+        );
+    }
+
+    #[test]
+    fn storage_references_must_resolve() {
+        use crate::testutil::{assert_absent, assert_outcome};
+        // The built-in "mem" service exists when nothing is configured
+        assert_outcome(&run_storage(r#"relayState="ss:mem""#, ""), "REF-038", true);
+        // Once StorageServices are configured, "mem" must be one of them
+        let other = r#"<StorageService type="Memory" id="other"/>"#;
+        assert_outcome(
+            &run_storage(r#"relayState="ss:mem""#, other),
+            "REF-038",
+            false,
+        );
+        assert_outcome(
+            &run_storage(r#"relayState="ss:other""#, other),
+            "REF-038",
+            true,
+        );
+        assert_outcome(
+            &run_storage(r#"postData="ss:nope""#, other),
+            "REF-038",
+            false,
+        );
+        assert_absent(&run_storage(r#"relayState="cookie""#, ""), "REF-038");
+    }
+
+    #[test]
+    fn post_data_must_name_a_store() {
+        use crate::testutil::assert_absent;
+        assert_outcome(&run_storage(r#"postData="mem""#, ""), "REF-038", false);
+        assert_absent(&run_storage(r#"relayState="cookie:2""#, ""), "REF-038");
+        assert_outcome(&run_storage(r#"relayState="other""#, ""), "REF-038", false);
+    }
+
+    #[test]
+    fn post_template_in_a_comment_and_folder_providers_are_ignored() {
+        use crate::testutil::assert_absent;
+        let r = run_storage(
+            "",
+            r#"<!-- <Sessions postTemplate="commented.html"/> --><MetadataProvider type="Folder" path="metadir"/>"#,
+        );
+        assert_absent(&r, "REF-022");
+        assert_absent(&r, "REF-010");
+        assert_outcome(
+            &run_storage(r#"postTemplate="missing.html""#, ""),
+            "REF-022",
+            false,
+        );
+    }
+
+    #[test]
+    fn plugin_storage_references_must_resolve() {
+        use crate::testutil::{assert_absent, assert_outcome};
+        let with = |extra: &str| run_storage("", extra);
+        let defined = r#"<StorageService type="Memory" id="db"/>"#;
+        assert_outcome(
+            &with(&format!(r#"{defined}<ReplayCache StorageService="db"/>"#)),
+            "REF-039",
+            true,
+        );
+        assert_outcome(
+            &with(r#"<ReplayCache StorageService="gone"/>"#),
+            "REF-039",
+            false,
+        );
+        assert_outcome(
+            &with(r#"<ReplayCache StorageService="mem"/>"#),
+            "REF-039",
+            true,
+        );
+        assert_outcome(
+            &with(&format!(r#"{defined}<ArtifactMap StorageService="nope"/>"#)),
+            "REF-039",
+            false,
+        );
+        assert_outcome(
+            &with(&format!(
+                r#"{defined}<SessionCache type="StorageService" StorageServiceLite="nope"/>"#
+            )),
+            "REF-039",
+            false,
+        );
+        assert_absent(&with("<ReplayCache/>"), "REF-039");
+    }
+
+    #[test]
+    fn require_session_with_must_name_an_initiator() {
+        let results = |attrs: &str| {
+            let xml = format!(
+                r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <Sessions><SessionInitiator type="SAML2" id="Intranet" entityID="https://idp.example.org/idp"/></Sessions>
+  </ApplicationDefaults>
+  <RequestMapper type="Native"><RequestMap><Host name="a.example.org"><Path name="x" requireSession="true" {attrs}/></Host></RequestMap></RequestMapper>
+</SPConfig>"#
+            );
+            let sc = crate::parsers::shibboleth_xml::parse_str(&xml).unwrap();
+            let mut out = Vec::new();
+            check_require_session_with(&sc, &mut out);
+            out
+        };
+        assert_outcome(
+            &results(r#"requireSessionWith="Intranet""#),
+            "REF-042",
+            true,
+        );
+        assert_outcome(
+            &results(r#"requireSessionWith="Missing""#),
+            "REF-042",
+            false,
+        );
+        assert!(results(r#"requireSessionWith="""#).is_empty());
+        assert!(results("").is_empty());
+    }
+
+    #[test]
+    fn policy_ids_must_be_defined() {
+        let run_policy = |used: &str, policy: &str| {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(
+                    r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config"><ApplicationDefaults entityID="https://sp.example.org/shibboleth" policyId="{used}"/></SPConfig>"#
+                ),
+            );
+            dir.write("security-policy.xml", policy);
+            run(&dir.discover(), false)
+        };
+        let policy = r#"<SecurityPolicies><Policy id="default"/><Policy id="blockUnsolicited"/></SecurityPolicies>"#;
+        assert_outcome(&run_policy("blockUnsolicited", policy), "REF-043", true);
+        assert_outcome(&run_policy("blockUnsolicted", policy), "REF-043", false);
     }
 }

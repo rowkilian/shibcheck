@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4f503b2f0e2a27c96a111687eff02f48fce3de8984b6e1c02d6e638bfe7e1cc4 # shrinks to xml = "<SPConfig xmlns=\"urn:mace:shibboleth:2.0:native:sp:config\" xmlns:conf=\"urn:mace:shibboleth:2.0:native:sp:config\" clockSkew=\"180\">text > with < odd characters<!-- <MetadataProvider file=\"c.xml\"> <Sessions redirectLimit=\"whitelist\"> --></SPConfig>"

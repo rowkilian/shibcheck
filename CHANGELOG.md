@@ -5,16 +5,135 @@ All notable changes to shibcheck are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **XML-062**: `redirectToSSL` must be a port number.
+- **XML-063** / **XML-064**: `SAMLDS` and `WAYF` initiators need `URL`, and `Form` needs `template`.
+- **XML-065**: a discovery initiator with a fixed `entityID` ignores requests.
+- **XML-066** to **XML-071**: `ApplicationDefaults` `id` other than `default`; elements the docs allow once that appear twice; an empty `Chaining` session initiator; an `AttributeChecker` handler without `template`; a `KeyDescriptor` extractor with no `signingId`, `encryptionId` or `hashId`; an invalid `checkRevocation` value.
+- **XML-072** / **XML-073**: a `Dynamic` metadata provider needs exactly one `Subst` or `Regex` child, and providers should not share a `cacheDirectory`.
+- **OPS-086**: `Metadata` and `KeyDescriptor` attribute extractors never run without `metadataAttributePrefix`.
+- **XML-074** to **XML-076**: an `MDQ` or `Dynamic` provider without a `TrustEngine` or `ignoreTransport="true"`; an `EntityRole` filter without `RetainedRole` or a `UIInfo` filter without `Entity`; `Errors` placed before `Sessions`.
+- **REF-044**: `ODBC` and `MEMCACHE` storage, the `GSSAPI` extractor and ADFS need their extension `Library` in `OutOfProcess` (and `adfs-lite` in `InProcess`).
+- **OPS-087** / **OPS-088**: an explicit initiator at the `/Login` or `/Logout` location the shorthand uses, and `OutOfProcess` without `tranLogFormat`.
+- **XML-077** to **XML-079**: a `Logout` protocol that `SSO` does not list; an `Include` or `Exclude` filter with no entries and no `matcher`; duplicate `Policy` ids in `security-policy.xml`. XML-067 now also counts the listener elements as one slot.
+- **SEC-148** / **SEC-149**: `persistedAttributes` combined with assertion caching or export, and an absolute `exportLocation` off localhost.
+- **OPS-089** / **OPS-090**: `Notify` without any logout, and `redirectErrors` hiding the `session`, `metadata` or `ssl` templates.
+- `docs/check-backlog.md` gained a second pass over the SP3 documentation with about 140 further leads.
+
+### Changed
+- Retired OPS-015, OPS-049, OPS-053 and OPS-060: each flagged a default the docs already set the safe way (`reloadChanges` true, `maxValidityInterval` 7 days, `consistentAddress` true).
+- `--severity` on the command line now wins over the `.shibcheckrc` value even when it is `error`.
+- The request-map parser also reads `HostRegex`, `PathRegex` and `Query` content elements.
+- SEC-075, SEC-085, SEC-110, SEC-137 and SEC-138 ignore XML comments.
+- XML-051/052/060/061/062/063/064/065 and OPS-085 point at the element named in the message.
+- Retired checks whose claim the SP3 docs do not support: SEC-035 (merged into SEC-097), SEC-069, SEC-080, SEC-096, SEC-100, SEC-102, SEC-103, SEC-115, REF-032 (duplicate of SEC-055), MIG-009, MIG-016, MIG-017 and MIG-023.
+- SEC-097 tokenises the OpenSSL cipher expression, so `!RC4` style exclusions no longer count as weak ciphers, and it also reads `RelyingParty` `cipherSuites`.
+- Defaults the docs give are no longer findings: SEC-006/007 accept `conditional` and an unset value; SEC-026 treats a missing `maxValidityInterval` as the 7-day default; SEC-059 treats a missing `exportACL` as loopback; SEC-062/063 only flag an acl wider than loopback; SEC-060 only flags `signing="false"`; SEC-027 says nothing when the element is absent.
+- SEC-044/081 tell `UnixListener` and `TCPListener` apart; SEC-065 now flags `redirectAllow` without `redirectLimit` in an override (the old claim that `redirectLimit` is not inherited was wrong); SEC-118 and SEC-119 compare within one application; SEC-083 matches `HTTP-Redirect`; SEC-014 covers `baseUrl`.
+- SEC-034, SEC-050, SEC-036 and SEC-106 read parsed values instead of raw text; SEC-036 is skipped on IIS and points at `InProcess`.
+- SEC-142/143 also cover `authType` and `authPassword` on `ApplicationDefaults`.
+- MIG-018 catches `exact+whitelist` and `host+whitelist`; MIG-012 also covers `DiscoveryFilter`; the MIG checks ignore comments and name SP 3.2 as the rename release.
+- Severity changes: SEC-043 and SEC-089 are Info (sharing one key pair is the shipped default; `encryption` only controls what the SP sends); SEC-093 is Info (lazy sessions are a documented pattern).
+- The parser now keeps an `ApplicationOverride`'s `SSO`, `Logout`, `Errors` and protocol text apart from the defaults, and joins protocol text split by a comment. Several checks (XML-022/023/027/028/032/050/077, OPS-057/058/089 and others) misreported when an override existed.
+- `fix`: removing a multi-line attribute keeps the line count; namespace-prefixed tags (`<conf:Sessions>`) are found; the JSON and SARIF edit covers only the changed attribute, so unrelated values such as `spoofKey` stay out of the output; the dry-run diff masks `spoofKey`, `authPassword`, `password` and `key` values; writing follows symlinks instead of replacing them.
+- `migrate --output` refuses a directory that holds the originals, since it writes without a backup.
+- `multi` honours `--baseline`.
+- `diff` compares every result of a code, not only the first, and reports codes present on one side.
+- OPS-007 also reports `idpHistoryDays` without `idpHistory`; REF-038 reports `postData` values that are not `ss:<id>`; XML-027/028 accept `ADFS`; XML-029 and XML-044 skip `Null` providers; XML-035 knows `UIInfo` and `InlineLogo`; XML-039 accepts `WAYF`; XML-041 is Info; XML-046 is skipped on IIS; XML-053 also validates `RelyingParty` and `LogoutInitiator` values; XML-058 rejects unknown `RelyingParty` types.
+- OPS-014/015/031/032..035/054/055/056/059/062/067/075/078, REF-010/022/037 no longer scan raw text that comments or unrelated elements could match; OPS-075 is Info and looks at comments only.
+- **SEC-121** now reads the parsed `catchAll` attribute on both `OutOfProcess` and `InProcess` instead of searching the file text, and names the element.
+- **SEC-055** suggests a `TrustEngine` instead of just removing `ignoreTransport` on `MDQ` and `Dynamic` providers, since those need one (XML-074).
+- Messages about `MDQ` providers now show the `baseUrl`.
+- XML-069, XML-073, XML-074 and SEC-146 point at the specific `Handler` or `MetadataProvider` named in the message instead of the first one in the file.
+- **OPS-084**: `acsByIndex="true"` on `SSO` or `SessionInitiator`, which the docs call not advisable.
+- **OPS-085**: `exportAssertion` needs `exportLocation` and `exportACL` on `Sessions` and an enabled `cacheAssertions`.
+- `shibcheck migrate` moves an SP2 configuration to the SP3 format: the namespace in `shibboleth2.xml` and `security-policy.xml`, `file`/`uri` to `path`/`url` on `MetadataProvider`, the 3.2 names for `redirectWhitelist`, `redirectLimit` values and metadata filter types, and `cacheAssertions="true"` on `SessionCache` to keep the SP2 default. It supports `--dry-run`, `--output DIR`, `--no-backup` and `--keep-namespace`, and lists the migration findings that need a person.
+- **MIG-027**: a `SessionCache` that leaves `cacheAssertions` unset, whose default changes from true to false with the 3.0 namespace.
+- **REF-043**: a `policyId` must name a `<Policy>` in `security-policy.xml` or written inline.
+- **MIG-025**: `security-policy.xml` still on the SP2 namespace next to an SP3 `shibboleth2.xml`.
+- **MIG-026**: `AlgorithmWhitelist`, `AlgorithmBlacklist` and `includeDefaultBlacklist` are deprecated since SP 3.2.
+- **SEC-146**: `verifyHost="false"` on a `MDQ` or `Dynamic` metadata provider turns off the TLS host name check.
+- **SEC-147**: an ODBC `ConnectionString` that carries a password. The password is never stored or printed.
+- **XML-059**: a Static `DataSealer` key must be base64 that decodes to 16, 24 or 32 bytes.
+- **XML-060** / **XML-061**: `refreshDelayFactor` must be between 0 and 1, and a minimum refresh delay or cache duration must not exceed its maximum.
+- **REF-042**: `requireSessionWith` must name a `SessionInitiator` `id`.
 - **OPS-077**: Sessions `lifetime`/`timeout`/`maxTimeSinceAuthn` internal consistency check — warns when `maxTimeSinceAuthn` or `timeout` exceeds `lifetime`, since the session cannot outlive its absolute lifetime.
 - **OPS-078**: Transient `NameIDFormat` preference check — flags persistent, unspecified, X509SubjectName, kerberos, or WindowsDomainQualifiedName NameID requests, since transient is the recommended privacy default.
 - **REF-036**: Cross-file attribute coverage check — flags attributes declared in `attribute-map.xml` that have no matching rule in `attribute-policy.xml` (silently filtered out under deny-all).
 - **REF-037**: Persistent NameID source scoping check — flags unscoped source attributes (e.g., `uid`, `mail`) used for persistent NameID generation, where a scoped attribute validated via `ScopeMatchesShibMDScope` is required.
 
+- **SEC-127**: `sameSiteSession` check (SP 3.1+) — `None` makes the session cookie cross-site, `Strict` generally does not work, other values are invalid.
+- **SEC-128**: `ExternalAuth` and `AttributeResolver` handler `acl` must be loopback only; these handlers have no other protection.
+- **SEC-129**: flags `artifactByFilesystem="true"` (file-based external authentication).
+- **SEC-130**: `redirectAllow` / `redirectWhitelist` entries must end with a slash after the host, or `https://example.com` also matches `example.com.evil.com`.
+- **SEC-131**: flags `Errors` `externalParameters="true"` (XSS and phishing risk in error pages).
+- **SEC-132**: `attributePrefix` must not start with `HTTP_` (IIS treats those server variables as request headers).
+- **XML-048**: `Notify` needs `Channel` (`front` or `back`) and an absolute `Location`.
+- **XML-049**: `redirectLimit` must be a documented value.
+- **XML-050**: `authnContextComparison` must be a documented value and is ignored without `authnContextClassRef`.
+- **REF-038**: `postData` / `relayState` values of the form `ss:<id>` must name a defined `StorageService` (`mem` is built in when none is configured).
+- **OPS-079**: `postData` without `postTemplate`.
+- **SEC-133**: `InProcess` `checkSpoofing` disabled.
+- **SEC-134** / **SEC-135**: ISAPI `normalizeRequest="false"`, and `useHeaders="true"` on `ISAPI` or a `Site`.
+- **SEC-136**: `TCPListener` `acl` allows non-loopback addresses.
+- **SEC-137** / **SEC-138**: a `NullSecurity` policy rule, and `checkReplay="false"` on a policy rule, in `security-policy.xml` or inline.
+- **XML-051**: `Handler` without `type` or `Location`.
+- **XML-052** / **XML-053**: `use` on a File `CredentialResolver`, and `signing` / `encryption` on `ApplicationDefaults`, must be documented values.
+- **REF-039**: `StorageService` / `StorageServiceLite` references from `SessionCache`, `ReplayCache` and `ArtifactMap` must name a defined service.
+- **SEC-139**: `SessionCache` `persistedAttributes` (session recovery) skips the inactivity timeout and survives logout.
+- **REF-040**: `persistedAttributes` needs a `DataSealer`.
+- **OPS-081**: `maintainReverseIndex="false"` while logout is configured.
+- **OPS-082**: `unreliableNetworks` has no effect when `consistentAddress` is `false`.
+- **XML-054**: `unreliableNetworks` must be valid CIDR masks.
+- **OPS-080**: a `Cookie` `SessionInitiator` needs `idpHistory="true"`.
+
+### Added (RelyingParty)
+- `<RelyingParty>` overrides are now parsed. **SEC-140** / **SEC-141** flag `requireTransportAuth="false"` and `requireConfidentiality="false"`, **SEC-142** `authType="basic"`, **SEC-143** an `authPassword` in the config (the password is never printed), **SEC-144** `signing` / `encryption` turned off, **SEC-145** SHA-1 algorithms. **XML-058** flags an override with neither `Name` nor `type`, which can never match.
+
+### Added (access control)
+- **XML-055** / **XML-056** / **XML-057**: access control policies (`<AccessControl>` in `shibboleth2.xml` or a policy file) must be well formed: the right number of children under `AND`, `OR`, `NOT` and the root, valid Time plugin values, and a `require` on every rule. The docs say the SP installs a deny-all policy when it cannot process one.
+- **REF-041**: a `Rule` or `RuleRegex` `require` must be an alias or an attribute defined in `attribute-map.xml` (skipped when other attribute extractors make the set of attributes unknowable).
+- **OPS-083**: the `authnContextDeclRef` rule alias is deprecated.
+- `attribute-map.xml` `aliases` are now read.
+
+### Added (fix edits)
+- JSON results and SARIF `fixes` now carry the edit that `shibcheck fix` would make, for the checks `fix` handles.
+
+### Added (suppression)
+- **`shibcheck-ignore` / `shibcheck-ignore-file` XML comments** hide reviewed findings, with a reason. `--no-ignore` shows everything.
+- **Baselines**: `shibcheck baseline` records today's findings and `--baseline FILE` (or `baseline` in `.shibcheckrc`) reports only new ones. Stale entries are reported.
+
 ### Changed
+- Property tests (`proptest`) cover the `fix` tag scanner, the `shibcheck-ignore` parser and the main parser. They check that edits stay inside one start tag, that decoys in comments, CDATA and processing instructions are never edited, that fixing twice changes nothing, and that arbitrary text never panics.
+- Security checks now live in `src/checks/security/` (seven topic modules instead of one 4,700-line file). Security results are listed in code order.
+- Licensed under 0BSD (`LICENSE`). Added `rust-version = "1.88"`, the highest minimum declared by a dependency, and a `deny.toml` with a license allowlist plus a CI job that checks it.
+- **`fix` is now a subcommand** (`shibcheck fix [PATH]`). The `--fix` flag and the `fix` key in `.shibcheckrc` are gone. New options: `--dry-run` (prints a diff), `--only`, `--skip`, `--no-backup`, `--list`.
+- **Fix engine**: edits now go through a start-tag scanner instead of string search, so a match inside a comment, or an attribute on another element, no longer misleads it. Backups no longer overwrite an earlier `.bak`, and the file is replaced atomically.
+- **Fix of SEC-002 / SEC-003 on SP3** now sets `cookieProps="https"` or appends the missing flag. It used to turn `http` into `http; secure; httpOnly`, which is not a valid value.
+- `fix` also handles SEC-131, SEC-133 and SEC-134.
+- **SEC-017** now flags a `SameSite` attribute in `cookieProps` (SP3) instead of asking for one. The SameSite and Sessions docs say supported SP versions add the right value to each cookie and `cookieProps` should not set it. Severity is Warning. `--fix` no longer adds `SameSite=None`.
+- **SEC-114** (`DataSealer`) no longer looks for `keyStorePath` / `keyStorePassword`, which do not exist in SP3. It now flags a `Static` sealer (secret key in `shibboleth2.xml`) and a `Versioned` sealer that loads keys from a `url` without `backingFilePath`.
 - **REF-035** (metadata `validUntil` expiry) now tiers severity: Warning if expiring within 30 days (critical), Info if within 90 days (planning window), pass otherwise. Previously a single Info-level 30-day threshold.
 - **REF-021** (metadata signing certificate expiry) now also tiers expiring-soon at Warning (<=30d) / Info (<=90d), in addition to the existing Warning for already-expired certs.
 - **REF-001** and **REF-002** messages now include the `CredentialResolver` `use=` or certificate/key path label, so findings are distinguishable when multiple resolvers are configured.
 - **XML-033**, **XML-034**, **XML-035** now strip namespace prefixes (e.g., `md:XML` → `XML`) before type comparison, and skip empty-type elements instead of flagging them as unrecognized — removing false positives on namespaced or partial configs.
+
+### Fixed
+- **MIG-003** reported the SP3 `<Logout>` element as SP2-style. It now fires only for explicit `<LogoutInitiator type=...>` elements.
+- **MIG-015** is removed. It told people to replace `checkAddress` with `consistentAddress`, but those are two documented settings that do different things (the first compares addresses when the assertion arrives, the second when the session is reused).
+- **SEC-040** was inverted. The docs make `excludeDefaults` (formerly `includeDefaultBlacklist`) true by default, so it flagged the safe `excludeDefaults="true"` and missed `excludeDefaults="false"`, which keeps known weak algorithms enabled.
+- **SEC-027** did not recognize `ExcludedAlgorithms` (SP 3.2+), and **SEC-110** flagged weak algorithm URIs that sit inside an `ExcludedAlgorithms` list. A weak URI is now flagged only outside the exclusion lists.
+- `Notify` endpoints were read from the `Channel` attribute (`front`/`back`) whenever it was present, so SEC-041, SEC-105, SEC-124 and OPS-010 never saw the real `Location` URL. Endpoints now come from `Location`.
+- **XML-029** reported a valid `MDQ` `MetadataProvider` (which uses `baseUrl`) as having no data source, and also flagged `Dynamic` providers. `MDQ` now needs `baseUrl` and `Dynamic` is skipped.
+- Documentation links for ApplicationOverride, Errors, Sessions and the SP2 upgrade guide pointed at page ids that do not exist.
+- Attribute values are now entity-decoded when parsed, so a metadata `uri` containing `&amp;` is read as `&`. Source-line lookup matches both forms.
+- A self-closing root element (e.g. `<EntityDescriptor/>`) was reported as an empty XML document by the local and remote metadata checks.
+
+### Internal
+- Remote metadata URLs (REF-009) are fetched concurrently; results keep provider order.
+- Source locations for single-element checks are set at the check site with `CheckResult::at_element`, replacing the code-to-element table in `locate_check`.
+- Unit tests for the security, operational and cross-reference checks, plus snapshot tests that pin every result and location for each fixture (`UPDATE_SNAPSHOTS=1 cargo test` regenerates them).
+- Crate split into a library and a thin binary.
+- CI lints test code, runs on macOS (and Windows, non-blocking), and runs `cargo audit`.
 
 ## [0.8.0]
 

@@ -69,6 +69,26 @@ pub struct CheckResult {
     pub doc_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub location: Option<SourceLocation>,
+    /// XML element in shibboleth2.xml that this check inspects. Used to fill in
+    /// `location` after the checks run, unless the check set one itself.
+    #[serde(skip)]
+    pub element_hint: Option<&'static str>,
+    /// The edit `shibcheck fix` would make for this result, when it has one
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<FixEdit>,
+}
+
+/// A text replacement that resolves a result. Lines and columns are 1-based, columns count
+/// UTF-16 code units, and the end is exclusive.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct FixEdit {
+    pub description: String,
+    pub file: String,
+    pub start_line: usize,
+    pub start_column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub new_text: String,
 }
 
 impl CheckResult {
@@ -82,6 +102,8 @@ impl CheckResult {
             suggestion: None,
             doc_url: None,
             location: None,
+            element_hint: None,
+            fix: None,
         }
     }
 
@@ -101,12 +123,20 @@ impl CheckResult {
             suggestion: suggestion.map(|s| s.to_string()),
             doc_url: None,
             location: None,
+            element_hint: None,
+            fix: None,
         }
     }
 
     /// Attach a documentation URL to this check result.
     pub fn with_doc(mut self, url: &str) -> Self {
         self.doc_url = Some(url.to_string());
+        self
+    }
+
+    /// Point this result at the first `<element>` in shibboleth2.xml.
+    pub fn at_element(mut self, element: &'static str) -> Self {
+        self.element_hint = Some(element);
         self
     }
 

@@ -1,0 +1,6 @@
+<SecurityPolicies xmlns="urn:mace:shibboleth:2.0:native:sp:config">
+    <Policy id="default" validate="false">
+        <PolicyRule type="MessageFlow" checkReplay="true" expires="60"/>
+        <PolicyRule type="Conditions"/>
+    </Policy>
+</SecurityPolicies>

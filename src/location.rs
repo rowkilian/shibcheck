@@ -40,9 +40,13 @@ pub fn find_element_line(
                 .map(|p| byte_offset + p)
                 .unwrap_or(content.len());
             let tag_text = &content[byte_offset..tag_end];
-            let needle = format!("{}=\"{}\"", attr, val);
-            let needle_sq = format!("{}='{}'", attr, val);
-            if !tag_text.contains(&needle) && !tag_text.contains(&needle_sq) {
+            // Values come from the parsed (entity-decoded) config; the file holds the escaped form
+            let raw = val.replace('&', "&amp;");
+            let found = [val, raw.as_str()].iter().any(|v| {
+                tag_text.contains(&format!("{}=\"{}\"", attr, v))
+                    || tag_text.contains(&format!("{}='{}'", attr, v))
+            });
+            if !found {
                 continue;
             }
         }
@@ -68,6 +72,20 @@ mod tests {
         assert_eq!(find_line(content, "line1"), Some(1));
         assert_eq!(find_line(content, "line4"), Some(4));
         assert_eq!(find_line(content, "nope"), None);
+    }
+
+    #[test]
+    fn find_element_line_matches_escaped_ampersand() {
+        let xml = "<A>\n<MetadataProvider uri=\"http://x/m?a=1&amp;b=2\"/>\n</A>";
+        assert_eq!(
+            find_element_line(
+                xml,
+                "MetadataProvider",
+                Some("uri"),
+                Some("http://x/m?a=1&b=2")
+            ),
+            Some(2)
+        );
     }
 
     #[test]

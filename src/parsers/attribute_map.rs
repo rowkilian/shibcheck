@@ -36,6 +36,9 @@ pub fn parse_str(xml: &str) -> Result<AttributeMap> {
                             name,
                             id,
                             decoder_type: None,
+                            aliases: get_attr(&e, "aliases")
+                                .map(|a| a.split_whitespace().map(str::to_string).collect())
+                                .unwrap_or_default(),
                         });
                         in_attribute = true;
                     }
@@ -57,6 +60,9 @@ pub fn parse_str(xml: &str) -> Result<AttributeMap> {
                             name,
                             id,
                             decoder_type: None,
+                            aliases: get_attr(&e, "aliases")
+                                .map(|a| a.split_whitespace().map(str::to_string).collect())
+                                .unwrap_or_default(),
                         });
                     }
                 } else if name == "AttributeDecoder" && in_attribute {

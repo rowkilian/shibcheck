@@ -43,6 +43,76 @@ shibcheck --no-color /etc/shibboleth
 shibcheck --check-remote /etc/shibboleth
 ```
 
+### Fixing issues
+
+`shibcheck fix` repairs the issues that have one safe answer. It edits only the start tag of the element in question, so comments and formatting stay as they are.
+
+```bash
+shibcheck fix --dry-run /etc/shibboleth   # show the changes, write nothing
+shibcheck fix /etc/shibboleth             # fix, keep shibboleth2.xml.bak
+shibcheck fix --only SEC-001 .            # fix one check
+shibcheck fix --skip SEC-133 .            # fix all but one
+shibcheck fix --no-backup .               # skip the backup
+shibcheck fix --list                      # list what can be fixed
+```
+
+| Check | Fix |
+|-------|-----|
+| SEC-001 | Set `handlerSSL="true"` on `<Sessions>` |
+| SEC-002, SEC-003 | SP3: set `cookieProps="https"` (or append the missing flag to a custom value). SP2: spell out `; path=/; secure; HttpOnly` |
+| SEC-131 | Remove `externalParameters` from `<Errors>` |
+| SEC-133 | Remove `checkSpoofing="false"` from `<InProcess>` |
+| SEC-134 | Remove `normalizeRequest="false"` from `<ISAPI>` |
+
+Each run keeps the original as `shibboleth2.xml.bak`, then `.bak.1`, `.bak.2` and so on, so it never overwrites an earlier backup. Only the first `<Sessions>`, `<Errors>`, `<InProcess>` and `<ISAPI>` are edited, which are the ones the checks read. The config file is replaced in one rename, so a failed write cannot leave it half-written. Review the result before you deploy it, since a config file can hold key paths and passwords.
+
+### Migrating from SP2 to SP3
+
+`shibcheck migrate` applies the edits that the SP3 documentation prescribes for an SP2 configuration and that keep behavior the same. Like `fix`, it edits only start tags, so comments and layout stay and no line moves.
+
+```bash
+shibcheck migrate --dry-run /etc/shibboleth        # show the changes, write nothing
+shibcheck migrate /etc/shibboleth                  # migrate, keep a .bak of each changed file
+shibcheck migrate --output ./sp3 /etc/shibboleth   # write the new files to ./sp3, leave the originals
+shibcheck migrate --keep-namespace .               # rename settings first, change the namespace later
+```
+
+| Change | Files | Check |
+|--------|-------|-------|
+| Namespace `urn:mace:shibboleth:2.0:native:sp:config` becomes `3.0` | `shibboleth2.xml`, `security-policy.xml` | MIG-004, MIG-025 |
+| `MetadataProvider` `file` becomes `path`, `uri` becomes `url` | `shibboleth2.xml` | MIG-006, MIG-013 |
+| `Sessions` `redirectWhitelist` becomes `redirectAllow`; `redirectLimit` values `whitelist`, `exact+whitelist`, `host+whitelist` become `allow`, `exact+allow`, `host+allow` | `shibboleth2.xml` | MIG-008, MIG-018 |
+| `MetadataFilter` type `Whitelist`, `Blacklist`, `EntityRoleWhiteList` becomes `Include`, `Exclude`, `EntityRole` | `shibboleth2.xml` | MIG-011, MIG-012 |
+| `SessionCache` gets `cacheAssertions="true"`, because the default changes from true to false with the 3.0 namespace | `shibboleth2.xml` | MIG-027 |
+
+The release notes say the settings that cause deprecation warnings can stop the 3.0 schema from loading, so `migrate` renames them in the same pass as the namespace. The list of removed settings in the docs is not complete, which is why the command ends by listing the migration checks it could not resolve, such as explicit `SessionInitiator` and `LogoutInitiator` elements and the attribute resolver. Those need a person.
+
+After a run, the config needs SP 3.2 or later on every node, because the new names are 3.2 names. Restart `shibd`, read its log for `Shibboleth.DEPRECATION` warnings, and run `shibcheck` on the result. A configuration from SP 2.3 or earlier is better rebuilt from the default files, as the upgrade guide says. A second run changes nothing. The edits are documented for SP 3.2 up to 3.5, and 3.6 only adds deprecation warnings.
+
+### Accepting known findings
+
+Two ways to keep a reviewed finding out of the report. Both print how many findings they hid, and `--no-ignore` shows everything again.
+
+**Inline comments** in the XML:
+
+```xml
+<!-- shibcheck-ignore SEC-133: load balancer health checks send odd headers -->
+<InProcess checkSpoofing="false"/>
+
+<!-- shibcheck-ignore-file SEC-017: legacy cookie settings, tracked in TICKET -->
+```
+
+`shibcheck-ignore` hides the listed checks for the next element. `shibcheck-ignore-file` hides them for the whole configuration. Codes can be prefixes (`SEC`, `OPS-0`). Write the reason after the colon so the next reader knows why.
+
+**A baseline** for a config with many existing findings, so CI fails only on new ones:
+
+```bash
+shibcheck baseline /etc/shibboleth          # writes .shibcheck-baseline.json
+shibcheck --baseline /etc/shibboleth/.shibcheck-baseline.json /etc/shibboleth
+```
+
+Entries match on check code, file and message, not line number, so unrelated edits do not break them. Fix a finding and the run reports the entry as stale: run `shibcheck baseline` again to refresh it. A message with a changing value, such as days until a certificate expires, counts as a new finding when the value changes. You can set `baseline = ".shibcheck-baseline.json"` in `.shibcheckrc` (relative to the checked directory).
+
 ### Test IdP Setup
 
 Use `init-test-idp` to set up [mocksaml.com](https://mocksaml.com) as a test Identity Provider:
@@ -67,9 +137,9 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 
 ## Checks Reference
 
-312+ checks across five categories.
+330+ checks across five categories.
 
-### XML Validity (XML-001 to XML-047)
+### XML Validity (XML-001 to XML-079)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -101,7 +171,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-026 | No duplicate `ApplicationOverride` id | Error |
 | XML-027 | `SSO` protocol text contains valid values | Warning |
 | XML-028 | `Logout` protocol text contains valid values | Warning |
-| XML-029 | `MetadataProvider` has a data source (path/url/uri/sourceDirectory) | Error |
+| XML-029 | `MetadataProvider` has a data source (`path`/`url`/`uri`/`sourceDirectory`, or `baseUrl` for `MDQ`) | Error |
 | XML-030 | File `CredentialResolver` has both certificate and key | Warning |
 | XML-031 | `Errors` element configured | Info |
 | XML-032 | `Errors` element has `helpLocation` attribute | Info |
@@ -120,8 +190,40 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | XML-045 | `isPassive="true"` combined with `requireSession="true"` | Warning |
 | XML-046 | `requireSession="true"` without `authType` | Warning |
 | XML-047 | `RequestMapper` `type="XML"` (web server directives ignored) | Info |
+| XML-048 | `Notify` has `Channel` (`front`/`back`) and an absolute `Location` | Error |
+| XML-049 | `redirectLimit` is a recognized value | Warning |
+| XML-050 | `authnContextComparison` is a recognized value and has an `authnContextClassRef` | Warning |
+| XML-051 | Every `Handler` has `type` and `Location` | Error |
+| XML-052 | File `CredentialResolver` `use` is `signing`, `TLS` or `encryption` | Warning |
+| XML-053 | `signing` / `encryption` on `ApplicationDefaults` is a recognized value | Warning |
+| XML-054 | `SessionCache` `unreliableNetworks` lists valid CIDR masks | Error |
+| XML-055 | XML access control policy is well formed: one root rule, two or more children under `AND` / `OR`, one under `NOT` | Error |
+| XML-056 | Time access control values are valid (`operator`, `TimeSinceAuthn`, `Time`, `Hour`, `Month`, `DayOfWeek` and the other time rules) | Error |
+| XML-057 | Every `Rule` and `RuleRegex` has a `require` attribute | Error |
+| XML-058 | `RelyingParty` has a `Name` or a `type`, so it can match an IdP | Error |
+| XML-059 | Static `DataSealer` `key` is base64 that decodes to 16, 24 or 32 bytes | Error |
+| XML-060 | `refreshDelayFactor` is a decimal between 0 and 1, exclusive | Error |
+| XML-061 | `minRefreshDelay` / `minCacheDuration` does not exceed its maximum | Warning |
+| XML-062 | `redirectToSSL` is a port number from 1 to 65535 | Error |
+| XML-063 | `SAMLDS` and `WAYF` session initiators set `URL` | Error |
+| XML-064 | `Form` session initiator sets `template` | Error |
+| XML-065 | Discovery session initiators do not set `entityID` (the handler would ignore requests) | Warning |
+| XML-066 | `ApplicationDefaults` `id`, when set, is `default` | Error |
+| XML-067 | Elements the docs allow once (one listener, `Extensions`, `OutOfProcess`, `InProcess`, `DataSealer`, `SessionCache`, `ReplayCache`, `ArtifactMap`, `RequestMapper`, `Sessions`, `Errors` and others) appear once | Warning |
+| XML-068 | A `Chaining` session initiator has at least one child initiator | Error |
+| XML-069 | An `AttributeChecker` handler sets `template` | Error |
+| XML-070 | A `KeyDescriptor` attribute extractor sets `signingId`, `encryptionId` or `hashId`, otherwise it extracts nothing | Warning |
+| XML-071 | `TrustEngine` `checkRevocation` is `off`, `entityOnly` or `fullChain` | Error |
+| XML-072 | A `Dynamic` metadata provider has exactly one `Subst` or `Regex` child | Error |
+| XML-073 | Metadata providers do not share a `cacheDirectory` | Warning |
+| XML-074 | `MDQ` and `Dynamic` metadata providers have a `TrustEngine` child or `ignoreTransport="true"` | Error |
+| XML-075 | `EntityRole` filters have a `RetainedRole` child and `UIInfo` filters have an `Entity` child | Error |
+| XML-076 | `Sessions` comes before `Errors` in `ApplicationDefaults` | Error |
+| XML-077 | `Logout` lists only protocols that `SSO` also lists (a logout handler ignores sessions from other protocols) | Warning |
+| XML-078 | `Include` and `Exclude` metadata filters have child entries or a `matcher` | Error / Warning |
+| XML-079 | `Policy` ids in `security-policy.xml` are unique | Error |
 
-### Cross-file References (REF-001 to REF-037)
+### Cross-file References (REF-001 to REF-044)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -155,14 +257,21 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | REF-029 | Policy rule for scoped attribute uses scope validation | Warning |
 | REF-030 | `RequestMap` `applicationId` references valid `ApplicationOverride` | Warning |
 | REF-031 | Chaining `MetadataProvider` has >= 2 children | Info |
-| REF-032 | `MetadataProvider` `ignoreTransport="true"` has compensating Signature filter | Warning |
+| REF-032 | Retired (duplicate of SEC-055) | n/a |
 | REF-033 | `RequestMap` root `applicationId` is `"default"` | Warning |
 | REF-034 | Local metadata `validUntil` not expired | Warning |
 | REF-035 | Local metadata `validUntil` expiring (tiered: Warning < 30d, Info < 90d) | Warning |
 | REF-036 | `attribute-map` entries have matching `attribute-policy` rules | Info |
 | REF-037 | Persistent NameID source uses a scoped attribute | Warning |
+| REF-038 | `postData` / `relayState` `ss:<id>` names a defined `StorageService` | Error |
+| REF-039 | `SessionCache` / `ReplayCache` / `ArtifactMap` `StorageService` names a defined service | Error |
+| REF-040 | `SessionCache` `persistedAttributes` has a `DataSealer` to encrypt the recovery cookie | Error |
+| REF-041 | Access rules `require` an alias or an attribute defined in `attribute-map.xml` | Warning |
+| REF-042 | `requireSessionWith` names a `SessionInitiator` `id` | Warning |
+| REF-043 | `policyId` names a `<Policy>` in `security-policy.xml` or inline | Error |
+| REF-044 | Plugins that ship as extensions (`ODBC` and `MEMCACHE` storage, the `GSSAPI` extractor, ADFS) have their `Library` loaded in the right process | Error |
 
-### Security (SEC-001 to SEC-126)
+### Security (SEC-001 to SEC-149)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -182,7 +291,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-014 | No plaintext HTTP metadata URLs | Warning |
 | SEC-015 | Status handler ACL configured | Info |
 | SEC-016 | Private key file not world-readable (Unix) | Warning |
-| SEC-017 | `cookieProps` includes `SameSite` attribute | Info |
+| SEC-017 | `cookieProps` does not set `SameSite` (the SP adds it itself) | Warning |
 | SEC-018 | `entityID` uses HTTPS | Info |
 | SEC-019 | `Sessions` `lifetime` is reasonable | Info |
 | SEC-020 | `Sessions` `timeout` is reasonable | Info |
@@ -192,7 +301,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-024 | `clockSkew` does not exceed 600s | Warning |
 | SEC-025 | `SSO` protocols do not include SAML1 | Info |
 | SEC-026 | `maxValidityInterval` present and <= 30 days | Info |
-| SEC-027 | `security-policy.xml` has algorithm blacklist/filter | Warning |
+| SEC-027 | `security-policy.xml` has `ExcludedAlgorithms`, an algorithm blacklist or a filter | Warning |
 | SEC-028 | `entityID` is not a placeholder | Warning |
 | SEC-029 | `SSO` `discoveryURL` uses HTTPS | Warning |
 | SEC-030 | Config files not world-writable (Unix) | Warning |
@@ -200,11 +309,11 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-032 | No handler has `showAttributeValues="true"` | Warning |
 | SEC-033 | Sensitive handlers have ACL restrictions | Info |
 | SEC-034 | `exportAssertion` not enabled | Warning |
-| SEC-035 | `cipherSuites` contains no weak ciphers (RC4/DES/NULL/EXPORT) | Warning |
+| SEC-035 | Retired (merged into SEC-097) | n/a |
 | SEC-036 | `spoofKey` configured | Warning |
 | SEC-038 | `postLimit` is non-zero and <= 10 MB | Info |
 | SEC-039 | `SecurityPolicyProvider` has `validate="true"` | Info |
-| SEC-040 | `security-policy.xml` does not disable default algorithm blacklist | Warning |
+| SEC-040 | `security-policy.xml` does not set `excludeDefaults="false"` (or `includeDefaultBlacklist="false"`) | Warning |
 | SEC-041 | `Notify` endpoints use HTTPS | Warning |
 | SEC-042 | `handlerURL` does not use plaintext HTTP | Warning |
 | SEC-043 | Signing and encryption `CredentialResolver` use separate keys | Warning |
@@ -233,7 +342,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-066 | `idpHistory` not enabled (avoids leaking IdP usage via cookie) | Info |
 | SEC-067 | `maxTimeSinceAuthn` is set on `Sessions` | Info |
 | SEC-068 | `cookieLifetime` does not exceed session `lifetime` | Info |
-| SEC-069 | `RequireValidUntil` MetadataFilter not explicitly disabled | Warning |
+| SEC-069 | Retired (RequireValidUntil has no such attribute) | n/a |
 | SEC-070 | `SignatureMetadataFilter` has certificate or TrustEngine | Error |
 | SEC-071 | `checkAddress` not explicitly set to `false` | Info |
 | SEC-072 | No inline private key material in `shibboleth2.xml` | Error |
@@ -244,7 +353,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-077 | Signing and encryption use different certificates | Info |
 | SEC-078 | `idpHistoryDays` not excessively high (≤ 365) | Info |
 | SEC-079 | `sameSiteFallback` not enabled (no extra cookie surface) | Info |
-| SEC-080 | `Errors` `supportContact` does not expose direct email | Info |
+| SEC-080 | Retired (the docs use an email as the supportContact example) | n/a |
 | SEC-081 | `TCPListener` has explicit address or `UnixListener` used | Info |
 | SEC-082 | SSO protocols do not include SAML1 | Warning |
 | SEC-083 | Logout outgoing bindings do not use GET/Redirect | Info |
@@ -260,26 +369,26 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-093 | `authType="shibboleth"` paths have `requireSession="true"` | Warning |
 | SEC-094 | Handler `Location` is not at root path `/` | Warning |
 | SEC-095 | Signing `CredentialResolver` is configured | Info |
-| SEC-096 | Asynchronous `LogoutInitiator` has signing enabled | Info |
+| SEC-096 | Retired (no documented basis) | n/a |
 | SEC-097 | `cipherSuites` does not contain weak algorithms | Warning |
 | SEC-098 | `SignatureMetadataFilter` `verifyBackup` not disabled | Info |
 | SEC-099 | `PostData` cache awareness (sensitive form data on disk) | Info |
-| SEC-100 | `forceAuthn` not explicitly set to `false` on content settings | Info |
+| SEC-100 | Retired (flagged the default value) | n/a |
 | SEC-101 | `isPassive` not combined with `requireSession` | Info |
-| SEC-102 | `RequestMapper` type is not `Native` (SP controls access) | Info |
-| SEC-103 | `LogoutInitiator` does not skip notifications | Info |
+| SEC-102 | Retired (Native is the default RequestMapper) | n/a |
+| SEC-103 | Retired (notifyWithout is not a documented attribute) | n/a |
 | SEC-104 | `Errors` `helpLocation` does not use plain HTTP | Info |
 | SEC-105 | Notify endpoint count is not excessive (≤ 5) | Info |
 | SEC-106 | `attributePrefix` is set (avoids header name collisions) | Info |
 | SEC-107 | XML comments do not contain sensitive keywords | Warning |
 | SEC-108 | Attribute map does not map to security-sensitive header names | Warning |
 | SEC-109 | `clockSkew` is not zero (tolerates minor time drift) | Info |
-| SEC-110 | `security-policy.xml` does not reference weak algorithms outside blacklists | Warning |
+| SEC-110 | `security-policy.xml` does not reference weak algorithms outside `ExcludedAlgorithms` and blacklists | Warning |
 | SEC-111 | Error template paths are not absolute URLs (no external redirect) | Info |
 | SEC-112 | Scoped attributes have scope validation in attribute policy | Warning |
 | SEC-113 | `DiagnosticService` handler has ACL | Warning |
-| SEC-114 | `DataSealer` has explicit `keyStorePath` configured | Warning |
-| SEC-115 | Informational handlers at default paths have ACL | Info |
+| SEC-114 | `DataSealer` is not `Static` (key in the config) and a remote `Versioned` one has `backingFilePath` | Warning |
+| SEC-115 | Retired (covered by SEC-033) | n/a |
 | SEC-116 | `ApplicationOverride` `entityID` uses HTTPS | Warning |
 | SEC-117 | SSO `discoveryProtocol` is not WAYF (outdated) | Info |
 | SEC-118 | Only one `SessionInitiator` marked as default | Warning |
@@ -291,8 +400,31 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | SEC-124 | `Notify` endpoint does not loop back to SP handler | Warning |
 | SEC-125 | `ApplicationOverride` `entityID` differs from parent | Info |
 | SEC-126 | Certificate / key file parses as valid PEM (surfaces silent parse failures) | Warning |
+| SEC-127 | `sameSiteSession` is `Lax` (not `None`, `Strict` or unrecognized) | Warning |
+| SEC-128 | `ExternalAuth` / `AttributeResolver` handler `acl` is limited to loopback | Warning |
+| SEC-129 | `artifactByFilesystem` is not enabled | Info |
+| SEC-130 | `redirectAllow` entries end with a slash after the host | Warning |
+| SEC-131 | `Errors` `externalParameters` is not enabled | Warning |
+| SEC-132 | `attributePrefix` does not start with `HTTP_` | Error |
+| SEC-133 | `InProcess` `checkSpoofing` is not disabled | Warning |
+| SEC-134 | ISAPI `normalizeRequest` is not disabled | Warning |
+| SEC-135 | IIS does not pass attributes as headers (`useHeaders`) | Info |
+| SEC-136 | `TCPListener` `acl` is limited to loopback | Warning |
+| SEC-137 | No `NullSecurity` policy rule | Error |
+| SEC-138 | No policy rule sets `checkReplay="false"` | Warning |
+| SEC-139 | `SessionCache` does not enable session recovery (`persistedAttributes`), which skips the timeout and survives logout | Warning |
+| SEC-140 | `RelyingParty` does not set `requireTransportAuth="false"` | Warning |
+| SEC-141 | `RelyingParty` does not set `requireConfidentiality="false"` | Warning |
+| SEC-142 | `RelyingParty` does not use `authType="basic"` (cleartext password) | Info |
+| SEC-143 | `RelyingParty` keeps no `authPassword` in `shibboleth2.xml` | Warning |
+| SEC-144 | `RelyingParty` does not turn off `signing` or `encryption` | Warning |
+| SEC-145 | `RelyingParty` `signingAlg` / `digestAlg` do not use SHA-1 | Warning |
+| SEC-146 | `MDQ` / `Dynamic` providers do not set `verifyHost="false"` | Warning |
+| SEC-147 | ODBC `ConnectionString` does not carry a password | Info |
+| SEC-148 | `persistedAttributes` is not combined with `cacheAssertions` or `exportAssertion` (a recovered session has no assertion) | Warning |
+| SEC-149 | An absolute `exportLocation` stays on localhost | Warning |
 
-### Operational (OPS-001 to OPS-078)
+### Operational (OPS-001 to OPS-090)
 
 | Code | Description | Severity |
 |------|-------------|----------|
@@ -310,7 +442,7 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-012 | `REMOTE_USER` has single attribute (no fallback chain) | Info |
 | OPS-013 | `clockSkew` explicitly set | Info |
 | OPS-014 | `TransportOption` TLS constraints configured | Info |
-| OPS-015 | `reloadChanges` set on external XML resources | Info |
+| OPS-015 | Retired (reloadChanges defaults to true) | n/a |
 | OPS-016 | `sameSiteFallback` set on `Sessions` | Info |
 | OPS-017 | `relayState` configured on `Sessions` | Info |
 | OPS-018 | `postData` configured on `Sessions` | Info |
@@ -344,18 +476,18 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-046 | `discoveryProtocol` explicitly set when `discoveryURL` is used | Info |
 | OPS-047 | `MetadataProvider` `validate` attribute set to `"true"` | Info |
 | OPS-048 | `signingAlg` and `digestAlg` explicitly set on `ApplicationDefaults` | Info |
-| OPS-049 | `RequireValidUntil` filter has `maxValidityInterval` set | Info |
+| OPS-049 | Retired (maxValidityInterval defaults to 7 days; SEC-026 covers the threshold) | n/a |
 | OPS-050 | `AttributeExtractor` path configured | Info |
 | OPS-051 | `CredentialResolver` `use` attribute set in multi-resolver setup | Warning |
 | OPS-052 | `ApplicationOverride` count not excessive (>3 flagged) | Info |
-| OPS-053 | Local `MetadataProvider` has `reloadInterval` | Info |
+| OPS-053 | Retired (local files are watched by default (reloadChanges)) | n/a |
 | OPS-054 | `StorageService` configured for session persistence | Info |
 | OPS-055 | `OutOfProcess` or `InProcess` extensions configured | Info |
 | OPS-056 | `ReplayCache` configured for assertion replay protection | Info |
 | OPS-057 | SSO protocols explicitly specified | Info |
 | OPS-058 | Logout protocols explicitly specified | Info |
 | OPS-059 | Logging configuration detected | Info |
-| OPS-060 | `consistentAddress` explicitly set on `Sessions` | Info |
+| OPS-060 | Retired (consistentAddress defaults to true) | n/a |
 | OPS-061 | `handlerURL` path standard or non-standard awareness | Info |
 | OPS-062 | `ArtifactMap` configured for artifact resolution state | Info |
 | OPS-063 | `attribute-map.xml` has sufficient attribute mappings (>= 3) | Info |
@@ -374,8 +506,20 @@ This downloads the mocksaml.com metadata to `mocksaml-metadata.xml` in the targe
 | OPS-076 | `DiscoveryFeed` handler enabled (exposes IdP list) | Info |
 | OPS-077 | `Sessions` `lifetime`/`timeout`/`maxTimeSinceAuthn` are internally consistent | Warning |
 | OPS-078 | `NameIDFormat` prefers transient over persistent/unspecified | Info |
+| OPS-079 | `postData` has a `postTemplate` | Info |
+| OPS-080 | `Cookie` `SessionInitiator` has `idpHistory` enabled | Warning |
+| OPS-081 | `SessionCache` keeps the reverse index when logout is configured | Warning |
+| OPS-082 | `SessionCache` `unreliableNetworks` is not set while `consistentAddress` is `false` | Info |
+| OPS-083 | No access rule uses the deprecated `authnContextDeclRef` alias | Warning |
+| OPS-084 | `acsByIndex` is not `true` | Info |
+| OPS-085 | `exportAssertion` has `exportLocation`, `exportACL` and an enabled `cacheAssertions` | Warning |
+| OPS-086 | `Metadata` and `KeyDescriptor` extractors have `metadataAttributePrefix` set, or they never run | Warning |
+| OPS-087 | Explicit initiators do not sit at `/Login` or `/Logout` next to the `SSO` or `Logout` shorthand | Warning |
+| OPS-088 | `OutOfProcess` sets `tranLogFormat` | Info |
+| OPS-089 | `Notify` has a `Logout` or `LogoutInitiator` to run from | Info |
+| OPS-090 | `redirectErrors` is not combined with `session`, `metadata` or `ssl` templates it would hide | Info |
 
-### Migration (MIG-001 to MIG-024)
+### Migration (MIG-001 to MIG-027)
 
 MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and V3.
 
@@ -389,22 +533,24 @@ MIG-001 through MIG-010 only fire for SP2 configs. MIG-011+ fire on both V2 and 
 | MIG-006 | `MetadataProvider` uses deprecated `file` attribute | Warning |
 | MIG-007 | `attribute-policy.xml` uses deprecated SP2 namespace | Info |
 | MIG-008 | `Sessions` uses deprecated `redirectWhitelist` | Info |
-| MIG-009 | `AttributeResolver` with `subjectMatch` (SP2 pattern) | Info |
+| MIG-009 | Retired (subjectMatch is the documented SP3 setting) | n/a |
 | MIG-010 | `MetadataProvider` uses deprecated `Provider` attribute | Warning |
 | MIG-011 | `MetadataFilter` type `EntityRoleWhiteList` deprecated | Warning |
 | MIG-012 | `MetadataFilter` type `Whitelist`/`Blacklist` deprecated | Warning |
 | MIG-013 | `MetadataProvider` uses deprecated `uri` attribute | Info |
 | MIG-014 | Configuration contains deprecated constructs | Info |
-| MIG-015 | `Sessions` uses deprecated `checkAddress` attribute | Info |
-| MIG-016 | SP3 config has leftover SP2 handler declarations | Info |
-| MIG-017 | `MetadataGenerator` present (disabled by default in SP 3.4+) | Info |
+| MIG-016 | Retired (explicit endpoints are still documented in SP3) | n/a |
+| MIG-017 | Retired (unverified claim about SP 3.4) | n/a |
 | MIG-018 | `redirectLimit="whitelist"` is a deprecated value | Warning |
 | MIG-019 | `SSO` `discoveryProtocol="WAYF"` deprecated | Warning |
 | MIG-020 | `MetadataProvider` `legacyOrgNames="true"` deprecated | Warning |
 | MIG-021 | `attribute-map.xml` `aliases` attribute deprecated | Info |
 | MIG-022 | `SessionInitiator` `type="Shib1"` or `"WAYF"` (legacy) | Warning |
-| MIG-023 | `SSO` `defaultACSIndex`/`acsIndex` deprecated in SP3 | Info |
+| MIG-023 | Retired (acsIndex is a documented SP3 attribute) | n/a |
 | MIG-024 | `ApplicationOverride` `Sessions` missing `handlerSSL`/`cookieProps` (not inherited) | Warning |
+| MIG-025 | `security-policy.xml` does not use the SP2 namespace | Warning |
+| MIG-026 | `security-policy.xml` does not use names deprecated in SP 3.2 (`AlgorithmWhitelist`, `AlgorithmBlacklist`, `includeDefaultBlacklist`) | Info |
+| MIG-027 | `SessionCache` sets `cacheAssertions` (its default changes from true to false with the 3.0 namespace) | Info |
 
 ## Output
 
@@ -506,6 +652,8 @@ With `--sarif`, output is a [SARIF v2.1.0](https://sarifweb.azurewebsites.net/) 
 shibcheck --sarif /etc/shibboleth > results.sarif
 ```
 
+Results that `shibcheck fix` can resolve also carry the edit. JSON results get a `fix` object (`description`, `file`, `start_line`, `start_column`, `end_line`, `end_column`, `new_text`) and SARIF results get a `fixes` entry with one replacement, so code scanning and editors can offer the same change. Lines and columns are 1-based, the end is exclusive, and columns count UTF-16 code units. Each edit is computed against the original file, so you can apply any one of them on its own.
+
 ### HTML Output
 
 With `--html`, output is a self-contained HTML page with collapsible category sections, color-coded badges, and a file summary table:
@@ -545,11 +693,11 @@ skip = ["XML-005", "OPS"]
 # Minimum severity for non-zero exit code: "error", "warning", or "info"
 severity = "error"
 
-# Auto-fix safe issues
-fix = false
-
 # Watch for file changes and re-run checks
 watch = false
+
+# Baseline file of accepted findings, relative to the checked directory
+# baseline = ".shibcheck-baseline.json"
 ```
 
 All fields are optional. A minimal `.shibcheckrc` might look like:
@@ -649,7 +797,7 @@ This uploads results to the **Security** tab in your repository, showing finding
 
 ## Building from Source
 
-Requires Rust 1.70+.
+Requires Rust 1.88+ (the minimum that the dependencies declare).
 
 ```bash
 git clone https://github.com/rowkilian/shibcheck.git
@@ -662,3 +810,9 @@ Run tests:
 ```bash
 cargo test
 ```
+
+## License
+
+shibcheck is released under the [BSD Zero Clause License](LICENSE) (0BSD). It places no conditions on use, copying, modification or distribution.
+
+The dependencies keep their own licenses (MIT, Apache-2.0, ISC, BSD, Zlib, Unlicense, CC0-1.0, and MPL-2.0 for `colored`). If you distribute a binary, include their notices. `cargo deny check licenses` lists them and the CI job enforces an allowlist.

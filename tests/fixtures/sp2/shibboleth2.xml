@@ -1,0 +1,29 @@
+<SPConfig xmlns="urn:mace:shibboleth:2.0:native:sp:config"
+    xmlns:conf="urn:mace:shibboleth:2.0:native:sp:config"
+    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+    xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+    clockSkew="180">
+
+    <OutOfProcess logger="shibd.logger"/>
+    <SessionCache type="StorageService" StorageService="mem" cacheTimeout="3600"/>
+
+    <ApplicationDefaults entityID="https://sp.example.org/shibboleth" REMOTE_USER="eppn">
+        <Sessions lifetime="28800" timeout="3600" checkAddress="false" handlerSSL="true" cookieProps="https"
+                  redirectLimit="exact+whitelist" redirectWhitelist="https://app.example.org/">
+            <SSO entityID="https://idp.example.org/idp">SAML2</SSO>
+            <Logout>SAML2 Local</Logout>
+        </Sessions>
+        <Errors supportContact="root@example.org" logoLocation="/shibboleth-sp/logo.jpg" styleSheet="/shibboleth-sp/main.css"/>
+        <!-- <MetadataProvider type="XML" file="commented-out.xml"/> -->
+        <MetadataProvider type="XML" uri="https://md.example.org/metadata.xml" backingFilePath="federation.xml" reloadInterval="7200">
+            <MetadataFilter type="RequireValidUntil" maxValidityInterval="2419200"/>
+            <MetadataFilter type="Whitelist"><Entity>https://idp.example.org/idp</Entity></MetadataFilter>
+        </MetadataProvider>
+        <MetadataProvider type="XML" file="local-metadata.xml"/>
+        <AttributeExtractor type="XML" validate="true" path="attribute-map.xml"/>
+        <AttributeFilter type="XML" validate="true" path="attribute-policy.xml"/>
+    </ApplicationDefaults>
+
+    <SecurityPolicyProvider type="XML" validate="true" path="security-policy.xml"/>
+</SPConfig>

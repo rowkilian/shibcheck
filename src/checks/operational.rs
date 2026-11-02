@@ -5,7 +5,7 @@ use crate::result::{CheckCategory, CheckResult, Severity};
 
 const CAT: CheckCategory = CheckCategory::Operational;
 
-const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334308/Errors";
+const DOC_ERRORS: &str = "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334361/Errors";
 const DOC_METADATA_PROVIDER: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2060616124/MetadataProvider";
 const DOC_SESSIONS: &str =
@@ -19,7 +19,7 @@ const DOC_ATTR_EXTRACTOR: &str =
 const DOC_SPCONFIG: &str =
     "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063695926/SPConfig";
 const DOC_APP_OVERRIDE: &str =
-    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334278/ApplicationOverride";
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2063696335/ApplicationOverride";
 
 use crate::model::shibboleth_config::ShibbolethConfig;
 
@@ -145,6 +145,13 @@ fn describe_parent_metadata(sc: &ShibbolethConfig) -> String {
         summaries.len(),
         summaries.join("; ")
     )
+}
+
+/// The text of every `<!-- ... -->` comment in `xml`.
+fn comments(xml: &str) -> impl Iterator<Item = &str> {
+    xml.split("<!--")
+        .skip(1)
+        .map(|rest| rest.split("-->").next().unwrap_or(""))
 }
 
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
@@ -412,9 +419,23 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // OPS-007: idpHistory enabled without idpHistoryDays
+    // OPS-007: idpHistory enabled without idpHistoryDays, or the reverse
     if let Some(ref sessions) = sc.sessions {
-        if sessions.idp_history.as_deref().is_some_and(|v| v == "true") {
+        let enabled = sessions.idp_history.as_deref().is_some_and(|v| v == "true");
+        if !enabled && sessions.idp_history_days.is_some() {
+            results.push(
+                CheckResult::fail(
+                    "OPS-007",
+                    CAT,
+                    Severity::Info,
+                    "idpHistoryDays is set but idpHistory is not true, so it has no effect",
+                    Some("Set idpHistory=\"true\" on <Sessions>, or remove idpHistoryDays"),
+                )
+                .at_element("Sessions")
+                .with_doc(DOC_SESSIONS),
+            );
+        }
+        if enabled {
             if sessions.idp_history_days.is_some() {
                 results.push(CheckResult::pass(
                     "OPS-007",
@@ -493,7 +514,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-010: No Notify endpoints configured for logout notification
-    if sc.notify_endpoints.is_empty() {
+    if sc.notify_elements.is_empty() {
         results.push(
             CheckResult::fail(
                 "OPS-010",
@@ -509,10 +530,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             "OPS-010",
             CAT,
             Severity::Info,
-            &format!(
-                "{} Notify endpoint(s) configured",
-                sc.notify_endpoints.len()
-            ),
+            &format!("{} Notify endpoint(s) configured", sc.notify_elements.len()),
         ));
     }
 
@@ -600,6 +618,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-014: No TransportOption TLS constraints configured
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         if content.contains("TransportOption") {
             results.push(CheckResult::pass(
                 "OPS-014",
@@ -618,38 +637,6 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 )
                 .with_doc(DOC_APP_DEFAULTS),
             );
-        }
-    }
-
-    // OPS-015: reloadChanges not set on external XML resources
-    if let Some(ref content) = config.shibboleth_xml_content {
-        // Check if any external resource references use reloadChanges
-        if content.contains("reloadChanges=") {
-            results.push(CheckResult::pass(
-                "OPS-015",
-                CAT,
-                Severity::Info,
-                "reloadChanges is configured on external XML resource(s)",
-            ));
-        } else {
-            // Only flag if there are external XML resources (AttributeExtractor/AttributeFilter with path)
-            let has_external = sc
-                .attribute_extractor_paths
-                .iter()
-                .chain(sc.attribute_filter_paths.iter())
-                .any(|p| !p.is_empty());
-            if has_external {
-                results.push(
-                    CheckResult::fail(
-                        "OPS-015",
-                        CAT,
-                        Severity::Info,
-                        "reloadChanges not set on external XML resources",
-                        Some("Add reloadChanges=\"true\" to AttributeExtractor/AttributeFilter to auto-reload on file changes"),
-                    )
-                    .with_doc(DOC_APP_DEFAULTS),
-                );
-            }
         }
     }
 
@@ -1066,8 +1053,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-031: DataSealer type="Static" (no key rotation for session recovery)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("DataSealer") && content.contains("type=\"Static\"") {
+    if !sc.data_sealers.is_empty() {
+        if sc.data_sealers.iter().any(|d| d.sealer_type == "Static") {
             results.push(
                 CheckResult::fail(
                     "OPS-031",
@@ -1078,7 +1065,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 )
                 .with_doc(DOC_SESSIONS),
             );
-        } else if content.contains("DataSealer") {
+        } else {
             results.push(CheckResult::pass(
                 "OPS-031",
                 CAT,
@@ -1092,12 +1079,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref app) = sc.application_defaults {
         if let Some(ref home_url) = app.home_url {
             if !home_url.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-036",
-                    CAT,
-                    Severity::Info,
-                    &format!("homeURL is set: {}", home_url),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-036",
+                        CAT,
+                        Severity::Info,
+                        &format!("homeURL is set: {}", home_url),
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1106,7 +1096,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "homeURL is set but empty on ApplicationDefaults",
                         Some("Set homeURL to a valid URL so the SP has a fallback landing page for error recovery"),
-                    )
+                    ).at_element("ApplicationDefaults")
                     .with_doc(DOC_APP_DEFAULTS),
                 );
             }
@@ -1118,7 +1108,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "homeURL not set on ApplicationDefaults (no fallback landing page for error recovery)",
                     Some("Set homeURL on <ApplicationDefaults> to provide a landing page when the SP has no better redirect target"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(DOC_APP_DEFAULTS),
             );
         }
@@ -1140,15 +1130,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         &format!("homeURL appears to be a placeholder: {}", home_url),
                         Some("Set homeURL to a real URL for your application"),
                     )
+                    .at_element("ApplicationDefaults")
                     .with_doc(DOC_APP_DEFAULTS),
                 );
             } else if !home_url.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-037",
-                    CAT,
-                    Severity::Warning,
-                    "homeURL is not a placeholder",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-037",
+                        CAT,
+                        Severity::Warning,
+                        "homeURL is not a placeholder",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -1162,12 +1156,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             || errors.local_logout.is_some()
             || errors.global_logout.is_some();
         if has_custom_pages {
-            results.push(CheckResult::pass(
-                "OPS-038",
-                CAT,
-                Severity::Info,
-                "Custom error page(s) configured in <Errors>",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-038",
+                    CAT,
+                    Severity::Info,
+                    "Custom error page(s) configured in <Errors>",
+                )
+                .at_element("Errors"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1176,7 +1173,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "No custom error pages configured in <Errors> (users see default SP error pages)",
                     Some("Add session, access, ssl, metadata, localLogout, or globalLogout attributes to <Errors> for user-friendly error pages"),
-                )
+                ).at_element("Errors")
                 .with_doc(DOC_ERRORS),
             );
         }
@@ -1186,12 +1183,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref errors) = sc.errors {
         if let Some(ref help) = errors.help_location {
             if !help.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-039",
-                    CAT,
-                    Severity::Info,
-                    &format!("helpLocation is set on Errors: {}", help),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-039",
+                        CAT,
+                        Severity::Info,
+                        &format!("helpLocation is set on Errors: {}", help),
+                    )
+                    .at_element("Errors"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1203,6 +1203,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Set helpLocation to a URL where users can find help or documentation",
                         ),
                     )
+                    .at_element("Errors")
                     .with_doc(DOC_ERRORS),
                 );
             }
@@ -1214,7 +1215,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "helpLocation not set on <Errors> (error pages have no link to help documentation)",
                     Some("Set helpLocation on <Errors> to provide a support/documentation URL on error pages"),
-                )
+                ).at_element("Errors")
                 .with_doc(DOC_ERRORS),
             );
         }
@@ -1223,15 +1224,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // OPS-040: Session lifetime not explicitly set (no absolute session cap)
     if let Some(ref sessions) = sc.sessions {
         if sessions.lifetime.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-040",
-                CAT,
-                Severity::Info,
-                &format!(
-                    "Session lifetime is explicitly set: {}s",
-                    sessions.lifetime.as_deref().unwrap_or("?")
-                ),
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-040",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Session lifetime is explicitly set: {}s",
+                        sessions.lifetime.as_deref().unwrap_or("?")
+                    ),
+                )
+                .at_element("Sessions"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1243,6 +1247,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         "Set lifetime on <Sessions> to explicitly control maximum session duration",
                     ),
                 )
+                .at_element("Sessions")
                 .with_doc(DOC_SESSIONS),
             );
         }
@@ -1251,15 +1256,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // OPS-041: Session timeout not explicitly set (no idle timeout)
     if let Some(ref sessions) = sc.sessions {
         if sessions.timeout.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-041",
-                CAT,
-                Severity::Info,
-                &format!(
-                    "Session timeout is explicitly set: {}s",
-                    sessions.timeout.as_deref().unwrap_or("?")
-                ),
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-041",
+                    CAT,
+                    Severity::Info,
+                    &format!(
+                        "Session timeout is explicitly set: {}s",
+                        sessions.timeout.as_deref().unwrap_or("?")
+                    ),
+                )
+                .at_element("Sessions"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -1269,6 +1277,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     "Session timeout not explicitly set (defaults to 3600s / 1 hour)",
                     Some("Set timeout on <Sessions> to explicitly control idle session expiration"),
                 )
+                .at_element("Sessions")
                 .with_doc(DOC_SESSIONS),
             );
         }
@@ -1320,12 +1329,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref errors) = sc.errors {
         if let Some(ref ss) = errors.style_sheet {
             if !ss.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-043",
-                    CAT,
-                    Severity::Info,
-                    &format!("Errors styleSheet is set: {}", ss),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-043",
+                        CAT,
+                        Severity::Info,
+                        &format!("Errors styleSheet is set: {}", ss),
+                    )
+                    .at_element("Errors"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1337,6 +1349,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             "Set styleSheet on <Errors> to a CSS file path for branded error pages",
                         ),
                     )
+                    .at_element("Errors")
                     .with_doc(DOC_ERRORS),
                 );
             }
@@ -1348,7 +1361,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "Errors styleSheet not set (error pages will use default unstyled appearance)",
                     Some("Set styleSheet on <Errors> to a CSS file path for branded, user-friendly error pages"),
-                )
+                ).at_element("Errors")
                 .with_doc(DOC_ERRORS),
             );
         }
@@ -1412,15 +1425,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     if let Some(ref sessions) = sc.sessions {
         if sessions.sso_discovery_url.is_some() {
             if sessions.sso_discovery_protocol.is_some() {
-                results.push(CheckResult::pass(
-                    "OPS-046",
-                    CAT,
-                    Severity::Info,
-                    &format!(
-                        "discoveryProtocol is explicitly set: {}",
-                        sessions.sso_discovery_protocol.as_deref().unwrap_or("?")
-                    ),
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-046",
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "discoveryProtocol is explicitly set: {}",
+                            sessions.sso_discovery_protocol.as_deref().unwrap_or("?")
+                        ),
+                    )
+                    .at_element("SSO"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1429,7 +1445,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "discoveryURL is set but discoveryProtocol is not explicitly specified (defaults to SAMLDS)",
                         Some("Set discoveryProtocol on <SSO> to make the discovery protocol explicit (e.g., \"SAMLDS\")"),
-                    )
+                    ).at_element("SSO")
                     .with_doc(DOC_SESSIONS),
                 );
             }
@@ -1500,7 +1516,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     app.signing_alg.as_deref().unwrap_or("?"),
                     app.digest_alg.as_deref().unwrap_or("?")
                 ),
-            ));
+            ).at_element("ApplicationDefaults"));
         } else {
             let mut missing = Vec::new();
             if !has_signing_alg {
@@ -1519,43 +1535,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         missing.join(" and ")
                     ),
                     Some("Set signingAlg and digestAlg on <ApplicationDefaults> to explicitly control signature algorithms (e.g., signingAlg=\"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256\")"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(DOC_APP_DEFAULTS),
             );
-        }
-    }
-
-    // OPS-049: RequireValidUntil MetadataFilter without maxValidityInterval
-    for mp in &sc.metadata_providers {
-        if mp.provider_type == "Chaining" {
-            continue;
-        }
-        for filter in &mp.filters {
-            if filter.filter_type.contains("RequireValidUntil") {
-                if filter.max_validity_interval.is_some() {
-                    results.push(CheckResult::pass(
-                        "OPS-049",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "RequireValidUntil filter{} has maxValidityInterval={}",
-                            mp.label(),
-                            filter.max_validity_interval.as_deref().unwrap_or("?")
-                        ),
-                    ));
-                } else {
-                    results.push(
-                        CheckResult::fail(
-                            "OPS-049",
-                            CAT,
-                            Severity::Info,
-                            &format!("RequireValidUntil MetadataFilter{} has no maxValidityInterval (no upper cap on how far in the future validUntil can be)", mp.label()),
-                            Some("Set maxValidityInterval on RequireValidUntil filter to cap acceptable validity periods (e.g., maxValidityInterval=\"2592000\" for 30 days)"),
-                        )
-                        .with_doc(DOC_METADATA_PROVIDER),
-                    );
-                }
-            }
         }
     }
 
@@ -1641,63 +1623,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         ));
     }
 
-    // OPS-053: Local MetadataProvider has no reloadInterval
-    {
-        let mut any_local_no_reload = false;
-        for mp in &sc.metadata_providers {
-            if mp.provider_type == "Chaining" {
-                continue;
-            }
-            let is_local =
-                mp.path.is_some() || mp.file_attr.is_some() || mp.source_directory.is_some();
-            let is_remote = mp.uri.is_some() || mp.url.is_some();
-            if is_local && !is_remote && mp.reload_interval.is_none() {
-                let source = mp
-                    .path
-                    .as_deref()
-                    .or(mp.file_attr.as_deref())
-                    .or(mp.source_directory.as_deref())
-                    .unwrap_or("(unknown)");
-                results.push(
-                    CheckResult::fail(
-                        "OPS-053",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "Local MetadataProvider{} source={} has no reloadInterval (file changes won't be detected automatically)",
-                            mp.label(),
-                            source
-                        ),
-                        Some("Set reloadInterval on local MetadataProvider to auto-detect file updates (e.g., reloadInterval=\"3600\")"),
-                    )
-                    .with_doc(DOC_METADATA_PROVIDER),
-                );
-                any_local_no_reload = true;
-            }
-        }
-        if !any_local_no_reload {
-            let has_local = sc.metadata_providers.iter().any(|mp| {
-                mp.provider_type != "Chaining"
-                    && (mp.path.is_some()
-                        || mp.file_attr.is_some()
-                        || mp.source_directory.is_some())
-                    && mp.uri.is_none()
-                    && mp.url.is_none()
-            });
-            if has_local {
-                results.push(CheckResult::pass(
-                    "OPS-053",
-                    CAT,
-                    Severity::Info,
-                    "All local MetadataProviders have reloadInterval configured",
-                ));
-            }
-        }
-    }
-
     // OPS-054: No StorageService configured (in-memory session storage, lost on restart)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("StorageService") {
+    {
+        if !sc.storage_service_types.is_empty() {
             results.push(CheckResult::pass(
                 "OPS-054",
                 CAT,
@@ -1719,9 +1647,9 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-055: OutOfProcess/InProcess extensions not configured
-    if let Some(ref content) = config.shibboleth_xml_content {
-        let has_oop = content.contains("<OutOfProcess") || content.contains("< OutOfProcess");
-        let has_ip = content.contains("<InProcess") || content.contains("< InProcess");
+    {
+        let has_oop = sc.has_out_of_process;
+        let has_ip = sc.has_in_process;
         if has_oop || has_ip {
             let mut parts = Vec::new();
             if has_oop {
@@ -1751,8 +1679,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-056: No ReplayCache configured (assertion replay protection)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("ReplayCache") {
+    {
+        if sc.singleton_counts.contains_key("ReplayCache") {
             results.push(CheckResult::pass(
                 "OPS-056",
                 CAT,
@@ -1816,15 +1744,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         if sessions.has_logout {
             if let Some(ref protocols) = sessions.logout_protocols {
                 if !protocols.trim().is_empty() {
-                    results.push(CheckResult::pass(
-                        "OPS-058",
-                        CAT,
-                        Severity::Info,
-                        &format!(
-                            "Logout protocols explicitly specified: {}",
-                            protocols.trim()
-                        ),
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "OPS-058",
+                            CAT,
+                            Severity::Info,
+                            &format!(
+                                "Logout protocols explicitly specified: {}",
+                                protocols.trim()
+                            ),
+                        )
+                        .at_element("Logout"),
+                    );
                 } else {
                     results.push(
                         CheckResult::fail(
@@ -1833,7 +1764,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             Severity::Info,
                             "Logout element has no protocol content (all supported logout protocols will be enabled)",
                             Some("Specify protocols in <Logout> element text (e.g., \"SAML2 Local\") to control logout behavior"),
-                        )
+                        ).at_element("Logout")
                         .with_doc(DOC_SESSIONS),
                     );
                 }
@@ -1845,7 +1776,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         Severity::Info,
                         "Logout element has no protocol content (all supported logout protocols will be enabled)",
                         Some("Specify protocols in <Logout> element text (e.g., \"SAML2 Local\") to control logout behavior"),
-                    )
+                    ).at_element("Logout")
                     .with_doc(DOC_SESSIONS),
                 );
             }
@@ -1854,6 +1785,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-059: Logging configuration not present
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         let has_logging = content.contains("log4j")
             || content.contains("log4shib")
             || content.contains("Logging")
@@ -1879,42 +1811,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // OPS-060: consistentAddress not explicitly set on Sessions
-    if let Some(ref sessions) = sc.sessions {
-        if sessions.consistent_address.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-060",
-                CAT,
-                Severity::Info,
-                &format!(
-                    "consistentAddress is explicitly set: {}",
-                    sessions.consistent_address.as_deref().unwrap_or("?")
-                ),
-            ));
-        } else {
-            results.push(
-                CheckResult::fail(
-                    "OPS-060",
-                    CAT,
-                    Severity::Info,
-                    "consistentAddress not explicitly set on Sessions (defaults to false; sessions valid from any IP)",
-                    Some("Set consistentAddress on <Sessions> to control IP address binding behavior for sessions"),
-                )
-                .with_doc(DOC_SESSIONS),
-            );
-        }
-    }
-
     // OPS-061: handlerURL uses default /Shibboleth.sso path
     if let Some(ref sessions) = sc.sessions {
         if let Some(ref handler_url) = sessions.handler_url {
             if handler_url == "/Shibboleth.sso" {
-                results.push(CheckResult::pass(
-                    "OPS-061",
-                    CAT,
-                    Severity::Info,
-                    "handlerURL uses standard /Shibboleth.sso path",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-061",
+                        CAT,
+                        Severity::Info,
+                        "handlerURL uses standard /Shibboleth.sso path",
+                    )
+                    .at_element("Sessions"),
+                );
             } else {
                 results.push(
                     CheckResult::fail(
@@ -1926,7 +1835,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             handler_url
                         ),
                         Some("Non-standard handlerURL paths require matching web server configuration to route requests to the SP"),
-                    )
+                    ).at_element("Sessions")
                     .with_doc(DOC_SESSIONS),
                 );
             }
@@ -1934,8 +1843,8 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     }
 
     // OPS-062: ArtifactMap not configured (artifact resolution state not persistent)
-    if let Some(ref content) = config.shibboleth_xml_content {
-        if content.contains("ArtifactMap") {
+    {
+        if sc.singleton_counts.contains_key("ArtifactMap") {
             results.push(CheckResult::pass(
                 "OPS-062",
                 CAT,
@@ -2068,21 +1977,25 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                         sc.session_initiators.len()
                     ),
                     Some("Add id attributes to SessionInitiators so they can be referenced individually in login links"),
-                )
+                ).at_element("SessionInitiator")
                 .with_doc(DOC_SESSIONS),
             );
         } else if sc.session_initiators.len() > 1 {
-            results.push(CheckResult::pass(
-                "OPS-066",
-                CAT,
-                Severity::Info,
-                "All SessionInitiators have id attributes",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-066",
+                    CAT,
+                    Severity::Info,
+                    "All SessionInitiators have id attributes",
+                )
+                .at_element("SessionInitiator"),
+            );
         }
     }
 
     // OPS-067: No AccessControl elements configured
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         if content.contains("AccessControl") || content.contains("htaccess") {
             results.push(CheckResult::pass(
                 "OPS-067",
@@ -2111,12 +2024,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 let has_logout_pages =
                     errors.local_logout.is_some() || errors.global_logout.is_some();
                 if has_logout_pages {
-                    results.push(CheckResult::pass(
-                        "OPS-068",
-                        CAT,
-                        Severity::Info,
-                        "Logout error page(s) configured for logout-enabled SP",
-                    ));
+                    results.push(
+                        CheckResult::pass(
+                            "OPS-068",
+                            CAT,
+                            Severity::Info,
+                            "Logout error page(s) configured for logout-enabled SP",
+                        )
+                        .at_element("Errors"),
+                    );
                 } else {
                     results.push(
                         CheckResult::fail(
@@ -2125,7 +2041,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             Severity::Info,
                             "Logout is enabled but no localLogout or globalLogout error pages configured in <Errors>",
                             Some("Set localLogout and/or globalLogout on <Errors> to show a user-friendly page after logout"),
-                        )
+                        ).at_element("Errors")
                         .with_doc(DOC_ERRORS),
                     );
                 }
@@ -2135,15 +2051,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-069: authnContextClassRef not set (no explicit authentication strength requirement)
     if sc.sso_authn_context_class_ref.is_some() {
-        results.push(CheckResult::pass(
-            "OPS-069",
-            CAT,
-            Severity::Info,
-            &format!(
-                "authnContextClassRef is set on SSO: {}",
-                sc.sso_authn_context_class_ref.as_deref().unwrap_or("?")
-            ),
-        ));
+        results.push(
+            CheckResult::pass(
+                "OPS-069",
+                CAT,
+                Severity::Info,
+                &format!(
+                    "authnContextClassRef is set on SSO: {}",
+                    sc.sso_authn_context_class_ref.as_deref().unwrap_or("?")
+                ),
+            )
+            .at_element("SSO"),
+        );
     } else if sc.sessions.as_ref().is_some_and(|s| s.has_sso) {
         results.push(
             CheckResult::fail(
@@ -2152,7 +2071,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                 Severity::Info,
                 "authnContextClassRef not set on SSO (no explicit authentication strength requirement)",
                 Some("Set authnContextClassRef on <SSO> to request a specific authentication method (e.g., urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport)"),
-            )
+            ).at_element("SSO")
             .with_doc(DOC_SESSIONS),
         );
     }
@@ -2190,12 +2109,15 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // OPS-071: No cipherSuites set on ApplicationDefaults (TLS defaults depend on system OpenSSL)
     if let Some(ref app) = sc.application_defaults {
         if app.cipher_suites.is_some() {
-            results.push(CheckResult::pass(
-                "OPS-071",
-                CAT,
-                Severity::Info,
-                "cipherSuites is explicitly configured on ApplicationDefaults",
-            ));
+            results.push(
+                CheckResult::pass(
+                    "OPS-071",
+                    CAT,
+                    Severity::Info,
+                    "cipherSuites is explicitly configured on ApplicationDefaults",
+                )
+                .at_element("ApplicationDefaults"),
+            );
         } else {
             results.push(
                 CheckResult::fail(
@@ -2204,7 +2126,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                     Severity::Info,
                     "cipherSuites not set on ApplicationDefaults (outbound TLS uses system defaults)",
                     Some("Set cipherSuites on <ApplicationDefaults> to control TLS ciphers for outbound connections to IdPs and metadata sources"),
-                )
+                ).at_element("ApplicationDefaults")
                 .with_doc(DOC_APP_DEFAULTS),
             );
         }
@@ -2228,16 +2150,19 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
                             home_url
                         ),
                         Some("homeURL should be an absolute path (e.g., '/') or full URL (e.g., 'https://sp.example.org/')"),
-                    )
+                    ).at_element("ApplicationDefaults")
                     .with_doc(DOC_APP_DEFAULTS),
                 );
             } else if !home_url.is_empty() {
-                results.push(CheckResult::pass(
-                    "OPS-072",
-                    CAT,
-                    Severity::Warning,
-                    "homeURL has a valid path or URL format",
-                ));
+                results.push(
+                    CheckResult::pass(
+                        "OPS-072",
+                        CAT,
+                        Severity::Warning,
+                        "homeURL has a valid path or URL format",
+                    )
+                    .at_element("ApplicationDefaults"),
+                );
             }
         }
     }
@@ -2299,14 +2224,18 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
 
     // OPS-075: Configuration contains TODO/FIXME comments (incomplete setup)
     if let Some(ref content) = config.shibboleth_xml_content {
-        let upper = content.to_uppercase();
-        let has_todo = upper.contains("TODO") || upper.contains("FIXME") || upper.contains("XXX");
+        // Only comments count, and only as whole words, so key material or host names
+        // that happen to contain "xxx" do not trip it.
+        let has_todo = comments(content).any(|c| {
+            c.split(|ch: char| !ch.is_ascii_alphanumeric())
+                .any(|w| matches!(w.to_ascii_uppercase().as_str(), "TODO" | "FIXME" | "XXX"))
+        });
         if has_todo {
             results.push(
                 CheckResult::fail(
                     "OPS-075",
                     CAT,
-                    Severity::Warning,
+                    Severity::Info,
                     "Configuration contains TODO/FIXME/XXX comments (may indicate incomplete setup)",
                     Some("Review and resolve all TODO/FIXME comments in the configuration before production deployment"),
                 )
@@ -2316,7 +2245,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
             results.push(CheckResult::pass(
                 "OPS-075",
                 CAT,
-                Severity::Warning,
+                Severity::Info,
                 "No TODO/FIXME/XXX comments found in configuration",
             ));
         }
@@ -2413,6 +2342,7 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
     // Scans for explicit NameIDFormat requests in the config; transient is the recommended
     // default unless the deployment needs a correlatable identifier.
     if let Some(ref content) = config.shibboleth_xml_content {
+        let content = &super::without_comments(content);
         let non_transient_formats = [
             (
                 "persistent",
@@ -2480,157 +2410,354 @@ pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
         }
     }
 
-    // OPS-032 to OPS-035: ApplicationOverride child element replacement checks
-    if let Some(ref content) = config.shibboleth_xml_content {
-        let mut current_override_id: Option<String> = None;
-        let mut has_sessions = false;
-        let mut has_errors = false;
-        let mut has_credential_resolver = false;
-        let mut has_metadata_provider = false;
-        let mut any_override_found = false;
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-
-            if let Some(pos) = trimmed.find("<ApplicationOverride") {
-                let rest = &trimmed[pos..];
-                let override_id = rest
-                    .find("id=\"")
-                    .and_then(|start| {
-                        let after = &rest[start + 4..];
-                        after.find('"').map(|end| after[..end].to_string())
-                    })
-                    .or_else(|| {
-                        rest.find("id='").and_then(|start| {
-                            let after = &rest[start + 4..];
-                            after.find('\'').map(|end| after[..end].to_string())
-                        })
-                    })
-                    .unwrap_or_else(|| "unknown".to_string());
-                current_override_id = Some(override_id);
-                has_sessions = false;
-                has_errors = false;
-                has_credential_resolver = false;
-                has_metadata_provider = false;
-                any_override_found = true;
-                if trimmed.contains("/>") {
-                    current_override_id = None;
-                }
-                continue;
+    // OPS-032 to OPS-035: an override's child element replaces the parent's, it is not merged
+    if !sc.overrides.is_empty() {
+        // (code, element, parent summary, effect, advice)
+        type Rule = (
+            &'static str,
+            &'static str,
+            fn(&ShibbolethConfig) -> String,
+            &'static str,
+            &'static str,
+        );
+        let rules: [Rule; 4] = [
+            (
+                "OPS-032",
+                "Sessions",
+                describe_parent_sessions,
+                "parent Sessions settings are replaced, not merged",
+                "None of these are inherited; set all required attributes in the override",
+            ),
+            (
+                "OPS-033",
+                "Errors",
+                describe_parent_errors,
+                "parent error config is replaced",
+                "These are lost in the override; replicate any needed attributes",
+            ),
+            (
+                "OPS-034",
+                "CredentialResolver",
+                describe_parent_credentials,
+                "parent credentials are replaced",
+                "The override must provide its own signing/encryption credentials",
+            ),
+            (
+                "OPS-035",
+                "MetadataProvider",
+                describe_parent_metadata,
+                "parent metadata sources are replaced",
+                "The override must include all required Identity Providers",
+            ),
+        ];
+        for (code, element, describe, effect, advice) in rules {
+            let mut any = false;
+            for ov in sc
+                .overrides
+                .iter()
+                .filter(|o| o.children.iter().any(|c| c == element))
+            {
+                any = true;
+                results.push(
+                    CheckResult::fail(
+                        code,
+                        CAT,
+                        Severity::Info,
+                        &format!(
+                            "ApplicationOverride '{}' defines own <{element}>: {effect}",
+                            ov.id
+                        ),
+                        Some(&format!("Parent has {}. {advice}", describe(sc))),
+                    )
+                    .with_doc(DOC_APP_OVERRIDE),
+                );
             }
-
-            if current_override_id.is_some() {
-                if trimmed.contains("<Sessions") {
-                    has_sessions = true;
-                }
-                if trimmed.contains("<Errors") {
-                    has_errors = true;
-                }
-                if trimmed.contains("<CredentialResolver") {
-                    has_credential_resolver = true;
-                }
-                if trimmed.contains("<MetadataProvider") {
-                    has_metadata_provider = true;
-                }
-
-                if trimmed.contains("</ApplicationOverride") {
-                    let override_id = current_override_id.take().unwrap();
-
-                    if has_sessions {
-                        let parent_summary = describe_parent_sessions(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-032",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <Sessions> — parent Sessions settings are replaced, not merged", override_id),
-                                Some(&format!("Parent <Sessions> has {}. None of these are inherited — set all required attributes in the override", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                    if has_errors {
-                        let parent_summary = describe_parent_errors(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-033",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <Errors> — parent error config is replaced", override_id),
-                                Some(&format!("Parent <Errors> has {}. These are lost in the override — replicate any needed attributes", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                    if has_credential_resolver {
-                        let parent_summary = describe_parent_credentials(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-034",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <CredentialResolver> — parent credentials are replaced", override_id),
-                                Some(&format!("Parent has {}. The override must provide its own signing/encryption credentials", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                    if has_metadata_provider {
-                        let parent_summary = describe_parent_metadata(sc);
-                        results.push(
-                            CheckResult::fail(
-                                "OPS-035",
-                                CAT,
-                                Severity::Info,
-                                &format!("ApplicationOverride '{}' defines own <MetadataProvider> — parent metadata sources are replaced", override_id),
-                                Some(&format!("Parent has {}. The override must include all required Identity Providers", parent_summary)),
-                            )
-                            .with_doc(DOC_APP_OVERRIDE),
-                        );
-                    }
-                }
+            if !any {
+                results.push(CheckResult::pass(
+                    code,
+                    CAT,
+                    Severity::Info,
+                    &format!("No ApplicationOverride redefines <{element}>"),
+                ));
             }
         }
+    }
+    // OPS-081 / OPS-082: SessionCache settings that conflict with other configuration
+    if let Some(ref cache) = sc.session_cache {
+        let reverse_index_off = cache.maintain_reverse_index.as_deref() == Some("false");
+        let logout = sc.sessions.as_ref().is_some_and(|s| s.has_logout);
+        if reverse_index_off && logout {
+            results.push(
+                CheckResult::fail(
+                    "OPS-081",
+                    CAT,
+                    Severity::Warning,
+                    "SessionCache maintainReverseIndex is false but logout is configured",
+                    Some("SAML logout needs the reverse index to map a Name Identifier to its sessions. Remove the setting or set it to true"),
+                )
+                .at_element("SessionCache")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+            );
+        } else if reverse_index_off {
+            results.push(
+                CheckResult::pass(
+                    "OPS-081",
+                    CAT,
+                    Severity::Warning,
+                    "SessionCache reverse index is disabled and no logout is configured",
+                )
+                .at_element("SessionCache"),
+            );
+        }
+        let has_networks = cache
+            .unreliable_networks
+            .as_deref()
+            .is_some_and(|n| !n.trim().is_empty());
+        let address_check_off = sc
+            .sessions
+            .as_ref()
+            .is_some_and(|s| s.consistent_address.as_deref() == Some("false"));
+        if has_networks && address_check_off {
+            results.push(
+                CheckResult::fail(
+                    "OPS-082",
+                    CAT,
+                    Severity::Info,
+                    "SessionCache unreliableNetworks has no effect because consistentAddress is false",
+                    Some("Remove unreliableNetworks, or set consistentAddress=\"true\" on <Sessions> if you want the address check"),
+                )
+                .at_element("SessionCache")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334650/SessionCache"),
+            );
+        }
+    }
 
-        if any_override_found {
-            let ops032_emitted = results.iter().any(|r| r.code == "OPS-032");
-            if !ops032_emitted {
-                results.push(CheckResult::pass(
-                    "OPS-032",
+    super::acl::deprecations(config, &mut results);
+    super::settings::operational(config, &mut results);
+    super::elements::operational(config, &mut results);
+
+    // OPS-080: Cookie SessionInitiator reads the IdP history cookie, which needs idpHistory
+    if sc
+        .session_initiators
+        .iter()
+        .any(|i| i.initiator_type.as_deref() == Some("Cookie"))
+    {
+        let enabled = sc
+            .sessions
+            .as_ref()
+            .is_some_and(|s| s.idp_history.as_deref() == Some("true"));
+        if enabled {
+            results.push(
+                CheckResult::pass(
+                    "OPS-080",
                     CAT,
-                    Severity::Info,
-                    "No ApplicationOverride redefines <Sessions>",
-                ));
-            }
-            let ops033_emitted = results.iter().any(|r| r.code == "OPS-033");
-            if !ops033_emitted {
-                results.push(CheckResult::pass(
-                    "OPS-033",
+                    Severity::Warning,
+                    "Cookie SessionInitiator has idpHistory enabled",
+                )
+                .at_element("SessionInitiator"),
+            );
+        } else {
+            results.push(
+                CheckResult::fail(
+                    "OPS-080",
                     CAT,
-                    Severity::Info,
-                    "No ApplicationOverride redefines <Errors>",
-                ));
-            }
-            let ops034_emitted = results.iter().any(|r| r.code == "OPS-034");
-            if !ops034_emitted {
-                results.push(CheckResult::pass(
-                    "OPS-034",
-                    CAT,
-                    Severity::Info,
-                    "No ApplicationOverride redefines <CredentialResolver>",
-                ));
-            }
-            let ops035_emitted = results.iter().any(|r| r.code == "OPS-035");
-            if !ops035_emitted {
-                results.push(CheckResult::pass(
-                    "OPS-035",
-                    CAT,
-                    Severity::Info,
-                    "No ApplicationOverride redefines <MetadataProvider>",
-                ));
+                    Severity::Warning,
+                    "Cookie SessionInitiator is configured but idpHistory is not enabled",
+                    Some("Set idpHistory=\"true\" on <Sessions>; the initiator reads the cookie that feature maintains"),
+                )
+                .at_element("SessionInitiator")
+                .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334760/Cookie+SessionInitiator"),
+            );
+        }
+    }
+
+    // OPS-079: postData without postTemplate
+    if let Some(ref sessions) = sc.sessions {
+        if sessions.post_data.is_some() {
+            if sessions.post_template.is_some() {
+                results.push(
+                    CheckResult::pass(
+                        "OPS-079",
+                        CAT,
+                        Severity::Info,
+                        "postData has a postTemplate for replaying the saved form",
+                    )
+                    .at_element("Sessions"),
+                );
+            } else {
+                results.push(
+                    CheckResult::fail(
+                        "OPS-079",
+                        CAT,
+                        Severity::Info,
+                        "postData is set without postTemplate",
+                        Some("Set postTemplate (for example postTemplate.html) so saved form data can be re-posted after login"),
+                    )
+                    .at_element("Sessions")
+                    .with_doc(DOC_SESSIONS),
+                );
             }
         }
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_outcome, config_from_xml};
+
+    fn run_top(top: &str, body: &str) -> Vec<CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">{top}
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth">{body}</ApplicationDefaults></SPConfig>"#
+        );
+        let (_dir, c) = config_from_xml(&xml);
+        run(&c)
+    }
+
+    #[test]
+    fn raw_text_checks_use_parsed_elements() {
+        // OPS-031: a Static elsewhere is not a Static sealer.
+        let r = run_top(
+            r#"<DataSealer type="Versioned" path="k"/>"#,
+            r#"<Sessions/><AccessControlProvider type="Static"/>"#,
+        );
+        assert_outcome(&r, "OPS-031", true);
+        // OPS-054: SessionCache type="StorageService" is not a StorageService.
+        assert_outcome(
+            &run_top(r#"<SessionCache type="StorageService"/>"#, "<Sessions/>"),
+            "OPS-054",
+            false,
+        );
+        assert_outcome(
+            &run_top(r#"<StorageService type="Memory" id="mem"/>"#, "<Sessions/>"),
+            "OPS-054",
+            true,
+        );
+        // Comments do not count.
+        let r = run_top(
+            "<!-- <ReplayCache/> <ArtifactMap/> <TransportOption/> <OutOfProcess/> -->",
+            "<Sessions/>",
+        );
+        for code in ["OPS-014", "OPS-055", "OPS-056", "OPS-062"] {
+            assert_outcome(&r, code, false);
+        }
+        // OPS-032: an override with its children on one line.
+        let r = run_top(
+            "",
+            r#"<Sessions/><ApplicationOverride id="one"><Sessions handlerSSL="false"/></ApplicationOverride>"#,
+        );
+        assert_outcome(&r, "OPS-032", false);
+        assert_outcome(&r, "OPS-033", true);
+        // OPS-075: comments only, whole words only.
+        assert_outcome(
+            &run_top("", r#"<Sessions cookieProps="xxx"/>"#),
+            "OPS-075",
+            true,
+        );
+        assert_outcome(
+            &run_top("<!-- TODO: finish -->", "<Sessions/>"),
+            "OPS-075",
+            false,
+        );
+        // OPS-007: idpHistoryDays without idpHistory.
+        assert_outcome(
+            &run_top("", r#"<Sessions idpHistoryDays="7"/>"#),
+            "OPS-007",
+            false,
+        );
+    }
+
+    fn run_with_errors(attrs: &str) -> Vec<CheckResult> {
+        let xml = format!(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+  <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+    <Errors {attrs}/>
+  </ApplicationDefaults>
+</SPConfig>"#
+        );
+        let (_dir, config) = config_from_xml(&xml);
+        run(&config)
+    }
+
+    #[test]
+    fn placeholder_support_contact_fails() {
+        for contact in ["admin@localhost", "help@example.org", "help@EXAMPLE.com"] {
+            let results = run_with_errors(&format!(r#"supportContact="{contact}""#));
+            assert_outcome(&results, "OPS-001", false);
+        }
+    }
+
+    #[test]
+    fn real_support_contact_passes() {
+        let results = run_with_errors(r#"supportContact="help@university.edu""#);
+        assert_outcome(&results, "OPS-001", true);
+    }
+
+    #[test]
+    fn post_data_needs_post_template() {
+        use crate::testutil::{assert_absent, assert_outcome, sp3_with_sessions};
+        let run_sessions = |attrs: &str| {
+            let (_dir, config) = config_from_xml(&sp3_with_sessions(attrs));
+            run(&config)
+        };
+        assert_outcome(&run_sessions(r#"postData="ss:mem""#), "OPS-079", false);
+        assert_outcome(
+            &run_sessions(r#"postData="ss:mem" postTemplate="postTemplate.html""#),
+            "OPS-079",
+            true,
+        );
+        assert_absent(&run_sessions(""), "OPS-079");
+    }
+
+    #[test]
+    fn cookie_initiator_needs_idp_history() {
+        use crate::testutil::{assert_absent, assert_outcome, sp3_app};
+        let run_sessions = |attrs: &str, initiators: &str| {
+            let (_dir, config) = config_from_xml(&sp3_app(
+                "",
+                &format!("<Sessions {attrs}>{initiators}</Sessions>"),
+            ));
+            run(&config)
+        };
+        let cookie = r#"<SessionInitiator type="Cookie" Location="/Cookie"/>"#;
+        assert_outcome(&run_sessions("", cookie), "OPS-080", false);
+        assert_outcome(
+            &run_sessions(r#"idpHistory="false""#, cookie),
+            "OPS-080",
+            false,
+        );
+        assert_outcome(
+            &run_sessions(r#"idpHistory="true""#, cookie),
+            "OPS-080",
+            true,
+        );
+        assert_absent(&run_sessions("", ""), "OPS-080");
+    }
+
+    #[test]
+    fn session_cache_conflicts() {
+        use crate::testutil::{assert_absent, assert_outcome, sp3_app};
+        let run_with = |sessions: &str, cache: &str| {
+            let (_dir, config) =
+                config_from_xml(&sp3_app("", &format!("<Sessions {sessions}/>{cache}")));
+            run(&config)
+        };
+        let off = r#"<SessionCache type="StorageService" maintainReverseIndex="false"/>"#;
+        let nets = r#"<SessionCache type="StorageService" unreliableNetworks="10.0.0.0/8"/>"#;
+        let logout = r#"<Sessions><LogoutInitiator type="Local" Location="/Logout"/></Sessions>"#;
+        let (_dir, config) = config_from_xml(&sp3_app("", &format!("{logout}{off}")));
+        assert_outcome(&run(&config), "OPS-081", false);
+        assert_outcome(&run_with("", off), "OPS-081", true);
+        assert_absent(&run_with("", ""), "OPS-081");
+        assert_outcome(
+            &run_with(r#"consistentAddress="false""#, nets),
+            "OPS-082",
+            false,
+        );
+        assert_absent(&run_with("", nets), "OPS-082");
+        assert_absent(&run_with(r#"consistentAddress="false""#, ""), "OPS-082");
+    }
 }

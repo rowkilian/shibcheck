@@ -17,6 +17,8 @@ pub struct ShibbolethConfig {
     pub metadata_providers: Vec<MetadataProvider>,
     pub credential_resolvers: Vec<CredentialResolver>,
     pub attribute_extractor_paths: Vec<String>,
+    /// `type` of every <AttributeExtractor> (XML, Metadata, Assertion, ...)
+    pub attribute_extractor_types: Vec<String>,
     pub attribute_filter_paths: Vec<String>,
     pub application_defaults: Option<ApplicationDefaults>,
     pub status_handler: Option<StatusHandler>,
@@ -25,10 +27,71 @@ pub struct ShibbolethConfig {
     pub security_policy_provider_path: Option<String>,
     pub application_override_ids: Vec<String>,
     pub handlers: Vec<HandlerInfo>,
+    /// `Location` of each <Notify> that has one
     pub notify_endpoints: Vec<String>,
+    pub notify_elements: Vec<NotifyInfo>,
     pub application_override_entity_ids: Vec<(String, Option<String>)>,
     pub sso_authn_context_class_ref: Option<String>,
     pub sso_ecp: Option<String>,
+    pub sso_authn_context_comparison: Option<String>,
+    pub in_process_check_spoofing: Option<String>,
+    pub isapi_normalize_request: Option<String>,
+    /// An `<ISAPI>` element is present (IIS deployment).
+    pub has_isapi: bool,
+    pub isapi_use_headers: Option<String>,
+    /// `id` of each IIS <Site> with useHeaders="true" (empty if it has no id)
+    pub site_use_headers: Vec<String>,
+    pub tcp_listener_acl: Option<String>,
+    pub has_tcp_listener: bool,
+    pub has_unix_listener: bool,
+    /// `<InProcess spoofKey>` is set (the value is never stored).
+    pub in_process_spoof_key_set: bool,
+    pub storage_references: Vec<StorageReference>,
+    /// `id` of every <StorageService> element
+    pub storage_service_ids: Vec<String>,
+    pub data_sealers: Vec<DataSealerInfo>,
+    /// Every `policyId` attribute value, and every `<Policy id>` written inline.
+    pub policy_ids_used: Vec<String>,
+    /// Names of elements that set `acsByIndex="true"`.
+    pub acs_by_index: Vec<String>,
+    /// `<Errors>` came before `<Sessions>` inside `<ApplicationDefaults>`.
+    pub errors_before_sessions: bool,
+    /// Every `<Library>` extension, with the process it loads into.
+    pub libraries: Vec<LibraryInfo>,
+    /// `type` of every `<StorageService>`.
+    pub storage_service_types: Vec<String>,
+    /// `<OutOfProcess>` is present.
+    pub has_out_of_process: bool,
+    /// `<InProcess>` is present.
+    pub has_in_process: bool,
+    /// Each `<ApplicationOverride>` with the names of its direct child elements.
+    pub overrides: Vec<OverrideInfo>,
+    pub out_of_process_tran_log_format: Option<String>,
+    pub out_of_process_catch_all: Option<String>,
+    pub in_process_catch_all: Option<String>,
+    /// Applications whose `<Sessions>` holds an `<SSO>` shorthand: `None` for the
+    /// defaults, `Some(id)` for an override.
+    pub sso_shorthand_in: Vec<Option<String>>,
+    /// Applications whose `<Sessions>` holds a `<Logout>` shorthand.
+    pub logout_shorthand_in: Vec<Option<String>>,
+    /// Some element uses the ADFS plugin (`type="ADFS"`, or ADFS in the SSO/Logout protocols).
+    pub uses_adfs: bool,
+    /// Some element sets `metadataAttributePrefix`.
+    pub metadata_attribute_prefix_set: bool,
+    /// `id` written on `<ApplicationDefaults>`.
+    pub application_defaults_id: Option<String>,
+    /// How often each element the docs allow once appears under its parent
+    /// (`SPConfig` or `ApplicationDefaults`).
+    pub singleton_counts: std::collections::BTreeMap<String, usize>,
+    /// (`type`, `checkRevocation`) of every `<TrustEngine>` that sets `checkRevocation`.
+    pub trust_engine_revocation: Vec<(String, String)>,
+    /// `<AttributeExtractor type="KeyDescriptor">` with none of signingId, encryptionId, hashId.
+    pub key_descriptor_extractors_without_ids: usize,
+    pub policy_ids_defined: Vec<String>,
+    /// An ODBC `ConnectionString` embeds a password (the password itself is never stored).
+    pub odbc_connection_has_password: bool,
+    pub session_cache: Option<SessionCacheInfo>,
+    pub relying_parties: Vec<RelyingPartyInfo>,
     pub security_policy_provider_validate: Option<String>,
     pub tcp_listener_address: Option<String>,
     pub request_map_application_ids: Vec<String>,
@@ -50,6 +113,11 @@ pub struct ApplicationDefaults {
     pub digest_alg: Option<String>,
     pub require_transport_auth: Option<String>,
     pub require_confidentiality: Option<String>,
+    pub attribute_prefix: Option<String>,
+    pub artifact_by_filesystem: Option<String>,
+    pub auth_type: Option<String>,
+    /// `authPassword` is set (the value is never stored).
+    pub has_auth_password: bool,
 }
 
 #[derive(Debug, Default)]
@@ -76,7 +144,9 @@ pub struct SessionsConfig {
     pub idp_history_days: Option<String>,
     pub check_address: Option<String>,
     pub same_site_fallback: Option<String>,
+    pub same_site_session: Option<String>,
     pub post_data: Option<String>,
+    pub post_template: Option<String>,
     pub logout_outgoing_bindings: Option<String>,
     pub max_time_since_authn: Option<String>,
     pub cookie_lifetime: Option<String>,
@@ -101,6 +171,19 @@ pub struct MetadataProvider {
     pub id_attr: Option<String>,
     pub validate_attr: Option<String>,
     pub ignore_transport: Option<String>,
+    pub base_url: Option<String>,
+    pub verify_host: Option<String>,
+    pub refresh_delay_factor: Option<String>,
+    pub min_cache_duration: Option<String>,
+    pub max_cache_duration: Option<String>,
+    pub min_refresh_delay: Option<String>,
+    pub cache_directory: Option<String>,
+    /// A `<TrustEngine>` sits directly inside this provider.
+    pub has_trust_engine: bool,
+    /// Number of `<Subst>` and `<Regex>` children (a Dynamic provider needs exactly one).
+    pub transform_children: usize,
+    /// `type` of each `<DiscoveryFilter>` child.
+    pub discovery_filter_types: Vec<String>,
 }
 
 impl MetadataProvider {
@@ -112,6 +195,9 @@ impl MetadataProvider {
         }
         if let Some(ref url) = self.url {
             return format!(" (url: {})", url);
+        }
+        if let Some(ref base_url) = self.base_url {
+            return format!(" (baseUrl: {})", base_url);
         }
         if let Some(ref path) = self.path {
             return format!(" (path: {})", path);
@@ -139,6 +225,9 @@ pub struct MetadataFilter {
     pub has_trust_engine: bool,
     pub verify_name: Option<String>,
     pub verify_backup: Option<String>,
+    /// Names of the filter's direct child elements.
+    pub child_names: Vec<String>,
+    pub matcher: Option<String>,
 }
 
 #[derive(Debug)]
@@ -185,14 +274,19 @@ pub struct ErrorsConfig {
     pub local_logout: Option<String>,
     pub metadata_error: Option<String>,
     pub global_logout: Option<String>,
+    pub external_parameters: Option<String>,
+    pub redirect_errors: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct HandlerInfo {
     pub handler_type: String,
+    /// `None` in the defaults, `Some(id)` inside an `<ApplicationOverride>`.
+    pub application: Option<String>,
     pub location: Option<String>,
     pub show_attribute_values: Option<String>,
     pub acl: Option<String>,
+    pub template: Option<String>,
 }
 
 #[derive(Debug)]
@@ -200,12 +294,93 @@ pub struct SessionInitiatorInfo {
     pub initiator_type: Option<String>,
     pub id: Option<String>,
     pub is_default: Option<String>,
+    pub url: Option<String>,
+    pub template: Option<String>,
+    pub entity_id: Option<String>,
+    pub location: Option<String>,
+    /// `None` in the defaults, `Some(id)` inside an `<ApplicationOverride>`.
+    pub application: Option<String>,
+    /// Number of ancestor elements, to pair nested initiators with their parent.
+    pub depth: usize,
+    /// Number of `<SessionInitiator>` elements directly inside this one.
+    pub children: usize,
+}
+
+/// An `<ApplicationOverride>` and what it redefines.
+#[derive(Debug, Default)]
+pub struct OverrideInfo {
+    pub id: String,
+    pub children: Vec<String>,
+    /// `redirectLimit` / `redirectAllow` on the override's own `<Sessions>`.
+    pub redirect_limit: Option<String>,
+    pub redirect_allow: Option<String>,
+}
+
+/// A `<Library>` extension.
+#[derive(Debug)]
+pub struct LibraryInfo {
+    pub path: String,
+    /// Where it loads: "OutOfProcess", "InProcess" or "SPConfig" for a top-level `<Extensions>`.
+    pub scope: &'static str,
+}
+
+/// A reference from a plugin element to a <StorageService> id.
+#[derive(Debug)]
+pub struct StorageReference {
+    pub element: &'static str,
+    pub attribute: &'static str,
+    pub id: String,
+}
+
+/// A `<RelyingParty>` override. The password is never stored, only whether one is set.
+#[derive(Debug, Default)]
+pub struct RelyingPartyInfo {
+    pub name: Option<String>,
+    pub matcher_type: Option<String>,
+    pub auth_type: Option<String>,
+    pub has_auth_password: bool,
+    pub require_transport_auth: Option<String>,
+    pub require_confidentiality: Option<String>,
+    pub signing: Option<String>,
+    pub encryption: Option<String>,
+    pub signing_alg: Option<String>,
+    pub digest_alg: Option<String>,
+    pub cipher_suites: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct SessionCacheInfo {
+    pub cache_assertions: Option<String>,
+    pub persisted_attributes: Option<String>,
+    pub maintain_reverse_index: Option<String>,
+    pub unreliable_networks: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct DataSealerInfo {
+    pub sealer_type: String,
+    pub has_key: bool,
+    /// Size of the `key` attribute after base64 decoding, or `None` when it isn't valid base64.
+    /// The key itself is never stored.
+    pub key_bytes: Option<usize>,
+    pub path: Option<String>,
+    pub url: Option<String>,
+    pub backing_file_path: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct NotifyInfo {
+    pub channel: Option<String>,
+    pub location: Option<String>,
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct LogoutInitiatorInfo {
     pub initiator_type: Option<String>,
+    pub location: Option<String>,
+    /// `None` in the defaults, `Some(id)` inside an `<ApplicationOverride>`.
+    pub application: Option<String>,
     pub signing: Option<String>,
     pub asynchronous: Option<String>,
     pub notify_without: Option<String>,
@@ -221,4 +396,6 @@ pub struct ContentSetting {
     pub is_passive: Option<String>,
     pub force_authn: Option<String>,
     pub redirect_to_ssl: Option<String>,
+    pub require_session_with: Option<String>,
+    pub export_assertion: Option<String>,
 }

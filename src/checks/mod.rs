@@ -1,7 +1,11 @@
+mod acl;
 pub mod cross_references;
+mod elements;
 pub mod migration;
 pub mod operational;
+mod relying_party;
 pub mod security;
+mod settings;
 pub mod xml_validity;
 
 use crate::config::DiscoveredConfig;
@@ -48,6 +52,16 @@ fn annotate_locations(results: &mut [CheckResult], config: &DiscoveredConfig) {
             continue; // already annotated by the check itself
         }
 
+        if let Some(elem) = result.element_hint {
+            if !xml.is_empty() {
+                result.location = Some(crate::result::SourceLocation {
+                    file: shib_file.clone(),
+                    line: find_element_line(xml, elem, None, None),
+                });
+            }
+            continue;
+        }
+
         let (file, line) = locate_check(
             &result.code,
             &result.message,
@@ -80,64 +94,69 @@ fn locate_check<'a>(
         return (None, None);
     }
 
-    // Map check codes to the primary XML element they inspect.
-    // This covers the most common cases; checks on repeated elements
-    // use message content to disambiguate.
-    let element_hint = match code {
-        // Sessions-related checks
-        "SEC-001" | "SEC-002" | "SEC-003" | "SEC-017" | "SEC-019" | "SEC-020" | "SEC-022"
-        | "SEC-023" | "SEC-031" | "SEC-038" | "SEC-042" | "SEC-045" | "SEC-058" | "SEC-059"
-        | "SEC-061" | "SEC-066" | "SEC-067" | "SEC-068" | "SEC-071" | "SEC-078" | "SEC-079"
-        | "SEC-082" | "SEC-083" | "SEC-084" | "SEC-092" | "OPS-040" | "OPS-041" | "OPS-060"
-        | "OPS-061" => Some("Sessions"),
-
-        // SSO-related checks
-        "SEC-025" | "SEC-029" | "OPS-046" | "OPS-069" | "SEC-117" => Some("SSO"),
-
-        // ApplicationDefaults-related checks
-        "SEC-006" | "SEC-007" | "SEC-018" | "SEC-028" | "SEC-035" | "SEC-049" | "SEC-052"
-        | "SEC-053" | "SEC-056" | "SEC-057" | "SEC-088" | "SEC-089" | "SEC-097" | "SEC-106"
-        | "OPS-036" | "OPS-037" | "OPS-048" | "OPS-071" | "OPS-072" | "XML-021" => {
-            Some("ApplicationDefaults")
-        }
-
-        // Errors-related checks
-        "SEC-080" | "SEC-104" | "OPS-038" | "OPS-039" | "OPS-043" | "OPS-068" => Some("Errors"),
-
+    // Checks on a single element tag themselves with `.at_element(..)` and need no entry here.
+    // The arms below cover checks that need the message text to find the right
+    // repeated element, or that scan the raw XML.
+    match code {
         // MetadataProvider-related checks — try to locate the specific provider.
         // (REF-003 sets its own location at check site.)
-        "SEC-011" | "SEC-012" | "SEC-014" | "SEC-026" | "SEC-055" | "SEC-069" | "SEC-070"
-        | "SEC-073" | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047" | "OPS-049" | "OPS-053"
-        | "SEC-054" | "SEC-086" | "SEC-098" | "OPS-029" | "REF-004" | "REF-009" | "REF-017"
-        | "REF-012" | "REF-020" | "REF-021" | "REF-026" | "REF-032" | "XML-029" | "XML-033"
-        | "XML-035" | "XML-044" => {
+        "SEC-011" | "SEC-012" | "SEC-014" | "SEC-026" | "SEC-055" | "SEC-070" | "SEC-073"
+        | "SEC-122" | "SEC-123" | "OPS-042" | "OPS-047" | "SEC-054" | "SEC-086" | "SEC-098"
+        | "OPS-029" | "REF-004" | "REF-009" | "REF-017" | "REF-012" | "REF-020" | "REF-021"
+        | "REF-026" | "XML-029" | "XML-033" | "XML-035" | "XML-044" | "XML-060" | "XML-061"
+        | "XML-073" | "XML-074" | "SEC-146" => {
             let line = locate_metadata_provider(xml, message);
-            return (Some(shib_file), line);
+            (Some(shib_file), line)
         }
+
+        // Checks whose message quotes the distinguishing attribute as name="value".
+        "XML-063" | "XML-064" | "XML-065" | "XML-068" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "SessionInitiator", "type", message),
+        ),
+        "XML-051" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "Handler", "type", message),
+        ),
+        "XML-052" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "CredentialResolver", "use", message),
+        ),
+        "XML-071" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "TrustEngine", "checkRevocation", message),
+        ),
+        "XML-072" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "MetadataProvider", "type", message),
+        ),
+        "XML-075" | "XML-078" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "MetadataFilter", "type", message),
+        ),
+        "OPS-086" => (
+            Some(shib_file),
+            locate_by_quoted_attr(xml, "AttributeExtractor", "type", message),
+        ),
 
         // CredentialResolver-related checks — try to locate the specific resolver
         "SEC-004" | "SEC-005" | "SEC-043" | "SEC-051" | "SEC-074" | "SEC-077" | "SEC-091"
         | "SEC-095" | "OPS-051" => {
             let line = locate_credential_resolver(xml, message);
-            return (Some(shib_file), line);
+            (Some(shib_file), line)
         }
 
         // Handler-related checks — try to locate the specific handler
         "SEC-015" | "SEC-032" | "SEC-033" | "SEC-046" | "SEC-047" | "SEC-062" | "SEC-063"
-        | "SEC-064" | "SEC-094" | "SEC-113" | "SEC-115" => {
+        | "SEC-064" | "SEC-094" | "SEC-113" | "XML-069" => {
             let line = locate_handler(xml, message);
-            return (Some(shib_file), line);
+            (Some(shib_file), line)
         }
-
-        // SPConfig-level checks
-        "SEC-024" | "XML-020" => Some("SPConfig"),
-        "SEC-044" | "SEC-081" => Some("TCPListener"),
-        "SEC-048" | "SEC-039" => Some("SecurityPolicyProvider"),
 
         // Certificate/key file checks — locate the CredentialResolver referencing the file.
         // (REF-001 and REF-002 set their own location at check site.)
         "SEC-008" | "SEC-009" | "SEC-010" | "SEC-013" | "SEC-016" | "SEC-021" | "SEC-087" => {
-            return locate_from_message_file(message, xml, shib_file);
+            locate_from_message_file(message, xml, shib_file)
         }
 
         // Attribute map/policy checks
@@ -145,13 +164,13 @@ fn locate_check<'a>(
             let content = config.attribute_map_content.as_deref().unwrap_or("");
             let line =
                 extract_attr_from_message(message).and_then(|needle| find_line(content, &needle));
-            return (Some(attr_map_file), line);
+            (Some(attr_map_file), line)
         }
         "SEC-085" | "SEC-112" | "OPS-064" => {
             let content = config.attribute_policy_content.as_deref().unwrap_or("");
             let line =
                 extract_attr_from_message(message).and_then(|needle| find_line(content, &needle));
-            return (Some(attr_policy_file), line);
+            (Some(attr_policy_file), line)
         }
 
         // ApplicationOverride checks
@@ -161,71 +180,46 @@ fn locate_check<'a>(
             let line = extract_quoted_value(message).and_then(|id| {
                 find_element_line(xml, "ApplicationOverride", Some("id"), Some(&id))
             });
-            return (Some(shib_file), line);
+            (Some(shib_file), line)
         }
 
-        // Notify checks
-        "SEC-041" | "SEC-105" | "SEC-124" => Some("Notify"),
-
-        // Logout checks
-        "SEC-060" | "SEC-096" | "SEC-103" | "OPS-058" => Some("Logout"),
-
-        // SessionInitiator checks
-        "SEC-076" | "SEC-118" | "SEC-120" | "OPS-066" => Some("SessionInitiator"),
-
         // ContentSetting checks
-        "SEC-093" | "SEC-100" | "SEC-101" | "OPS-044" | "OPS-045" | "OPS-065" => {
+        "SEC-093" | "SEC-101" | "OPS-044" | "OPS-045" | "OPS-065" | "XML-062" | "OPS-085" => {
             // These iterate over Host/Path elements; try to find the named one
             let line = extract_quoted_value(message).and_then(|name| {
-                find_element_line(xml, "Host", Some("name"), Some(&name))
-                    .or_else(|| find_element_line(xml, "Path", Some("name"), Some(&name)))
+                ["Host", "Path", "Query"]
+                    .iter()
+                    .find_map(|el| find_element_line(xml, el, Some("name"), Some(&name)))
             });
-            return (Some(shib_file), line);
+            (Some(shib_file), line)
         }
 
         // Raw XML scanning checks — search for the pattern mentioned
-        "SEC-036" => return (Some(shib_file), find_line(xml, "spoofKey=")),
-        "SEC-050" => return (Some(shib_file), find_line(xml, "exportAssertion=\"true\"")),
-        "SEC-072" => return (Some(shib_file), find_line(xml, "-----BEGIN")),
-        "SEC-107" => return (Some(shib_file), find_line(xml, "<!--")),
-        "SEC-121" => return (Some(shib_file), find_line(xml, "catchAll=\"true\"")),
-        "SEC-114" => return (Some(shib_file), find_line(xml, "<DataSealer")),
-        "OPS-054" => return (Some(shib_file), find_line(xml, "StorageService")),
-        "OPS-055" => {
-            return (
-                Some(shib_file),
-                find_line(xml, "OutOfProcess").or_else(|| find_line(xml, "InProcess")),
-            )
-        }
-        "OPS-056" => return (Some(shib_file), find_line(xml, "ReplayCache")),
-        "OPS-059" => return (Some(shib_file), find_line(xml, ".logger")),
-        "OPS-062" => return (Some(shib_file), find_line(xml, "ArtifactMap")),
-        "OPS-067" => return (Some(shib_file), find_line(xml, "AccessControl")),
+        "SEC-036" => (Some(shib_file), find_line(xml, "spoofKey=")),
+        "SEC-050" => (Some(shib_file), find_line(xml, "exportAssertion=\"true\"")),
+        "SEC-072" => (Some(shib_file), find_line(xml, "-----BEGIN")),
+        "SEC-107" => (Some(shib_file), find_line(xml, "<!--")),
+        "OPS-054" => (Some(shib_file), find_line(xml, "StorageService")),
+        "OPS-055" => (
+            Some(shib_file),
+            find_line(xml, "OutOfProcess").or_else(|| find_line(xml, "InProcess")),
+        ),
+        "OPS-056" => (Some(shib_file), find_line(xml, "ReplayCache")),
+        "OPS-059" => (Some(shib_file), find_line(xml, ".logger")),
+        "OPS-062" => (Some(shib_file), find_line(xml, "ArtifactMap")),
+        "OPS-067" => (Some(shib_file), find_line(xml, "AccessControl")),
         "OPS-075" => {
             let line = find_line(xml, "TODO")
                 .or_else(|| find_line(xml, "FIXME"))
                 .or_else(|| find_line(xml, "XXX"));
-            return (Some(shib_file), line);
+            (Some(shib_file), line)
         }
 
         // XML validity checks on structure
-        "XML-001" | "XML-002" | "XML-003" | "XML-004" | "XML-005" => {
-            return (Some(shib_file), Some(1));
-        }
+        "XML-001" | "XML-002" | "XML-003" | "XML-004" | "XML-005" => (Some(shib_file), Some(1)),
 
         // Default: just report the file, no specific line
-        _ => {
-            return (Some(shib_file), None);
-        }
-    };
-
-    // For element-hinted checks, look up the element in the XML
-    match element_hint {
-        Some(elem) => {
-            let line = find_element_line(xml, elem, None, None);
-            (Some(shib_file), line)
-        }
-        None => (Some(shib_file), None),
+        _ => (Some(shib_file), None),
     }
 }
 
@@ -274,8 +268,10 @@ fn extract_attr_from_message(message: &str) -> Option<String> {
 fn locate_metadata_provider(xml: &str, message: &str) -> Option<usize> {
     // Try to find a URI (http:// or https://) in the message
     if let Some(uri) = extract_url_from_message(message) {
-        if let Some(line) = find_element_line(xml, "MetadataProvider", Some("uri"), Some(&uri)) {
-            return Some(line);
+        for attr in ["uri", "url", "baseUrl"] {
+            if let Some(line) = find_element_line(xml, "MetadataProvider", Some(attr), Some(&uri)) {
+                return Some(line);
+            }
         }
     }
 
@@ -406,6 +402,41 @@ fn locate_handler(xml: &str, message: &str) -> Option<usize> {
     find_element_line(xml, "Handler", None, None)
 }
 
+/// The XML text with every `<!-- ... -->` comment removed, for checks that still scan
+/// raw text. Line breaks inside comments are kept so line numbers stay valid.
+pub(crate) fn without_comments(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    while let Some(start) = rest.find("<!--") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 4..];
+        match after.find("-->") {
+            Some(end) => {
+                out.extend(after[..end].chars().filter(|c| *c == '\n'));
+                rest = &after[end + 3..];
+            }
+            None => {
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Line of the first `<element attr="value">` where `attr="value"` is quoted verbatim in
+/// the message, falling back to the first `<element>`.
+fn locate_by_quoted_attr(xml: &str, element: &str, attr: &str, message: &str) -> Option<usize> {
+    let needle = format!("{attr}=\"");
+    let value = message
+        .find(&needle)
+        .map(|i| &message[i + needle.len()..])
+        .and_then(|rest| rest.split('"').next());
+    value
+        .and_then(|v| find_element_line(xml, element, Some(attr), Some(v)))
+        .or_else(|| find_element_line(xml, element, None, None))
+}
+
 /// Extract a URL (http:// or https://) from a message string.
 fn extract_url_from_message(message: &str) -> Option<String> {
     for word in message.split_whitespace() {
@@ -443,4 +474,94 @@ fn extract_type_from_message(message: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config;
+    use std::path::Path;
+
+    /// One line per result: `CODE pass|fail file:line`. Pins the output of the
+    /// whole check pipeline, including source locations, for each fixture.
+    /// Regenerate with `UPDATE_SNAPSHOTS=1 cargo test`.
+    fn snapshot(fixture: &str) -> String {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(fixture);
+        let config = config::discover(&dir).unwrap();
+        let mut lines: Vec<String> = run_all(&config, false)
+            .iter()
+            .map(|r| {
+                let loc = r
+                    .location
+                    .as_ref()
+                    .map(|l| l.to_string())
+                    .unwrap_or_else(|| "-".into());
+                format!(
+                    "{} {} {}",
+                    r.code,
+                    if r.passed { "pass" } else { "fail" },
+                    loc
+                )
+            })
+            .collect();
+        lines.sort();
+        lines.join("\n") + "\n"
+    }
+
+    fn check_snapshot(fixture: &str) {
+        let actual = snapshot(fixture);
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/snapshots")
+            .join(format!("{fixture}.txt"));
+        if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &actual).unwrap();
+            return;
+        }
+        let expected = std::fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("missing {}; run with UPDATE_SNAPSHOTS=1", path.display()));
+        assert_eq!(
+            actual, expected,
+            "snapshot for '{fixture}' changed; if intended, run with UPDATE_SNAPSHOTS=1"
+        );
+    }
+
+    #[test]
+    fn snapshot_good() {
+        check_snapshot("good");
+    }
+
+    #[test]
+    fn snapshot_insecure() {
+        check_snapshot("insecure");
+    }
+
+    #[test]
+    fn snapshot_broken() {
+        check_snapshot("broken");
+    }
+
+    #[test]
+    fn snapshot_corrupt_cert() {
+        check_snapshot("corrupt_cert");
+    }
+
+    #[test]
+    fn extract_helpers() {
+        assert_eq!(
+            extract_quoted_value("override 'admin' bad").as_deref(),
+            Some("admin")
+        );
+        assert_eq!(extract_quoted_value("no quotes"), None);
+        assert_eq!(
+            extract_url_from_message("fetch https://a.example/m, failed").as_deref(),
+            Some("https://a.example/m")
+        );
+        assert_eq!(
+            extract_file_path_from_message("missing sp-key.pem: not found").as_deref(),
+            Some("sp-key.pem")
+        );
+    }
 }

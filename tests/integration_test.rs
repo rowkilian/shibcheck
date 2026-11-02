@@ -310,7 +310,7 @@ fn check_sec_044_tcp_listener_insecure_binding() {
 /// SEC-062 flags an `ExternalAuth` handler with no ACL — the handler accepts
 /// remote-user assertions, so without an ACL any caller can inject a pre-authenticated session.
 #[test]
-fn check_sec_062_external_auth_no_acl() {
+fn check_sec_062_external_auth_default_acl() {
     let output = shibcheck()
         .args(["--check", "SEC-062", "--json", "tests/fixtures/insecure"])
         .output()
@@ -325,11 +325,12 @@ fn check_sec_062_external_auth_no_acl() {
         .collect();
     assert!(
         !sec_062.is_empty(),
-        "Expected SEC-062 check for ExternalAuth handler without ACL"
+        "Expected SEC-062 check for the ExternalAuth handler"
     );
+    // The handler's acl defaults to loopback, so a missing acl is not a finding.
     assert!(
-        !sec_062[0]["passed"].as_bool().unwrap(),
-        "Expected SEC-062 to fail on ExternalAuth handler without ACL"
+        sec_062[0]["passed"].as_bool().unwrap(),
+        "Expected SEC-062 to pass on an ExternalAuth handler with the default acl"
     );
 }
 
@@ -474,4 +475,365 @@ fn ref_001_attaches_location_at_check_site() {
         location.get("line").is_some(),
         "Expected a line number for the CredentialResolver referencing the cert"
     );
+}
+
+// ── fix subcommand ──
+
+/// Copy the insecure fixture into a fresh temp dir and return the dir.
+fn insecure_copy(tag: &str) -> (std::path::PathBuf, String) {
+    let dir = std::env::temp_dir().join(format!("shibcheck-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = std::fs::read_to_string("tests/fixtures/insecure/shibboleth2.xml").unwrap();
+    std::fs::write(dir.join("shibboleth2.xml"), &original).unwrap();
+    (dir, original)
+}
+
+#[test]
+fn fix_rewrites_config_and_keeps_a_backup() {
+    let (dir, original) = insecure_copy("fix");
+
+    shibcheck()
+        .arg("fix")
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("SEC-001"))
+        .stdout(predicates::str::contains("Backup saved to"));
+
+    let fixed = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    let backup = std::fs::read_to_string(dir.join("shibboleth2.xml.bak")).unwrap();
+    assert_ne!(fixed, original);
+    assert_eq!(backup, original);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn fix_dry_run_shows_a_diff_and_writes_nothing() {
+    let (dir, original) = insecure_copy("fixdry");
+
+    shibcheck()
+        .args(["fix", "--dry-run"])
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Would fix"))
+        .stdout(predicates::str::contains("Dry run"));
+
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        original
+    );
+    assert!(!dir.join("shibboleth2.xml.bak").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn fix_is_idempotent_and_honors_only_and_no_backup() {
+    let (dir, _) = insecure_copy("fixonly");
+
+    shibcheck()
+        .args(["fix", "--only", "SEC-001", "--no-backup"])
+        .arg(&dir)
+        .assert()
+        .success();
+    assert!(!dir.join("shibboleth2.xml.bak").exists());
+    let once = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    assert!(!once.contains("handlerSSL=\"false\""));
+
+    shibcheck()
+        .args(["fix", "--only", "SEC-001"])
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Nothing to fix"));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        once
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn fix_rejects_unknown_codes_and_lists_fixable_ones() {
+    shibcheck()
+        .args(["fix", "--only", "SEC-999", "tests/fixtures/insecure"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("not a fixable check"));
+    shibcheck()
+        .args(["fix", "--list"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("SEC-002"));
+}
+
+#[test]
+fn old_fix_flag_is_gone() {
+    shibcheck()
+        .args(["--fix", "tests/fixtures/good"])
+        .assert()
+        .code(2);
+}
+
+// ── suppressions and baseline ──
+
+fn json_failures(args: &[&str]) -> Vec<String> {
+    let out = shibcheck().args(args).arg("--json").output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["passed"] == false)
+        .map(|r| r["code"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn ignore_file_comment_hides_a_finding_and_no_ignore_shows_it() {
+    let (dir, original) = insecure_copy("ignore");
+    let d = dir.to_str().unwrap();
+    assert!(json_failures(&[d]).contains(&"SEC-001".to_string()));
+
+    let marked = original.replacen(
+        "<SPConfig",
+        "<!-- shibcheck-ignore-file SEC-001: accepted for the test rig -->\n<SPConfig",
+        1,
+    );
+    assert_ne!(marked, original);
+    std::fs::write(dir.join("shibboleth2.xml"), marked).unwrap();
+
+    assert!(!json_failures(&[d]).contains(&"SEC-001".to_string()));
+    assert!(json_failures(&[d, "--no-ignore"]).contains(&"SEC-001".to_string()));
+    shibcheck()
+        .arg(d)
+        .assert()
+        .stderr(predicates::str::contains("hidden by shibcheck-ignore"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn baseline_hides_old_findings_and_reports_new_ones() {
+    let (dir, original) = insecure_copy("baseline");
+    let d = dir.to_str().unwrap();
+
+    shibcheck()
+        .args(["baseline", d])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Recorded"));
+    let file = dir.join(".shibcheck-baseline.json");
+    assert!(file.exists());
+    let bl = file.to_str().unwrap();
+
+    // Everything is accepted, so the run is clean.
+    shibcheck().args(["--baseline", bl, d]).assert().success();
+    assert!(json_failures(&["--baseline", bl, d]).is_empty());
+
+    // Break something new: it must show up.
+    let worse = original.replacen(
+        "</SPConfig>",
+        "<InProcess checkSpoofing=\"false\"/></SPConfig>",
+        1,
+    );
+    std::fs::write(dir.join("shibboleth2.xml"), worse).unwrap();
+    let after = json_failures(&["--baseline", bl, d]);
+    assert_eq!(after, vec!["SEC-133".to_string()]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn bad_baseline_file_is_a_tool_error() {
+    let (dir, _) = insecure_copy("badbaseline");
+    let bad = dir.join("bl.json");
+    std::fs::write(&bad, "not json").unwrap();
+    shibcheck()
+        .args(["--baseline", bad.to_str().unwrap(), dir.to_str().unwrap()])
+        .assert()
+        .code(2);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// ── fixes in JSON and SARIF ──
+
+#[test]
+fn json_and_sarif_carry_the_fix_edit() {
+    let out = shibcheck()
+        .args(["--json", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let sec001 = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["code"] == "SEC-001" && r["passed"] == false)
+        .expect("insecure fixture fails SEC-001");
+    let fix = &sec001["fix"];
+    // The edit covers only the changed attribute, not the whole tag.
+    let text = fix["new_text"].as_str().unwrap();
+    assert!(
+        text.contains("true") && !text.contains("<Sessions"),
+        "{text}"
+    );
+    assert_eq!(fix["file"], "shibboleth2.xml");
+
+    let out = shibcheck()
+        .args(["--sarif", "tests/fixtures/insecure"])
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let result = v["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["ruleId"] == "SEC-001")
+        .unwrap();
+    let replacement = &result["fixes"][0]["artifactChanges"][0]["replacements"][0];
+    assert!(replacement["deletedRegion"]["startLine"].as_u64().unwrap() > 0);
+    let inserted = replacement["insertedContent"]["text"].as_str().unwrap();
+    assert!(
+        inserted.contains("true") && !inserted.contains("<Sessions"),
+        "{inserted}"
+    );
+
+    // A passing config has no fixes to offer
+    let out = shibcheck()
+        .args(["--sarif", "tests/fixtures/good"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("artifactChanges"));
+}
+
+fn sp2_copy(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("shibcheck-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for file in ["shibboleth2.xml", "security-policy.xml"] {
+        std::fs::copy(format!("tests/fixtures/sp2/{file}"), dir.join(file)).unwrap();
+    }
+    dir
+}
+
+#[test]
+fn migrate_moves_an_sp2_config_to_sp3_and_keeps_backups() {
+    let dir = sp2_copy("migrate");
+    let original = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+
+    shibcheck()
+        .arg("migrate")
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("MIG-004"))
+        .stdout(predicates::str::contains("Backup saved"))
+        .stdout(predicates::str::contains("SP 3.2 or later"));
+
+    let migrated = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    assert!(!migrated.contains("urn:mace:shibboleth:2.0:native:sp:config"));
+    assert!(migrated.contains(r#"url="https://md.example.org/metadata.xml""#));
+    assert!(migrated.contains(r#"path="local-metadata.xml""#));
+    assert!(migrated.contains(r#"redirectLimit="exact+allow""#));
+    assert!(migrated.contains("redirectAllow="));
+    assert!(migrated.contains(r#"type="Include""#));
+    assert!(migrated.contains(r#"cacheAssertions="true""#));
+    // Comments and formatting survive, and no line is added or removed.
+    assert!(
+        migrated.contains(r#"<!-- <MetadataProvider type="XML" file="commented-out.xml"/> -->"#)
+    );
+    assert_eq!(migrated.lines().count(), original.lines().count());
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml.bak")).unwrap(),
+        original
+    );
+    let policy = std::fs::read_to_string(dir.join("security-policy.xml")).unwrap();
+    assert!(policy.contains("urn:mace:shibboleth:3.0:native:sp:config"));
+    assert!(dir.join("security-policy.xml.bak").exists());
+
+    // The checker now sees an SP3 file with none of the migrated constructs.
+    let out = shibcheck().arg("--json").arg(&dir).output().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let results = report["results"].as_array().unwrap();
+    assert!(
+        results
+            .iter()
+            .any(|r| r["code"] == "MIG-025" && r["passed"] == true),
+        "the migrated policy file should pass MIG-025"
+    );
+    for code in [
+        "MIG-004", "MIG-006", "MIG-008", "MIG-012", "MIG-013", "MIG-025",
+    ] {
+        let failed = results
+            .iter()
+            .any(|r| r["code"] == code && r["passed"] == false);
+        assert!(!failed, "{code} still fails");
+    }
+
+    // A second run has nothing to do.
+    shibcheck()
+        .arg("migrate")
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Nothing to migrate"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn migrate_dry_run_and_output_leave_the_originals_alone() {
+    let dir = sp2_copy("migdry");
+    let original = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+
+    shibcheck()
+        .args(["migrate", "--dry-run"])
+        .arg(&dir)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Would make"))
+        .stdout(predicates::str::contains("Dry run"));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        original
+    );
+
+    let out_dir = dir.join("sp3");
+    shibcheck()
+        .args(["migrate", "--output"])
+        .arg(&out_dir)
+        .arg(&dir)
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap(),
+        original
+    );
+    assert!(std::fs::read_to_string(out_dir.join("shibboleth2.xml"))
+        .unwrap()
+        .contains("urn:mace:shibboleth:3.0:native:sp:config"));
+    assert!(!dir.join("shibboleth2.xml.bak").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn migrate_keep_namespace_only_renames_settings() {
+    let dir = sp2_copy("migkeep");
+    shibcheck()
+        .args(["migrate", "--keep-namespace", "--no-backup"])
+        .arg(&dir)
+        .assert()
+        .success();
+    let text = std::fs::read_to_string(dir.join("shibboleth2.xml")).unwrap();
+    assert!(text.contains("urn:mace:shibboleth:2.0:native:sp:config"));
+    assert!(text.contains(r#"url="https://md.example.org/metadata.xml""#));
+    assert!(!text.contains("cacheAssertions"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn migrate_rejects_a_missing_directory() {
+    shibcheck()
+        .args(["migrate", "/no/such/dir"])
+        .assert()
+        .code(2);
 }

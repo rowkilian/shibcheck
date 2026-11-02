@@ -4,7 +4,7 @@ use crate::result::{CheckCategory, CheckResult, Severity};
 
 const CAT: CheckCategory = CheckCategory::Migration;
 const DOC_UPGRADE: &str =
-    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065335062/Upgrading";
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2067400004/UpgradingFromV2";
 
 /// Each registered migration check receives the discovered config plus the parsed
 /// `ShibbolethConfig` and returns zero or more `CheckResult`s.
@@ -21,22 +21,20 @@ const REGISTRY: &[(&str, CheckFn)] = &[
     ("MIG-006", mig_006),
     ("MIG-007", mig_007),
     ("MIG-008", mig_008),
-    ("MIG-009", mig_009),
     ("MIG-010", mig_010),
     ("MIG-011", mig_011),
     ("MIG-012", mig_012),
     ("MIG-013", mig_013),
     ("MIG-014", mig_014),
-    ("MIG-015", mig_015),
-    ("MIG-016", mig_016),
-    ("MIG-017", mig_017),
     ("MIG-018", mig_018),
     ("MIG-019", mig_019),
     ("MIG-020", mig_020),
     ("MIG-021", mig_021),
     ("MIG-022", mig_022),
-    ("MIG-023", mig_023),
     ("MIG-024", mig_024),
+    ("MIG-025", mig_025),
+    ("MIG-026", mig_026),
+    ("MIG-027", mig_027),
 ];
 
 pub fn run(config: &DiscoveredConfig) -> Vec<CheckResult> {
@@ -100,10 +98,15 @@ fn mig_003(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     if sc.sp_version != SpVersion::V2 {
         return Vec::new();
     }
-    let Some(sessions) = sc.sessions.as_ref() else {
+    if sc.sessions.is_none() {
         return Vec::new();
-    };
-    if sessions.has_logout {
+    }
+    // `<Logout>` is the SP3 shorthand and has no `type`; explicit `<LogoutInitiator type=...>` is the older form.
+    if sc
+        .logout_initiators
+        .iter()
+        .any(|l| l.initiator_type.is_some())
+    {
         vec![fail(
             "MIG-003",
             Severity::Info,
@@ -228,34 +231,15 @@ fn mig_008(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     }
 }
 
-fn mig_009(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    if sc.sp_version != SpVersion::V2 {
-        return Vec::new();
-    }
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
-        return Vec::new();
-    };
-    if content.contains("AttributeResolver") && content.contains("subjectMatch") {
-        vec![fail(
-            "MIG-009",
-            Severity::Info,
-            "AttributeResolver with subjectMatch detected (SP2 pattern)",
-            "Review AttributeResolver configuration for SP3 compatibility",
-        )]
-    } else {
-        vec![pass(
-            "MIG-009",
-            Severity::Info,
-            "No SP2-style AttributeResolver subjectMatch found",
-        )]
-    }
-}
-
 fn mig_010(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
     if sc.sp_version != SpVersion::V2 {
         return Vec::new();
     }
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
+    let text = config
+        .shibboleth_xml_content
+        .as_deref()
+        .map(super::without_comments);
+    let Some(content) = text.as_ref() else {
         return Vec::new();
     };
     if content.contains("MetadataProvider") && content.contains("Provider=") {
@@ -289,7 +273,7 @@ fn mig_011(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
                         "MetadataFilter type 'EntityRoleWhiteList' is deprecated in MetadataProvider{}",
                         mp.label()
                     ),
-                    "Rename to type=\"EntityRole\" (SP 3.1+)",
+                    "Rename to type=\"EntityRole\" (SP 3.2+)",
                 ));
                 found = true;
             }
@@ -315,6 +299,25 @@ fn mig_012(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     let mut results = Vec::new();
     let mut found = false;
     for mp in &sc.metadata_providers {
+        for kind in &mp.discovery_filter_types {
+            if kind == "Whitelist" || kind == "Blacklist" {
+                let replacement = if kind == "Whitelist" {
+                    "Include"
+                } else {
+                    "Exclude"
+                };
+                results.push(fail(
+                    "MIG-012",
+                    Severity::Warning,
+                    &format!(
+                        "DiscoveryFilter type '{kind}' is deprecated in MetadataProvider{}",
+                        mp.label()
+                    ),
+                    &format!("Rename to type=\"{replacement}\" (SP 3.2+)"),
+                ));
+                found = true;
+            }
+        }
         for filter in &mp.filters {
             if filter.filter_type == "Whitelist" || filter.filter_type == "Blacklist" {
                 let replacement = if filter.filter_type == "Whitelist" {
@@ -330,7 +333,7 @@ fn mig_012(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
                         filter.filter_type,
                         mp.label()
                     ),
-                    &format!("Rename to type=\"{}\" (SP 3.1+)", replacement),
+                    &format!("Rename to type=\"{}\" (SP 3.2+)", replacement),
                 ));
                 found = true;
             }
@@ -402,9 +405,6 @@ fn mig_014(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
         if sessions.redirect_whitelist.is_some() {
             deprecated_count += 1;
         }
-        if sessions.check_address.is_some() {
-            deprecated_count += 1;
-        }
     }
 
     if deprecated_count > 0 {
@@ -426,86 +426,6 @@ fn mig_014(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     }
 }
 
-fn mig_015(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(sessions) = sc.sessions.as_ref() else {
-        return Vec::new();
-    };
-    if sessions.check_address.is_some() {
-        vec![fail(
-            "MIG-015",
-            Severity::Info,
-            "Sessions uses deprecated 'checkAddress' attribute",
-            "Replace 'checkAddress' with 'consistentAddress' for SP3",
-        )]
-    } else {
-        vec![pass(
-            "MIG-015",
-            Severity::Info,
-            "No deprecated checkAddress attribute found",
-        )]
-    }
-}
-
-fn mig_016(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    if sc.sp_version != SpVersion::V3 {
-        return Vec::new();
-    }
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
-        return Vec::new();
-    };
-    let sp2_handlers = [
-        "ArtifactResolutionService",
-        "AssertionConsumerService",
-        "SingleLogoutService",
-    ];
-    let found_legacy: Vec<&str> = sp2_handlers
-        .iter()
-        .filter(|h| content.contains(**h))
-        .copied()
-        .collect();
-    if !found_legacy.is_empty() {
-        vec![fail(
-            "MIG-016",
-            Severity::Info,
-            &format!(
-                "SP3 config has leftover SP2 handler declarations: {}",
-                found_legacy.join(", ")
-            ),
-            "SP3 auto-registers these handlers; explicit declarations can be removed",
-        )]
-    } else {
-        vec![pass(
-            "MIG-016",
-            Severity::Info,
-            "No leftover SP2 handler declarations in SP3 config",
-        )]
-    }
-}
-
-fn mig_017(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    if sc.sp_version != SpVersion::V3 {
-        return Vec::new();
-    }
-    let has_metadata_gen = sc
-        .handlers
-        .iter()
-        .any(|h| h.handler_type.contains("MetadataGenerator"));
-    if has_metadata_gen {
-        vec![fail(
-            "MIG-017",
-            Severity::Info,
-            "MetadataGenerator handler present (disabled by default in SP 3.4+)",
-            "MetadataGenerator is disabled by default in SP 3.4+; consider removing if not needed",
-        )]
-    } else {
-        vec![pass(
-            "MIG-017",
-            Severity::Info,
-            "No MetadataGenerator handler (consistent with SP 3.4+ defaults)",
-        )]
-    }
-}
-
 fn mig_018(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
     let Some(sessions) = sc.sessions.as_ref() else {
         return Vec::new();
@@ -513,12 +433,15 @@ fn mig_018(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     let Some(limit) = sessions.redirect_limit.as_ref() else {
         return Vec::new();
     };
-    if limit == "whitelist" {
+    if limit.contains("whitelist") {
         vec![fail(
             "MIG-018",
             Severity::Warning,
-            "redirectLimit=\"whitelist\" is a deprecated value",
-            "Use redirectLimit=\"allow\" instead (SP 3.3+)",
+            &format!("redirectLimit=\"{limit}\" uses the pre-3.2 spelling"),
+            &format!(
+                "Use redirectLimit=\"{}\" (SP 3.2+)",
+                limit.replace("whitelist", "allow")
+            ),
         )]
     } else {
         vec![pass(
@@ -553,7 +476,11 @@ fn mig_019(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
 }
 
 fn mig_020(config: &DiscoveredConfig, _sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
+    let text = config
+        .shibboleth_xml_content
+        .as_deref()
+        .map(super::without_comments);
+    let Some(content) = text.as_ref() else {
         return Vec::new();
     };
     if content.contains("legacyOrgNames=\"true\"") {
@@ -622,28 +549,12 @@ fn mig_022(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult
     results
 }
 
-fn mig_023(config: &DiscoveredConfig, _sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
-        return Vec::new();
-    };
-    if content.contains("defaultACSIndex") || content.contains("acsIndex") {
-        vec![fail(
-            "MIG-023",
-            Severity::Info,
-            "SSO uses deprecated defaultACSIndex or acsIndex attribute",
-            "Remove defaultACSIndex/acsIndex — SP3 manages ACS index automatically",
-        )]
-    } else {
-        vec![pass(
-            "MIG-023",
-            Severity::Info,
-            "No deprecated ACS index attributes found",
-        )]
-    }
-}
-
 fn mig_024(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
-    let Some(content) = config.shibboleth_xml_content.as_ref() else {
+    let text = config
+        .shibboleth_xml_content
+        .as_deref()
+        .map(super::without_comments);
+    let Some(content) = text.as_ref() else {
         return Vec::new();
     };
     let mut in_override = false;
@@ -701,4 +612,229 @@ fn mig_024(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult>
         ));
     }
     results
+}
+
+const DOC_SECURITY_POLICIES: &str =
+    "https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334425/SecurityPolicies";
+
+/// MIG-025: `security-policy.xml` still uses the SP2 namespace next to an SP3 `shibboleth2.xml`.
+fn mig_025(config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
+    use crate::parsers::security_policy::{load_for, SP2_NAMESPACE};
+    if sc.sp_version == SpVersion::V2 {
+        return Vec::new();
+    }
+    let Some(loaded) = load_for(config) else {
+        return Vec::new();
+    };
+    if loaded.policy.namespace.as_deref() == Some(SP2_NAMESPACE) {
+        let line = crate::location::find_line(&loaded.content, SP2_NAMESPACE);
+        vec![fail(
+            "MIG-025",
+            Severity::Warning,
+            &format!("{} still uses the SP2 namespace", loaded.file_name),
+            "Change urn:mace:shibboleth:2.0:native:sp:config to urn:mace:shibboleth:3.0:native:sp:config in the root element, as the upgrade guide describes",
+        )
+        .with_location(&loaded.file_name, line)]
+    } else {
+        vec![pass(
+            "MIG-025",
+            Severity::Warning,
+            &format!("{} does not use the SP2 namespace", loaded.file_name),
+        )]
+    }
+}
+
+/// MIG-026: SP 3.2 renamed the algorithm list elements and `includeDefaultBlacklist`.
+fn mig_026(config: &DiscoveredConfig, _sc: &ShibbolethConfig) -> Vec<CheckResult> {
+    use crate::parsers::security_policy::load_for;
+    let Some(loaded) = load_for(config) else {
+        return Vec::new();
+    };
+    if loaded.policy.deprecated.is_empty() {
+        return vec![pass(
+            "MIG-026",
+            Severity::Info,
+            &format!(
+                "{} uses no deprecated algorithm list names",
+                loaded.file_name
+            ),
+        )];
+    }
+    let first = loaded.policy.deprecated[0];
+    let needle = if first == "includeDefaultBlacklist" {
+        first.to_string()
+    } else {
+        format!("<{first}")
+    };
+    let line = crate::location::find_line(&loaded.content, &needle);
+    vec![CheckResult::fail(
+        "MIG-026",
+        CAT,
+        Severity::Info,
+        &format!(
+            "{} uses names deprecated in SP 3.2: {}",
+            loaded.file_name,
+            loaded.policy.deprecated.join(", ")
+        ),
+        Some("Rename AlgorithmWhitelist to IncludedAlgorithms, AlgorithmBlacklist to ExcludedAlgorithms and includeDefaultBlacklist to excludeDefaults once every SP is on 3.2 or later"),
+    )
+    .with_location(&loaded.file_name, line)
+    .with_doc(DOC_SECURITY_POLICIES)]
+}
+
+/// MIG-027: `cacheAssertions` defaults to true on the 2.0 namespace and false on the 3.0 one.
+fn mig_027(_config: &DiscoveredConfig, sc: &ShibbolethConfig) -> Vec<CheckResult> {
+    if sc.sp_version != SpVersion::V2 {
+        return Vec::new();
+    }
+    let set = sc
+        .session_cache
+        .as_ref()
+        .is_some_and(|c| c.cache_assertions.is_some());
+    if set {
+        return vec![pass(
+            "MIG-027",
+            Severity::Info,
+            "SessionCache sets cacheAssertions explicitly",
+        )];
+    }
+    vec![CheckResult::fail(
+        "MIG-027",
+        CAT,
+        Severity::Info,
+        "SessionCache does not set cacheAssertions, and its default changes from true to false with the 3.0 namespace",
+        Some("Set cacheAssertions=\"true\" on SessionCache before the namespace change if anything reads stored assertions, such as assertion export"),
+    )
+    .at_element("SessionCache")
+    .with_doc("https://shibboleth.atlassian.net/wiki/spaces/SP3/pages/2065334652/StorageServiceSessionCache")]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_absent, assert_outcome, TestDir};
+
+    fn run_with_policy(shib_ns: &str, policy: &str) -> Vec<CheckResult> {
+        let dir = TestDir::new();
+        dir.write(
+            "shibboleth2.xml",
+            &format!(
+                r#"<SPConfig xmlns="{shib_ns}"><ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#
+            ),
+        );
+        dir.write("security-policy.xml", policy);
+        run(&dir.discover())
+    }
+
+    const V3: &str = "urn:mace:shibboleth:3.0:native:sp:config";
+    const V2: &str = "urn:mace:shibboleth:2.0:native:sp:config";
+
+    #[test]
+    fn redirect_limit_spellings_and_discovery_filters() {
+        use crate::testutil::{config_from_xml, sp3_app};
+        let (_dir, c) = config_from_xml(&sp3_app(
+            "",
+            r#"<Sessions redirectLimit="exact+whitelist"/>
+<MetadataProvider type="XML" path="m.xml"><DiscoveryFilter type="Whitelist" matcher="Name"/><!-- <MetadataFilter type="Blacklist"/> --></MetadataProvider>"#,
+        ));
+        let r = run(&c);
+        assert_outcome(&r, "MIG-018", false);
+        assert!(r.iter().any(|x| x.code == "MIG-018"
+            && x.suggestion
+                .as_deref()
+                .is_some_and(|s| s.contains("exact+allow"))));
+        assert_outcome(&r, "MIG-012", false);
+        assert_eq!(crate::testutil::with_code(&r, "MIG-012").len(), 1);
+        for code in ["MIG-009", "MIG-016", "MIG-017", "MIG-023"] {
+            assert_absent(&r, code);
+        }
+    }
+
+    #[test]
+    fn policy_namespace_must_match_sp3() {
+        let old = run_with_policy(
+            V3,
+            &format!(r#"<SecurityPolicies xmlns="{V2}"><Policy id="default"/></SecurityPolicies>"#),
+        );
+        assert_outcome(&old, "MIG-025", false);
+        let new = run_with_policy(
+            V3,
+            &format!(r#"<SecurityPolicies xmlns="{V3}"><Policy id="default"/></SecurityPolicies>"#),
+        );
+        assert_outcome(&new, "MIG-025", true);
+        let sp2 = run_with_policy(V2, &format!(r#"<SecurityPolicies xmlns="{V2}"/>"#));
+        assert_absent(&sp2, "MIG-025");
+    }
+
+    #[test]
+    fn deprecated_algorithm_names_are_reported() {
+        let old = run_with_policy(
+            V3,
+            &format!(
+                r#"<SecurityPolicies xmlns="{V3}"><Policy id="default"/><AlgorithmBlacklist includeDefaultBlacklist="true">x</AlgorithmBlacklist></SecurityPolicies>"#
+            ),
+        );
+        assert_outcome(&old, "MIG-026", false);
+        let new = run_with_policy(
+            V3,
+            &format!(
+                r#"<SecurityPolicies xmlns="{V3}"><Policy id="default"/><ExcludedAlgorithms excludeDefaults="true">x</ExcludedAlgorithms></SecurityPolicies>"#
+            ),
+        );
+        assert_outcome(&new, "MIG-026", true);
+    }
+
+    #[test]
+    fn cache_assertions_default_change_is_reported_for_sp2() {
+        let run_with = |session_cache: &str| {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(
+                    r#"<SPConfig xmlns="{V2}">{session_cache}<ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#
+                ),
+            );
+            run(&dir.discover())
+        };
+        assert_outcome(
+            &run_with(r#"<SessionCache type="StorageService"/>"#),
+            "MIG-027",
+            false,
+        );
+        assert_outcome(&run_with(""), "MIG-027", false);
+        assert_outcome(
+            &run_with(r#"<SessionCache cacheAssertions="true"/>"#),
+            "MIG-027",
+            true,
+        );
+        let v3 = {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(r#"<SPConfig xmlns="{V3}"><SessionCache/><ApplicationDefaults entityID="https://sp.example.org/shibboleth"/></SPConfig>"#),
+            );
+            run(&dir.discover())
+        };
+        assert_absent(&v3, "MIG-027");
+    }
+
+    #[test]
+    fn only_explicit_logout_initiators_count_as_the_old_form() {
+        let run_logout = |logout: &str| {
+            let dir = TestDir::new();
+            dir.write(
+                "shibboleth2.xml",
+                &format!(
+                    r#"<SPConfig xmlns="{V2}"><ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions>{logout}</Sessions></ApplicationDefaults></SPConfig>"#
+                ),
+            );
+            run(&dir.discover())
+        };
+        assert_outcome(&run_logout("<Logout>SAML2 Local</Logout>"), "MIG-003", true);
+        assert_outcome(
+            &run_logout(r#"<LogoutInitiator type="Local" Location="/Logout"/>"#),
+            "MIG-003",
+            false,
+        );
+    }
 }

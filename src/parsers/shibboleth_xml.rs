@@ -11,14 +11,80 @@ pub fn parse(path: &Path) -> Result<ShibbolethConfig> {
     parse_str(&content)
 }
 
+/// Mutable state threaded through the event loop.
+#[derive(Default)]
+struct ParseState {
+    config: ShibbolethConfig,
+    stack: Vec<String>,
+    mp_stack: Vec<MetadataProvider>,
+    cr_stack: Vec<CredentialResolver>,
+    in_request_map: bool,
+    /// Ids of the open `<ApplicationOverride>` elements (empty id when none is set).
+    override_ids: Vec<String>,
+}
+
+impl ParseState {
+    fn end_element(&mut self) {
+        let Some(name) = self.stack.pop() else {
+            return;
+        };
+        match name.as_str() {
+            "RequestMap" => self.in_request_map = false,
+            "ApplicationOverride" => {
+                self.override_ids.pop();
+            }
+            "MetadataProvider" => {
+                if let Some(mp) = self.mp_stack.pop() {
+                    if let Some(parent) = self.mp_stack.last_mut() {
+                        if parent.provider_type == "Chaining" {
+                            parent.children_count += 1;
+                        }
+                    }
+                    self.config.metadata_providers.push(mp);
+                }
+            }
+            "CredentialResolver" => {
+                if let Some(cr) = self.cr_stack.pop() {
+                    if let Some(parent) = self.cr_stack.last_mut() {
+                        if parent.resolver_type == "Chaining" {
+                            parent.children_count += 1;
+                        }
+                    }
+                    self.config.credential_resolvers.push(cr);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Record the protocol list of the defaults' `<SSO>` or `<Logout>`. Text arrives in
+    /// chunks when a comment sits inside the element, so chunks are joined.
+    fn set_protocols(&mut self, target: &str, text: String) {
+        if text.split_whitespace().any(|p| p == "ADFS") {
+            self.config.uses_adfs = true;
+        }
+        if !self.override_ids.is_empty() {
+            return;
+        }
+        if let Some(ref mut sessions) = self.config.sessions {
+            let slot = match target {
+                "SSO" => &mut sessions.sso_protocols,
+                "Logout" => &mut sessions.logout_protocols,
+                _ => return,
+            };
+            *slot = Some(match slot.take() {
+                Some(prev) => format!("{prev} {text}"),
+                None => text,
+            });
+        }
+    }
+}
+
 pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
     let mut reader = Reader::from_str(xml);
-    let mut config = ShibbolethConfig::default();
-    let mut element_stack: Vec<String> = Vec::new();
-    let mut mp_stack: Vec<MetadataProvider> = Vec::new();
-    let mut cr_stack: Vec<CredentialResolver> = Vec::new();
+    let mut state = ParseState::default();
+    // Element whose text content we need (SSO and Logout list their protocols as text)
     let mut text_target: Option<String> = None;
-    let mut in_request_map = false;
 
     loop {
         match reader.read_event() {
@@ -30,113 +96,152 @@ pub fn parse_str(xml: &str) -> Result<ShibbolethConfig> {
             Ok(Event::Eof) => break,
             Ok(Event::Start(e)) => {
                 let name = local_name(&e);
-                process_element(
-                    &name,
-                    &e,
-                    &element_stack,
-                    &mut config,
-                    &mut mp_stack,
-                    &mut cr_stack,
-                    false,
-                    in_request_map,
-                )?;
+                process_element(&name, &e, &mut state, false);
                 if name == "RequestMap" {
-                    in_request_map = true;
+                    state.in_request_map = true;
                 }
-                // Track elements whose text content we need
-                if name == "SSO" || name == "Logout" {
-                    text_target = Some(name.clone());
-                } else {
-                    text_target = None;
-                }
-                element_stack.push(name);
+                text_target = matches!(name.as_str(), "SSO" | "Logout" | "ConnectionString")
+                    .then(|| name.clone());
+                state.stack.push(name);
             }
             Ok(Event::Empty(e)) => {
                 let name = local_name(&e);
-                process_element(
-                    &name,
-                    &e,
-                    &element_stack,
-                    &mut config,
-                    &mut mp_stack,
-                    &mut cr_stack,
-                    true,
-                    in_request_map,
-                )?;
+                process_element(&name, &e, &mut state, true);
                 text_target = None;
             }
             Ok(Event::Text(e)) => {
                 if let Some(ref target) = text_target {
-                    let text = e.unescape().unwrap_or_default().trim().to_string();
-                    if !text.is_empty() {
-                        if let Some(ref mut sessions) = config.sessions {
-                            match target.as_str() {
-                                "SSO" => sessions.sso_protocols = Some(text),
-                                "Logout" => sessions.logout_protocols = Some(text),
-                                _ => {}
-                            }
-                        }
+                    // Fall back to the raw text if it has a bad entity reference
+                    let text = match e.unescape() {
+                        Ok(t) => t.trim().to_string(),
+                        Err(_) => String::from_utf8_lossy(e.as_ref()).trim().to_string(),
+                    };
+                    if target == "ConnectionString" {
+                        state.config.odbc_connection_has_password |= has_password(&text);
+                    } else if !text.is_empty() {
+                        state.set_protocols(target, text);
                     }
                 }
             }
             Ok(Event::End(_)) => {
                 text_target = None;
-                if let Some(name) = element_stack.pop() {
-                    if name == "RequestMap" {
-                        in_request_map = false;
-                    } else if name == "MetadataProvider" {
-                        if let Some(mp) = mp_stack.pop() {
-                            // If there's a parent Chaining MP on the stack, increment its count
-                            if let Some(parent) = mp_stack.last_mut() {
-                                if parent.provider_type == "Chaining" {
-                                    parent.children_count += 1;
-                                }
-                            }
-                            config.metadata_providers.push(mp);
-                        }
-                    } else if name == "CredentialResolver" {
-                        if let Some(cr) = cr_stack.pop() {
-                            // If there's a parent Chaining CR on the stack, increment its count
-                            if let Some(parent) = cr_stack.last_mut() {
-                                if parent.resolver_type == "Chaining" {
-                                    parent.children_count += 1;
-                                }
-                            }
-                            config.credential_resolvers.push(cr);
-                        }
-                    }
-                }
+                state.end_element();
             }
             _ => {}
         }
     }
 
-    // Push any remaining metadata providers
-    for mp in mp_stack.drain(..) {
-        config.metadata_providers.push(mp);
-    }
+    // Elements left open at EOF still count
+    state.config.metadata_providers.append(&mut state.mp_stack);
+    state
+        .config
+        .credential_resolvers
+        .append(&mut state.cr_stack);
 
-    // Push any remaining credential resolvers
-    for cr in cr_stack.drain(..) {
-        config.credential_resolvers.push(cr);
-    }
-
-    Ok(config)
+    Ok(state.config)
 }
 
 use super::{get_attr, local_name};
 
-#[allow(clippy::too_many_arguments)]
+/// Whether an ODBC connection string sets a password (`PWD=` or `PASSWORD=`).
+fn has_password(connection: &str) -> bool {
+    connection.split(';').any(|part| {
+        let key = part.split('=').next().unwrap_or("").trim();
+        part.contains('=')
+            && (key.eq_ignore_ascii_case("PWD") || key.eq_ignore_ascii_case("PASSWORD"))
+    })
+}
+
+/// Decoded size of standard base64 text (padding and whitespace allowed), or `None` if invalid.
+fn base64_len(text: &str) -> Option<usize> {
+    let body: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let data: Vec<&char> = body.iter().take_while(|c| **c != '=').collect();
+    let padding = body.len() - data.len();
+    if padding > 2
+        || body[data.len()..].iter().any(|c| *c != '=')
+        || !data
+            .iter()
+            .all(|c| c.is_ascii_alphanumeric() || **c == '+' || **c == '/')
+        || data.len() % 4 == 1
+        || (padding > 0 && body.len() & 3 != 0)
+    {
+        return None;
+    }
+    Some(data.len() * 3 / 4)
+}
+
 fn process_element(
     name: &str,
     e: &quick_xml::events::BytesStart<'_>,
-    stack: &[String],
-    config: &mut ShibbolethConfig,
-    mp_stack: &mut Vec<MetadataProvider>,
-    cr_stack: &mut Vec<CredentialResolver>,
+    state: &mut ParseState,
     is_empty: bool,
-    in_request_map: bool,
-) -> Result<()> {
+) {
+    let ParseState {
+        config,
+        stack,
+        mp_stack,
+        cr_stack,
+        in_request_map,
+        override_ids,
+    } = state;
+    let application = override_ids.last().cloned();
+    let in_request_map = *in_request_map;
+
+    if let Some(id) = get_attr(e, "policyId") {
+        config.policy_ids_used.push(id);
+    }
+    if parent_is(stack, "MetadataFilter") {
+        if let Some(filter) = mp_stack.last_mut().and_then(|mp| mp.filters.last_mut()) {
+            filter.child_names.push(name.to_string());
+        }
+    }
+    if parent_is(stack, "ApplicationOverride") {
+        if let Some(ov) = config.overrides.last_mut() {
+            ov.children.push(name.to_string());
+        }
+    }
+    if get_attr(e, "type").as_deref() == Some("ADFS")
+        || get_attr(e, "Binding").as_deref() == Some(ADFS_BINDING)
+    {
+        config.uses_adfs = true;
+    }
+    if get_attr(e, "metadataAttributePrefix").is_some() {
+        config.metadata_attribute_prefix_set = true;
+    }
+    if name == "DiscoveryFilter" && parent_is(stack, "MetadataProvider") {
+        if let Some(mp) = mp_stack.last_mut() {
+            mp.discovery_filter_types
+                .push(get_attr(e, "type").unwrap_or_default());
+        }
+    }
+    if matches!(name, "Subst" | "Regex") && parent_is(stack, "MetadataProvider") {
+        if let Some(mp) = mp_stack.last_mut() {
+            mp.transform_children += 1;
+        }
+    }
+    if get_attr(e, "acsByIndex").is_some_and(|v| v.trim() == "true") {
+        config.acs_by_index.push(name.to_string());
+    }
+    let singleton_parent = match stack.last().map(String::as_str) {
+        Some("SPConfig") => &SPCONFIG_SINGLETONS[..],
+        Some("ApplicationDefaults") => &DEFAULTS_SINGLETONS[..],
+        _ => &[],
+    };
+    if singleton_parent.contains(&name) {
+        // The three listener elements share one "0 or 1" slot.
+        let key = if matches!(name, "UnixListener" | "TCPListener") {
+            "Listener"
+        } else {
+            name
+        };
+        *config.singleton_counts.entry(key.to_string()).or_insert(0) += 1;
+    }
+    if name == "Policy" {
+        if let Some(id) = get_attr(e, "id") {
+            config.policy_ids_defined.push(id);
+        }
+    }
+
     match name {
         "SPConfig" => {
             config.has_sp_config = true;
@@ -147,13 +252,102 @@ fn process_element(
             };
             config.clock_skew = get_attr(e, "clockSkew");
         }
-        "TCPListener" | "UnixListener"
-            if config.tcp_listener_address.is_none() => {
+        "TCPListener" => {
+            config.has_tcp_listener = true;
+            if config.tcp_listener_address.is_none() {
                 config.tcp_listener_address = get_attr(e, "address");
+                config.tcp_listener_acl = get_attr(e, "acl");
             }
+        }
+        "UnixListener" => {
+            config.has_unix_listener = true;
+        }
+        "InProcess" => {
+            config.has_in_process = true;
+            config.in_process_spoof_key_set = get_attr(e, "spoofKey").is_some();
+            config.in_process_check_spoofing = get_attr(e, "checkSpoofing");
+            config.in_process_catch_all = get_attr(e, "catchAll");
+        }
+        "OutOfProcess" => {
+            config.has_out_of_process = true;
+            config.out_of_process_tran_log_format = get_attr(e, "tranLogFormat");
+            config.out_of_process_catch_all = get_attr(e, "catchAll");
+        }
+        "Library" => {
+            if let Some(path) = get_attr(e, "path") {
+                let scope = if stack.iter().any(|s| s == "OutOfProcess") {
+                    "OutOfProcess"
+                } else if stack.iter().any(|s| s == "InProcess") {
+                    "InProcess"
+                } else {
+                    "SPConfig"
+                };
+                config
+                    .libraries
+                    .push(crate::model::shibboleth_config::LibraryInfo { path, scope });
+            }
+        }
+        "ISAPI" => {
+            config.has_isapi = true;
+            config.isapi_normalize_request = get_attr(e, "normalizeRequest");
+            config.isapi_use_headers = get_attr(e, "useHeaders");
+        }
+        "Site" if get_attr(e, "useHeaders").as_deref() == Some("true") => {
+            config
+                .site_use_headers
+                .push(get_attr(e, "id").unwrap_or_default());
+        }
+        "RelyingParty" => {
+            config
+                .relying_parties
+                .push(crate::model::shibboleth_config::RelyingPartyInfo {
+                    name: get_attr(e, "Name"),
+                    matcher_type: get_attr(e, "type"),
+                    auth_type: get_attr(e, "authType"),
+                    cipher_suites: get_attr(e, "cipherSuites"),
+                    has_auth_password: get_attr(e, "authPassword").is_some(),
+                    require_transport_auth: get_attr(e, "requireTransportAuth"),
+                    require_confidentiality: get_attr(e, "requireConfidentiality"),
+                    signing: get_attr(e, "signing"),
+                    encryption: get_attr(e, "encryption"),
+                    signing_alg: get_attr(e, "signingAlg"),
+                    digest_alg: get_attr(e, "digestAlg"),
+                });
+        }
+        "SessionCache" | "ReplayCache" | "ArtifactMap" => {
+            let element = match name {
+                "SessionCache" => "SessionCache",
+                "ReplayCache" => "ReplayCache",
+                _ => "ArtifactMap",
+            };
+            if name == "SessionCache" {
+                config.session_cache = Some(crate::model::shibboleth_config::SessionCacheInfo {
+                    cache_assertions: get_attr(e, "cacheAssertions"),
+                    persisted_attributes: get_attr(e, "persistedAttributes"),
+                    maintain_reverse_index: get_attr(e, "maintainReverseIndex"),
+                    unreliable_networks: get_attr(e, "unreliableNetworks"),
+                });
+            }
+            for attribute in ["StorageService", "StorageServiceLite"] {
+                if let Some(id) = get_attr(e, attribute) {
+                    config
+                        .storage_references
+                        .push(crate::model::shibboleth_config::StorageReference {
+                            element,
+                            attribute: if attribute == "StorageService" {
+                                "StorageService"
+                            } else {
+                                "StorageServiceLite"
+                            },
+                            id,
+                        });
+                }
+            }
+        }
         "ApplicationDefaults" => {
             config.has_application_defaults = true;
             config.entity_id = get_attr(e, "entityID");
+            config.application_defaults_id = get_attr(e, "id");
             config.application_defaults = Some(ApplicationDefaults {
                 remote_user: get_attr(e, "REMOTE_USER"),
                 signing: get_attr(e, "signing"),
@@ -164,7 +358,17 @@ fn process_element(
                 digest_alg: get_attr(e, "digestAlg"),
                 require_transport_auth: get_attr(e, "requireTransportAuth"),
                 require_confidentiality: get_attr(e, "requireConfidentiality"),
+                attribute_prefix: get_attr(e, "attributePrefix"),
+                artifact_by_filesystem: get_attr(e, "artifactByFilesystem"),
+                auth_type: get_attr(e, "authType"),
+                has_auth_password: get_attr(e, "authPassword").is_some(),
             });
+        }
+        "Sessions" if parent_is(stack, "ApplicationOverride") => {
+            if let Some(ov) = config.overrides.last_mut() {
+                ov.redirect_limit = get_attr(e, "redirectLimit");
+                ov.redirect_allow = get_attr(e, "redirectAllow");
+            }
         }
         "Sessions"
             if parent_is(stack, "ApplicationDefaults") => {
@@ -191,7 +395,9 @@ fn process_element(
                     idp_history_days: get_attr(e, "idpHistoryDays"),
                     check_address: get_attr(e, "checkAddress"),
                     same_site_fallback: get_attr(e, "sameSiteFallback"),
+                    same_site_session: get_attr(e, "sameSiteSession"),
                     post_data: get_attr(e, "postData"),
+                    post_template: get_attr(e, "postTemplate"),
                     logout_outgoing_bindings: None,
                     max_time_since_authn: get_attr(e, "maxTimeSinceAuthn"),
                     cookie_lifetime: get_attr(e, "cookieLifetime"),
@@ -201,7 +407,11 @@ fn process_element(
                 });
             }
         "SSO" => {
-            if let Some(ref mut sessions) = config.sessions {
+            if parent_is(stack, "Sessions") {
+                config.sso_shorthand_in.push(application.clone());
+            }
+            // Only the defaults' <SSO> fills the shared fields; an override has its own.
+            if let Some(sessions) = config.sessions.as_mut().filter(|_| application.is_none()) {
                 sessions.has_sso = true;
                 if sessions.sso_entity_id.is_none() {
                     sessions.sso_entity_id = get_attr(e, "entityID");
@@ -213,11 +423,14 @@ fn process_element(
                     sessions.sso_discovery_protocol = get_attr(e, "discoveryProtocol");
                 }
             }
-            if config.sso_authn_context_class_ref.is_none() {
+            if application.is_none() && config.sso_authn_context_class_ref.is_none() {
                 config.sso_authn_context_class_ref = get_attr(e, "authnContextClassRef");
             }
-            if config.sso_ecp.is_none() {
+            if application.is_none() && config.sso_ecp.is_none() {
                 config.sso_ecp = get_attr(e, "ECP");
+            }
+            if application.is_none() && config.sso_authn_context_comparison.is_none() {
+                config.sso_authn_context_comparison = get_attr(e, "authnContextComparison");
             }
         }
         "SessionInitiator" => {
@@ -230,10 +443,32 @@ fn process_element(
                     initiator_type: get_attr(e, "type"),
                     id: get_attr(e, "id"),
                     is_default: get_attr(e, "isDefault"),
+                    url: get_attr(e, "URL"),
+                    template: get_attr(e, "template"),
+                    entity_id: get_attr(e, "entityID"),
+                    location: get_attr(e, "Location"),
+                    application: application.clone(),
+                    depth: stack.len(),
+                    children: 0,
                 });
+            // A nested initiator belongs to the closest enclosing one, one level up.
+            if parent_is(stack, "SessionInitiator") {
+                let parent_depth = stack.len() - 1;
+                let n = config.session_initiators.len() - 1;
+                if let Some(parent) = config.session_initiators[..n]
+                    .iter_mut()
+                    .rev()
+                    .find(|i| i.depth == parent_depth)
+                {
+                    parent.children += 1;
+                }
+            }
         }
         "Logout" | "LogoutInitiator" => {
-            if let Some(ref mut sessions) = config.sessions {
+            if name == "Logout" && parent_is(stack, "Sessions") {
+                config.logout_shorthand_in.push(application.clone());
+            }
+            if let Some(sessions) = config.sessions.as_mut().filter(|_| application.is_none()) {
                 sessions.has_logout = true;
                 if sessions.logout_outgoing_bindings.is_none() {
                     sessions.logout_outgoing_bindings = get_attr(e, "outgoingBindings");
@@ -243,6 +478,8 @@ fn process_element(
                 .logout_initiators
                 .push(crate::model::shibboleth_config::LogoutInitiatorInfo {
                     initiator_type: get_attr(e, "type"),
+                    location: get_attr(e, "Location"),
+                    application: application.clone(),
                     signing: get_attr(e, "signing"),
                     asynchronous: get_attr(e, "asynchronous"),
                     notify_without: get_attr(e, "notifyWithout"),
@@ -264,6 +501,16 @@ fn process_element(
                 id_attr: get_attr(e, "id"),
                 validate_attr: get_attr(e, "validate"),
                 ignore_transport: get_attr(e, "ignoreTransport"),
+                base_url: get_attr(e, "baseUrl"),
+                verify_host: get_attr(e, "verifyHost"),
+                refresh_delay_factor: get_attr(e, "refreshDelayFactor"),
+                min_cache_duration: get_attr(e, "minCacheDuration"),
+                max_cache_duration: get_attr(e, "maxCacheDuration"),
+                min_refresh_delay: get_attr(e, "minRefreshDelay"),
+                cache_directory: get_attr(e, "cacheDirectory"),
+                has_trust_engine: false,
+                transform_children: 0,
+                discovery_filter_types: Vec::new(),
             };
             if is_empty {
                 // If there's a parent Chaining MP on the stack, increment its count
@@ -286,20 +533,31 @@ fn process_element(
                 has_trust_engine: false,
                 verify_name: get_attr(e, "verifyName"),
                 verify_backup: get_attr(e, "verifyBackup"),
+                child_names: Vec::new(),
+                matcher: get_attr(e, "matcher"),
             };
             if let Some(mp) = mp_stack.last_mut() {
                 mp.filters.push(filter);
             }
         }
-        "TrustEngine"
-            // If inside a MetadataFilter, mark the parent filter as having a TrustEngine
-            if parent_is(stack, "MetadataFilter") => {
+        "TrustEngine" => {
+            if let Some(value) = get_attr(e, "checkRevocation") {
+                config
+                    .trust_engine_revocation
+                    .push((get_attr(e, "type").unwrap_or_default(), value));
+            }
+            if parent_is(stack, "MetadataProvider") {
                 if let Some(mp) = mp_stack.last_mut() {
-                    if let Some(filter) = mp.filters.last_mut() {
-                        filter.has_trust_engine = true;
-                    }
+                    mp.has_trust_engine = true;
                 }
             }
+            // Inside a MetadataFilter, mark the parent filter as having a TrustEngine
+            if parent_is(stack, "MetadataFilter") {
+                if let Some(filter) = mp_stack.last_mut().and_then(|mp| mp.filters.last_mut()) {
+                    filter.has_trust_engine = true;
+                }
+            }
+        }
         "CredentialResolver" => {
             let cr = CredentialResolver {
                 resolver_type: get_attr(e, "type").unwrap_or_default(),
@@ -321,18 +579,39 @@ fn process_element(
             }
         }
         "AttributeExtractor" => {
+            config
+                .attribute_extractor_types
+                .push(get_attr(e, "type").unwrap_or_default());
             if let Some(path) = get_attr(e, "path") {
                 config.attribute_extractor_paths.push(path);
             }
+            if get_attr(e, "type").as_deref() == Some("KeyDescriptor")
+                && ["signingId", "encryptionId", "hashId"]
+                    .iter()
+                    .all(|a| get_attr(e, a).is_none())
+            {
+                config.key_descriptor_extractors_without_ids += 1;
+            }
         }
         "AttributeFilter"
-            // Only capture path attribute if it's the AttributeFilter element, not the filter rules
-            if (parent_is(stack, "ApplicationDefaults") || stack.is_empty()) => {
+            // The application-level element, not a filter embedded in an extractor
+            if (parent_is(stack, "ApplicationDefaults")
+                || parent_is(stack, "ApplicationOverride")
+                || stack.is_empty()) => {
                 if let Some(path) = get_attr(e, "path") {
                     config.attribute_filter_paths.push(path);
                 }
             }
         "Errors" => {
+            if parent_is(stack, "ApplicationDefaults")
+                && config.singleton_counts.get("Sessions").copied().unwrap_or(0) == 0
+            {
+                config.errors_before_sessions = true;
+            }
+            if application.is_some() || config.errors.is_some() {
+                // An override's <Errors> is its own; the defaults' is the one checks read.
+                return;
+            }
             config.errors = Some(crate::model::shibboleth_config::ErrorsConfig {
                 support_contact: get_attr(e, "supportContact"),
                 help_location: get_attr(e, "helpLocation"),
@@ -343,6 +622,8 @@ fn process_element(
                 local_logout: get_attr(e, "localLogout"),
                 metadata_error: get_attr(e, "metadata"),
                 global_logout: get_attr(e, "globalLogout"),
+                external_parameters: get_attr(e, "externalParameters"),
+                redirect_errors: get_attr(e, "redirectErrors"),
             });
         }
         "SecurityPolicyProvider" => {
@@ -351,6 +632,13 @@ fn process_element(
         }
         "ApplicationOverride" => {
             let id = get_attr(e, "id");
+            override_ids.push(id.clone().unwrap_or_default());
+            config
+                .overrides
+                .push(crate::model::shibboleth_config::OverrideInfo {
+                    id: id.clone().unwrap_or_else(|| "unknown".to_string()),
+                    ..Default::default()
+                });
             let entity_id = get_attr(e, "entityID");
             if let Some(ref id_val) = id {
                 config.application_override_ids.push(id_val.clone());
@@ -376,18 +664,42 @@ fn process_element(
 
             config.handlers.push(HandlerInfo {
                 handler_type,
+                application: application.clone(),
                 location,
                 show_attribute_values: show_attr_values,
                 acl,
+                template: get_attr(e, "template"),
             });
         }
-        "Notify" => {
-            // Capture Channel or Location attr as notify endpoint
-            if let Some(channel) = get_attr(e, "Channel") {
-                config.notify_endpoints.push(channel);
-            } else if let Some(loc) = get_attr(e, "Location") {
-                config.notify_endpoints.push(loc);
+        "StorageService" => {
+            if let Some(id) = get_attr(e, "id") {
+                config.storage_service_ids.push(id);
             }
+            config
+                .storage_service_types
+                .push(get_attr(e, "type").unwrap_or_default());
+        }
+        "DataSealer" => {
+            config
+                .data_sealers
+                .push(crate::model::shibboleth_config::DataSealerInfo {
+                    sealer_type: get_attr(e, "type").unwrap_or_default(),
+                    has_key: get_attr(e, "key").is_some(),
+                    key_bytes: get_attr(e, "key").and_then(|k| base64_len(&k)),
+                    path: get_attr(e, "path"),
+                    url: get_attr(e, "url"),
+                    backing_file_path: get_attr(e, "backingFilePath"),
+                });
+        }
+        "Notify" => {
+            let info = crate::model::shibboleth_config::NotifyInfo {
+                channel: get_attr(e, "Channel"),
+                location: get_attr(e, "Location"),
+            };
+            if let Some(ref loc) = info.location {
+                config.notify_endpoints.push(loc.clone());
+            }
+            config.notify_elements.push(info);
         }
         "RequestMapper" => {
             config.request_map_type = get_attr(e, "type");
@@ -395,7 +707,7 @@ fn process_element(
         "RequestMap" => {
             config.request_map_root_app_id = get_attr(e, "applicationId");
         }
-        "Host" | "Path"
+        "Host" | "Path" | "HostRegex" | "PathRegex" | "Query"
             if in_request_map => {
                 if let Some(app_id) = get_attr(e, "applicationId") {
                     config.request_map_application_ids.push(app_id);
@@ -409,13 +721,38 @@ fn process_element(
                         is_passive: get_attr(e, "isPassive"),
                         force_authn: get_attr(e, "forceAuthn"),
                         redirect_to_ssl: get_attr(e, "redirectToSSL"),
+                        require_session_with: get_attr(e, "requireSessionWith"),
+                        export_assertion: get_attr(e, "exportAssertion"),
                     },
                 );
             }
         _ => {}
     }
-    Ok(())
 }
+
+/// Children of `<SPConfig>` the docs allow at most once.
+pub(crate) const SPCONFIG_SINGLETONS: [&str; 14] = [
+    "Listener",
+    "UnixListener",
+    "TCPListener",
+    "Extensions",
+    "OutOfProcess",
+    "InProcess",
+    "DataSealer",
+    "SessionCache",
+    "ReplayCache",
+    "ArtifactMap",
+    "RequestMapper",
+    "ApplicationDefaults",
+    "SecurityPolicyProvider",
+    "ProtocolProvider",
+];
+
+/// Children of `<ApplicationDefaults>` the docs allow at most once.
+pub(crate) const DEFAULTS_SINGLETONS: [&str; 2] = ["Sessions", "Errors"];
+
+/// The WS-Federation binding URI on an explicit ADFS endpoint.
+const ADFS_BINDING: &str = "http://schemas.xmlsoap.org/ws/2003/07/secext";
 
 fn parent_is(stack: &[String], name: &str) -> bool {
     stack.last().is_some_and(|s| s == name)
@@ -439,6 +776,52 @@ pub fn check_well_formed(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn override_elements_do_not_replace_the_defaults() {
+        let c = parse_str(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth">
+<Sessions><SSO authnContextComparison="exact">SAML2 <!-- legacy --> ADFS</SSO><Logout>SAML2 <!-- x --> Local</Logout></Sessions>
+<Errors supportContact="root@example.org"/>
+<ApplicationOverride id="other"><Sessions><SSO entityID="https://idp2.example.org/idp" discoveryProtocol="WAYF">SAML1</SSO><Logout>Local</Logout></Sessions><Errors session="o.html"/></ApplicationOverride>
+</ApplicationDefaults></SPConfig>"#,
+        )
+        .unwrap();
+        let words = |t: &Option<String>| -> Vec<String> {
+            t.as_deref()
+                .unwrap_or("")
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        };
+        let s = c.sessions.as_ref().unwrap();
+        assert_eq!(words(&s.sso_protocols), ["SAML2", "ADFS"]);
+        assert_eq!(words(&s.logout_protocols), ["SAML2", "Local"]);
+        assert!(s.sso_entity_id.is_none());
+        assert!(s.sso_discovery_protocol.is_none());
+        assert_eq!(c.sso_authn_context_comparison.as_deref(), Some("exact"));
+        assert_eq!(
+            c.errors.as_ref().unwrap().support_contact.as_deref(),
+            Some("root@example.org")
+        );
+        assert_eq!(c.overrides.len(), 1);
+        assert_eq!(c.overrides[0].children, ["Sessions", "Errors"]);
+        assert!(c.uses_adfs);
+        assert_eq!(c.sso_shorthand_in, [None, Some("other".to_string())]);
+    }
+
+    #[test]
+    fn adfs_endpoint_binding_marks_adfs_use() {
+        let c = parse_str(
+            r#"<SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config" xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+<ApplicationDefaults entityID="https://sp.example.org/shibboleth"><Sessions>
+<md:AssertionConsumerService Location="/ADFS" index="5" Binding="http://schemas.xmlsoap.org/ws/2003/07/secext"/>
+</Sessions></ApplicationDefaults></SPConfig>"#,
+        )
+        .unwrap();
+        assert!(c.uses_adfs);
+    }
 
     #[test]
     fn test_parse_minimal_config() {
@@ -700,14 +1083,19 @@ mod tests {
         <SPConfig xmlns="urn:mace:shibboleth:3.0:native:sp:config">
             <ApplicationDefaults entityID="https://sp.example.org/shibboleth">
                 <Sessions handlerURL="/Shibboleth.sso">
-                    <Notify Channel="https://app.example.org/notify"/>
+                    <Notify Channel="back" Location="https://app.example.org/notify"/>
                     <Notify Location="https://app2.example.org/logout"/>
+                    <Notify Channel="front"/>
                 </Sessions>
             </ApplicationDefaults>
         </SPConfig>
         "#;
         let config = parse_str(xml).unwrap();
+        // Only Location values are endpoints; Channel is kept separately
         assert_eq!(config.notify_endpoints.len(), 2);
+        assert_eq!(config.notify_elements.len(), 3);
+        assert_eq!(config.notify_elements[0].channel.as_deref(), Some("back"));
+        assert_eq!(config.notify_elements[2].location, None);
         assert_eq!(config.notify_endpoints[0], "https://app.example.org/notify");
         assert_eq!(
             config.notify_endpoints[1],
@@ -859,10 +1247,10 @@ mod tests {
         </SPConfig>
         "#;
         let config = parse_str(xml).unwrap();
-        assert_eq!(
-            config.tcp_listener_address.as_deref(),
-            Some("/var/run/shibboleth/shibd.sock")
-        );
+        assert!(config.has_unix_listener);
+        assert!(!config.has_tcp_listener);
+        // A socket path is not a TCP address.
+        assert!(config.tcp_listener_address.is_none());
     }
 
     #[test]
@@ -1169,5 +1557,20 @@ mod tests {
         "#;
         let config = parse_str(xml).unwrap();
         assert_eq!(config.request_map_root_app_id.as_deref(), Some("custom"));
+    }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// A malformed config must come back as an error or a partial config, never a panic.
+            #[test]
+            fn parsing_arbitrary_text_never_panics(
+                doc in "(<SPConfig|<Sessions|<ApplicationDefaults|</|/>|>|\"|'|=| |\n|[a-zA-Z]|&amp;|&#x?[0-9]*;|<!--|-->|\\PC){0,60}"
+            ) {
+                let _ = parse_str(&doc);
+            }
+        }
     }
 }
